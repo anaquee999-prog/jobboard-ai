@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ employer.company_name }} | โปรไฟล์นายจ้าง{% endblock %}
+{% block meta_description %}ดูโปรไฟล์นายจ้าง {{ employer.company_name }} และตำแหน่งงานที่เปิดรับบนงานใกล้บ้าน{% endblock %}
+{% block og_title %}{{ employer.company_name }} | งานใกล้บ้าน{% endblock %}
+
+{% block content %}
+<section class="card employer-profile-hero">
+    <div class="company-avatar large">{{ employer.company_name[:1] if employer.company_name else "C" }}</div>
+    <div>
+        <div class="job-top">
+            {% if employer.is_company_verified %}
+                <span class="pill verified">Verified Employer</span>
+            {% else %}
+                <span class="pill warning">รอตรวจบริษัท</span>
+            {% endif %}
+            <span class="pill">Trust {{ employer.trust_score }}</span>
+        </div>
+        <h1>{{ employer.company_name }}</h1>
+        <p class="muted">{{ employer.address or "Thailand" }}</p>
+        {% if employer.website %}
+            <p><a class="text-link" href="{{ employer.website }}" target="_blank" rel="noopener">เว็บไซต์บริษัท →</a></p>
+        {% endif %}
+    </div>
+</section>
+
+<section class="card section-space">
+    <div class="section-head">
+        <div>
+            <h2>งานที่เปิดรับ</h2>
+            <p class="muted">{{ jobs|length }} ตำแหน่งงานจากบริษัทนี้</p>
+        </div>
+    </div>
+
+    <div class="jobs-grid">
+        {% for job in jobs %}
+            <article class="job-card">
+                <div class="job-top">
+                    <span class="pill">{{ "งานราชการ" if job.is_government_news else "งานเอกชน" }}</span>
+                    <span class="pill verified">AI ตรวจแล้ว</span>
+                </div>
+                <h3><a href="{{ url_for('job_detail', slug=job_slug(job)) }}">{{ job.title }}</a></h3>
+                <p>{{ job.description[:160] }}{% if job.description|length > 160 %}...{% endif %}</p>
+                <div class="job-meta">
+                    {% if job.salary_range %}<span>💰 {{ job.salary_range }}</span>{% endif %}
+                    {% if job.location %}<span>📍 {{ job.location }}</span>{% endif %}
+                </div>
+            </article>
+        {% else %}
+            <p class="muted">ยังไม่มีงานเปิดรับ</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

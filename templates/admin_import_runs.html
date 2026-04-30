@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Import Runs | งานใกล้บ้าน{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>Auto Job Engine Logs</h1>
+    <p class="muted">ประวัติการนำเข้างานอัตโนมัติ</p>
+
+    <div class="actions-row">
+        <a class="btn-link-box secondary" href="{{ url_for('admin_dashboard') }}">กลับ Dashboard</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_logs') }}">Activity Logs</a>
+    </div>
+</section>
+
+<section class="card section-space">
+    <div class="table-list">
+        {% for run in runs %}
+            <div class="table-row wide-row">
+                <strong>{{ run.source_name }}</strong>
+                <span>{{ run.status }}</span>
+                <span>+{{ run.inserted_count }} / update {{ run.updated_count }}</span>
+                <span>skip {{ run.skipped_count }}</span>
+                <span>{{ run.created_at }}</span>
+            </div>
+        {% else %}
+            <p class="muted">ยังไม่มีประวัติการนำเข้า</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

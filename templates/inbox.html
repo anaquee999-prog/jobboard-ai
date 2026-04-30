@@ -1,0 +1,474 @@
+{% extends "base.html" %}
+
+{% block title %}ข้อความ | JobBoard AI{% endblock %}
+
+{% block content %}
+
+<style>
+.chat-page {
+    min-height: calc(100vh - 72px);
+    padding: 24px;
+    background:
+        radial-gradient(circle at 18% 10%, rgba(56,189,248,.18), transparent 30%),
+        radial-gradient(circle at 92% 20%, rgba(37,99,235,.16), transparent 34%),
+        linear-gradient(180deg, #020617, #050505);
+    color: #fff;
+}
+
+.chat-shell {
+    max-width: 1220px;
+    height: calc(100vh - 150px);
+    min-height: 660px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    border: 1px solid rgba(56,189,248,.22);
+    border-radius: 30px;
+    overflow: hidden;
+    background: rgba(2,6,23,.80);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 30px 90px rgba(0,0,0,.50);
+}
+
+.chat-sidebar {
+    border-right: 1px solid rgba(255,255,255,.08);
+    background: rgba(2,6,23,.92);
+    overflow-y: auto;
+}
+
+.chat-sidebar-head {
+    padding: 22px;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.chat-sidebar-head h1 {
+    margin: 0;
+    font-size: 24px;
+}
+
+.chat-sidebar-head p {
+    margin: 6px 0 0;
+    color: rgba(255,255,255,.62);
+    font-size: 13px;
+}
+
+.conversation-list {
+    display: block;
+}
+
+.conversation-item {
+    display: flex;
+    gap: 13px;
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    transition: .2s ease;
+    cursor: pointer;
+}
+
+.conversation-item:hover,
+.conversation-item.active {
+    background: rgba(56,189,248,.11);
+}
+
+.chat-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+    color: #02111d;
+    font-weight: 900;
+    box-shadow: 0 0 28px rgba(56,189,248,.30);
+    flex: 0 0 auto;
+}
+
+.chat-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.chat-name {
+    font-size: 14px;
+    font-weight: 800;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-job {
+    margin-top: 3px;
+    font-size: 12px;
+    color: #38bdf8;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-preview {
+    margin-top: 5px;
+    font-size: 12px;
+    color: rgba(255,255,255,.58);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.chat-header {
+    min-height: 82px;
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(2,6,23,.68);
+    border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+.chat-header h2 {
+    margin: 0;
+    font-size: 21px;
+}
+
+.chat-header span {
+    color: rgba(255,255,255,.62);
+    font-size: 13px;
+}
+
+.status-pill {
+    padding: 8px 13px;
+    border-radius: 999px;
+    background: rgba(34,197,94,.13);
+    color: #86efac;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.chat-messages {
+    flex: 1;
+    padding: 28px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background:
+        linear-gradient(rgba(56,189,248,.028) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56,189,248,.028) 1px, transparent 1px);
+    background-size: 42px 42px;
+}
+
+.msg {
+    max-width: 68%;
+    padding: 13px 16px;
+    border-radius: 20px;
+    font-size: 14px;
+    line-height: 1.55;
+    animation: bubbleIn .24s ease both;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.msg.me {
+    align-self: flex-end;
+    color: #02111d;
+    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+    border-bottom-right-radius: 6px;
+}
+
+.msg.other {
+    align-self: flex-start;
+    color: #fff;
+    background: rgba(255,255,255,.10);
+    border: 1px solid rgba(255,255,255,.08);
+    border-bottom-left-radius: 6px;
+}
+
+.msg-time {
+    margin-top: 6px;
+    font-size: 11px;
+    opacity: .62;
+}
+
+.chat-input {
+    padding: 16px;
+    display: flex;
+    gap: 12px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    background: rgba(2,6,23,.88);
+}
+
+.chat-input textarea {
+    min-height: 50px;
+    max-height: 120px;
+    resize: vertical;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,.10);
+    background: rgba(255,255,255,.06);
+    color: #fff;
+    padding: 13px 15px;
+}
+
+.chat-input textarea::placeholder {
+    color: rgba(255,255,255,.48);
+}
+
+.send-btn {
+    min-width: 82px;
+    border: 0;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+    color: #02111d;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.send-btn:disabled,
+.chat-input textarea:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+.empty-chat {
+    height: 100%;
+    display: grid;
+    place-items: center;
+    text-align: center;
+}
+
+.empty-card {
+    max-width: 430px;
+    padding: 36px;
+    border-radius: 28px;
+    border: 1px solid rgba(56,189,248,.22);
+    background: rgba(2,6,23,.72);
+    box-shadow: 0 24px 70px rgba(0,0,0,.35);
+}
+
+.empty-icon {
+    width: 74px;
+    height: 74px;
+    margin: 0 auto 18px;
+    border-radius: 999px;
+    display: grid;
+    place-items: center;
+    background: rgba(56,189,248,.12);
+    color: #38bdf8;
+    font-size: 34px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+@keyframes bubbleIn {
+    from { opacity: 0; transform: translateY(8px) scale(.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 860px) {
+    .chat-page { padding: 12px; }
+    .chat-shell {
+        height: auto;
+        min-height: 780px;
+        grid-template-columns: 1fr;
+    }
+    .chat-sidebar {
+        max-height: 270px;
+        border-right: 0;
+        border-bottom: 1px solid rgba(255,255,255,.08);
+    }
+    .msg { max-width: 88%; }
+}
+</style>
+
+<div class="chat-page">
+    <section class="chat-shell">
+
+        <aside class="chat-sidebar">
+            <div class="chat-sidebar-head">
+                <h1>ข้อความ</h1>
+                <p>เลือกคู่สนทนาเพื่อดูแชท · Live refresh</p>
+            </div>
+
+            <div class="conversation-list" id="conversationList">
+                {% if messages %}
+                    {% for m in messages %}
+                        {% set partner_id = m.sender_id %}
+                        {% set partner_name = m.sender_full_name or m.sender_company_name or m.sender_phone %}
+                        <div class="conversation-item {% if loop.first %}active{% endif %}"
+                             data-partner="{{ partner_id }}"
+                             data-name="{{ partner_name }}"
+                             data-job="{{ m.job_title or 'ข้อความทั่วไป' }}"
+                             data-receiver="{{ partner_id }}"
+                             data-application="{{ m.application_id or '' }}">
+                            <div class="chat-avatar">{{ (partner_name or "J")[:1] }}</div>
+                            <div class="chat-info">
+                                <div class="chat-name">{{ partner_name }}</div>
+                                <div class="chat-job">{{ m.job_title or "ข้อความทั่วไป" }}</div>
+                                <div class="chat-preview">
+                                    {{ m.message[:58] }}{% if m.message|length > 58 %}...{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="conversation-item">
+                        <div class="chat-avatar">💬</div>
+                        <div class="chat-info">
+                            <div class="chat-name">ยังไม่มีข้อความ</div>
+                            <div class="chat-preview">เมื่อมีข้อความจะแสดงที่นี่</div>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </aside>
+
+        <main class="chat-main">
+            <header class="chat-header">
+                <div>
+                    <h2 id="chatTitle">
+                        {% if messages %}
+                            {{ messages[0].sender_full_name or messages[0].sender_company_name or messages[0].sender_phone }}
+                        {% else %}
+                            JobBoard Chat
+                        {% endif %}
+                    </h2>
+                    <span id="chatSubTitle">
+                        {% if messages %}
+                            {{ messages[0].job_title or "ข้อความทั่วไป" }}
+                        {% else %}
+                            แชทปลอดภัยสำหรับงานและใบสมัคร
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="status-pill" id="liveStatus">Live</div>
+            </header>
+
+            <div class="chat-messages" id="chatMessages">
+                {% if messages %}
+                    {% for m in messages|reverse %}
+                        {% set partner_id = m.sender_id if m.sender_id != current_user.id else m.receiver_id %}
+                        <div class="msg {% if m.sender_id == current_user.id %}me{% else %}other{% endif %}"
+                             data-partner="{{ partner_id }}">
+                            {{ m.message }}
+                            <div class="msg-time">{{ m.created_at }}</div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-chat">
+                        <div class="empty-card">
+                            <div class="empty-icon">💬</div>
+                            <h2>ยังไม่มีข้อความ</h2>
+                            <p>เมื่อมีนายจ้างหรือผู้สมัครส่งข้อความเข้ามา แชทจะแสดงที่หน้านี้</p>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+
+            <form class="chat-input" method="post" action="{{ url_for('send_message') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" id="receiverInput" name="receiver_id" value="{% if messages %}{{ messages[0].sender_id }}{% endif %}">
+                <input type="hidden" id="applicationInput" name="application_id" value="{% if messages and messages[0].application_id %}{{ messages[0].application_id }}{% endif %}">
+
+                <textarea name="message"
+                          placeholder="{% if messages %}พิมพ์ข้อความตอบกลับ...{% else %}ยังไม่มีคู่สนทนา{% endif %}"
+                          {% if not messages %}disabled{% endif %}
+                          required></textarea>
+
+                <button class="send-btn" type="submit" {% if not messages %}disabled{% endif %}>ส่ง</button>
+            </form>
+        </main>
+
+    </section>
+</div>
+
+<script>
+(function () {
+    let activePartner = null;
+
+    function bindChat() {
+        const items = document.querySelectorAll(".conversation-item[data-partner]");
+        const messages = document.querySelectorAll(".msg[data-partner]");
+        const chatTitle = document.getElementById("chatTitle");
+        const chatSubTitle = document.getElementById("chatSubTitle");
+        const receiverInput = document.getElementById("receiverInput");
+        const applicationInput = document.getElementById("applicationInput");
+        const chatMessages = document.getElementById("chatMessages");
+
+        function selectConversation(item) {
+            const partner = item.dataset.partner;
+            activePartner = partner;
+
+            items.forEach(el => el.classList.remove("active"));
+            item.classList.add("active");
+
+            if (chatTitle) chatTitle.textContent = item.dataset.name || "JobBoard Chat";
+            if (chatSubTitle) chatSubTitle.textContent = item.dataset.job || "ข้อความทั่วไป";
+            if (receiverInput) receiverInput.value = item.dataset.receiver || "";
+            if (applicationInput) applicationInput.value = item.dataset.application || "";
+
+            messages.forEach(msg => {
+                msg.classList.toggle("hidden", msg.dataset.partner !== partner);
+            });
+
+            if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        items.forEach(item => {
+            item.onclick = function () {
+                selectConversation(item);
+            };
+        });
+
+        if (items.length > 0) {
+            const current = activePartner
+                ? document.querySelector(`.conversation-item[data-partner="${activePartner}"]`)
+                : items[0];
+
+            selectConversation(current || items[0]);
+        }
+    }
+
+    async function liveRefresh() {
+        const liveStatus = document.getElementById("liveStatus");
+        const oldList = document.getElementById("conversationList");
+        const oldMessages = document.getElementById("chatMessages");
+
+        try {
+            if (liveStatus) liveStatus.textContent = "Syncing...";
+
+            const response = await fetch(window.location.href, {
+                headers: { "X-Requested-With": "XMLHttpRequest" },
+                credentials: "same-origin"
+            });
+
+            if (!response.ok) throw new Error("refresh failed");
+
+            const html = await response.text();
+            const doc = new DOMParser().parseFromString(html, "text/html");
+
+            const newList = doc.getElementById("conversationList");
+            const newMessages = doc.getElementById("chatMessages");
+
+            if (newList && oldList) oldList.innerHTML = newList.innerHTML;
+            if (newMessages && oldMessages) oldMessages.innerHTML = newMessages.innerHTML;
+
+            bindChat();
+
+            if (liveStatus) liveStatus.textContent = "Live";
+        } catch (error) {
+            if (liveStatus) liveStatus.textContent = "Offline";
+        }
+    }
+
+    bindChat();
+    setInterval(liveRefresh, 5000);
+})();
+</script>
+
+{% endblock %}

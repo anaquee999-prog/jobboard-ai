@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Admin Trust Center | JobBoard{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>Trust Center</h1>
+    <p class="muted">ควบคุมคะแนนความน่าเชื่อถือ ยืนยันบริษัท และล็อกผู้ใช้ที่เสี่ยง</p>
+
+    <div class="actions-row">
+        <a class="btn-link-box secondary" href="{{ url_for('admin_dashboard') }}">กลับ Dashboard</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_moderation') }}">Moderation</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_users') }}">Users</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_logs') }}">Logs</a>
+    </div>
+</section>
+
+<section class="card section-space">
+    <h2>ผู้ใช้และ Trust Score</h2>
+
+    <div class="table-list">
+        {% for user in users %}
+            <div class="job-row trust-row">
+                <div>
+                    <strong>{{ user.phone_number }}</strong>
+                    <div class="muted">
+                        {{ user.role }} |
+                        Trust {{ user.trust_score }} |
+                        {{ get_trust_level(user.trust_score) }} |
+                        {{ "BANNED" if user.is_banned else "ACTIVE" }}
+                    </div>
+                    <div class="muted">
+                        {{ user.company_name or user.full_name or "-" }} |
+                        Jobs {{ user.job_count }} |
+                        Reports Made {{ user.reports_made }}
+                    </div>
+                    {% if user.role == 'EMPLOYER' %}
+                        <div class="muted">
+                            Employer Verification:
+                            {{ "VERIFIED" if user.is_company_verified else "UNVERIFIED" }}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="admin-actions">
+                    {% if user.role != 'ADMIN' %}
+                        <form method="post" action="{{ url_for('admin_update_trust', user_id=user.id, action='increase') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit">+10</button>
+                        </form>
+                        <form method="post" action="{{ url_for('admin_update_trust', user_id=user.id, action='decrease') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit">-10</button>
+                        </form>
+                        <form method="post" action="{{ url_for('admin_update_trust', user_id=user.id, action='reset') }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit">Reset</button>
+                        </form>
+
+                        {% if user.role == 'EMPLOYER' %}
+                            {% if user.is_company_verified %}
+                                <form method="post" action="{{ url_for('admin_unverify_employer', user_id=user.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button class="danger-btn" type="submit">Unverify</button>
+                                </form>
+                            {% else %}
+                                <form method="post" action="{{ url_for('admin_verify_employer', user_id=user.id) }}">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit">Verify Employer</button>
+                                </form>
+                            {% endif %}
+                        {% endif %}
+
+                        {% if user.is_banned %}
+                            <form method="post" action="{{ url_for('admin_unban_user', user_id=user.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit">Unban</button>
+                            </form>
+                        {% else %}
+                            <form method="post" action="{{ url_for('admin_ban_user', user_id=user.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="reason" value="Ban from trust center">
+                                <button class="danger-btn" type="submit">Ban</button>
+                            </form>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

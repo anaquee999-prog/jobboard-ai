@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Admin Logs | JobBoard{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>Logs</h1>
+    <p class="muted">เก็บประวัติ AI Decision และ Admin/User Action เพื่อ audit ภายหลัง</p>
+
+    <div class="actions-row">
+        <a class="btn-link-box secondary" href="{{ url_for('admin_dashboard') }}">กลับ Dashboard</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_moderation') }}">Moderation</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_users') }}">Users</a>
+    </div>
+</section>
+
+<section class="card section-space">
+    <h2>AI Decision Logs</h2>
+    <div class="table-list">
+        {% for log in ai_logs %}
+            <div class="table-row wide-row">
+                <strong>{{ log.title }}</strong>
+                <span>Risk {{ log.risk_score }}</span>
+                <span>{{ log.final_status }}</span>
+                <span>{{ log.created_at }}</span>
+                <span>{{ log.risk_reason }}</span>
+            </div>
+        {% else %}
+            <p class="muted">ยังไม่มี AI logs</p>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="card section-space">
+    <h2>Activity Logs</h2>
+    <div class="table-list">
+        {% for log in activity_logs %}
+            <div class="table-row wide-row">
+                <strong>{{ log.action }}</strong>
+                <span>{{ log.phone_number or '-' }}</span>
+                <span>{{ log.target_type }} #{{ log.target_id or '-' }}</span>
+                <span>{{ log.created_at }}</span>
+                <span>{{ log.detail }}</span>
+            </div>
+        {% else %}
+            <p class="muted">ยังไม่มี activity logs</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

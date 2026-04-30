@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Dashboard ผู้หางาน | JobBoard{% endblock %}
+
+{% block content %}
+
+<style>
+.dashboard-page {
+    min-height: calc(100vh - 72px);
+    padding: 36px 16px 48px;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(56,189,248,.18), transparent 28%),
+        radial-gradient(circle at 90% 20%, rgba(14,165,233,.14), transparent 30%),
+        #050505;
+    color: #fff;
+}
+
+.dashboard-wrap {
+    max-width: 1100px;
+    margin: auto;
+}
+
+.dashboard-header {
+    margin-bottom: 28px;
+}
+
+.dashboard-header h1 {
+    margin: 0;
+    font-size: 36px;
+}
+
+.dashboard-header p {
+    margin-top: 6px;
+    color: rgba(255,255,255,.70);
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+    gap: 16px;
+    margin-bottom: 30px;
+}
+
+.stat-card {
+    padding: 22px;
+    border-radius: 22px;
+    border: 1px solid rgba(255,255,255,.08);
+    background: rgba(255,255,255,.05);
+}
+
+.stat-label {
+    font-size: 14px;
+    color: rgba(255,255,255,.65);
+}
+
+.stat-value {
+    font-size: 30px;
+    font-weight: 900;
+}
+
+.section-card {
+    margin-top: 22px;
+    padding: 24px;
+    border-radius: 24px;
+    border: 1px solid rgba(255,255,255,.08);
+    background: rgba(255,255,255,.05);
+}
+
+.application-card {
+    padding: 18px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,.08);
+    margin-top: 14px;
+    background: rgba(255,255,255,.04);
+}
+
+.application-card h3 {
+    margin: 0 0 6px;
+}
+
+.application-meta {
+    font-size: 14px;
+    color: rgba(255,255,255,.70);
+}
+
+.application-status {
+    margin-top: 8px;
+    font-weight: 800;
+}
+
+.btn-row {
+    margin-top: 14px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.btn-primary,
+.btn-secondary {
+    padding: 10px 16px;
+    border-radius: 14px;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg,#0ea5e9,#38bdf8);
+    color: #03131f;
+}
+
+.btn-secondary {
+    border: 1px solid rgba(255,255,255,.2);
+    color: #fff;
+}
+
+.empty-box {
+    margin-top: 16px;
+    padding: 20px;
+    border-radius: 18px;
+    background: rgba(255,255,255,.06);
+    color: rgba(255,255,255,.72);
+}
+</style>
+
+<div class="dashboard-page">
+    <div class="dashboard-wrap">
+
+        <div class="dashboard-header">
+            <h1>Dashboard ผู้หางาน</h1>
+            <p>สวัสดี {{ profile.full_name if profile else "ผู้ใช้งาน" }} — ดูใบสมัครและข้อความจากนายจ้างได้ที่นี่</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">สถานะโปรไฟล์</div>
+                <div class="stat-value">
+                    {{ "Public" if profile and profile.is_public else "Private" }}
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-label">จำนวนใบสมัคร</div>
+                <div class="stat-value">{{ applications|length }}</div>
+            </div>
+        </div>
+
+        <div class="section-card">
+            <h2>ใบสมัครของฉัน</h2>
+
+            {% if applications %}
+                {% for app in applications %}
+                    <div class="application-card">
+                        <h3>{{ app.title }}</h3>
+
+                        <div class="application-meta">
+                            {{ app.company_name or "นายจ้าง" }}
+                            {% if app.location %}
+                                · {{ app.location }}
+                            {% endif %}
+                        </div>
+
+                        <div class="application-status">
+                            สถานะใบสมัคร: {{ app.status }}
+                        </div>
+
+                        {% if app.message %}
+                            <p class="application-meta">ข้อความที่ส่ง: {{ app.message }}</p>
+                        {% endif %}
+
+                        <div class="btn-row">
+                            <a class="btn-primary" href="{{ url_for('jobs_public') }}">ดูงานอื่นเพิ่มเติม</a>
+                            <a class="btn-secondary" href="{{ url_for('inbox') }}">เปิดข้อความ</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-box">
+                    คุณยังไม่ได้สมัครงาน<br><br>
+                    เริ่มจากค้นหางานที่สนใจ แล้วกด “สมัครงานนี้”
+                    <br><br>
+                    <a class="btn-primary" href="{{ url_for('jobs_public') }}">ค้นหางาน</a>
+                </div>
+            {% endif %}
+        </div>
+
+    </div>
+</div>
+
+{% endblock %}

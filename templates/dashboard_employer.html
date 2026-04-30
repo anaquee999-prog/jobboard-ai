@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Employer Dashboard | JobBoard{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>Employer Dashboard</h1>
+    <p class="muted">บริษัท: {{ profile.company_name if profile else "-" }}</p>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-label">สถานะบริษัท</div>
+            <div class="stat-value">{{ "Verified" if profile and profile.is_company_verified else "Unverified" }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Trust Score</div>
+            <div class="stat-value">{{ current_user.trust_score }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Trust Level</div>
+            <div class="stat-value">{{ trust_level }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">จำนวนประกาศงาน</div>
+            <div class="stat-value">{{ jobs|length }}</div>
+        </div>
+    </div>
+
+    {% if current_user.trust_score < 25 %}
+        <div class="alert error section-space">Trust Score ต่ำเกินไป ไม่สามารถโพสต์งานใหม่ได้ กรุณาติดต่อ Admin</div>
+    {% else %}
+        <div class="actions-row">
+            <a class="btn-link-box" href="{{ url_for('employer_create_job') }}">+ โพสต์งานใหม่</a>
+        </div>
+    {% endif %}
+</section>
+
+<section class="card section-space">
+    <h2>งานที่คุณโพสต์</h2>
+
+    <div class="table-list">
+        {% for job in jobs %}
+            <div class="job-row">
+                <div>
+                    <strong>{{ job.title }}</strong>
+                    <div class="muted">{{ job.location }} | {{ job.salary_range }}</div>
+                    <div class="muted">AI Risk {{ job.ai_risk_score if job.ai_risk_score is not none else '-' }} | {{ job.ai_risk_reason }}</div>
+                </div>
+                <span class="pill">{{ job.status }}</span>
+            </div>
+        {% else %}
+            <p class="muted">ยังไม่มีประกาศงาน</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

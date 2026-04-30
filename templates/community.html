@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}กระดานพูดคุย | JobBoard{% endblock %}
+
+{% block content %}
+
+<style>
+.community-page {
+    min-height: calc(100vh - 72px);
+    padding: 36px 16px 56px;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(56,189,248,.18), transparent 28%),
+        radial-gradient(circle at 90% 20%, rgba(14,165,233,.14), transparent 30%),
+        #050505;
+    color: #fff;
+}
+
+.community-wrap {
+    max-width: 980px;
+    margin: 0 auto;
+}
+
+.community-hero,
+.post-form-card,
+.post-card,
+.empty-card {
+    border-radius: 26px;
+    border: 1px solid rgba(56,189,248,.22);
+    background: rgba(2,6,23,.82);
+    box-shadow: 0 24px 70px rgba(0,0,0,.38);
+    backdrop-filter: blur(18px);
+}
+
+.community-hero {
+    padding: 30px;
+    margin-bottom: 20px;
+}
+
+.community-hero h1 {
+    margin: 0 0 8px;
+    font-size: clamp(32px, 5vw, 52px);
+}
+
+.community-hero p {
+    margin: 0;
+    color: rgba(255,255,255,.72);
+    line-height: 1.8;
+}
+
+.post-form-card {
+    padding: 22px;
+    margin-bottom: 22px;
+}
+
+.post-form-card label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: 800;
+}
+
+.post-form-card textarea {
+    width: 100%;
+    min-height: 120px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.06);
+    color: #fff;
+    padding: 14px 16px;
+    font-family: inherit;
+    resize: vertical;
+}
+
+.post-form-card button,
+.login-link {
+    min-height: 48px;
+    margin-top: 14px;
+    border: 0;
+    border-radius: 16px;
+    padding: 0 20px;
+    background: linear-gradient(135deg,#0ea5e9,#38bdf8);
+    color: #03131f;
+    font-weight: 900;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-link {
+    text-decoration: none;
+}
+
+.post-card {
+    padding: 20px;
+    margin-bottom: 14px;
+}
+
+.post-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    color: rgba(255,255,255,.72);
+    font-size: 14px;
+}
+
+.post-content {
+    white-space: pre-line;
+    line-height: 1.8;
+    font-size: 16px;
+}
+
+.post-status {
+    display: inline-flex;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: rgba(34,197,94,.12);
+    color: #86efac;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.empty-card {
+    padding: 24px;
+    color: rgba(255,255,255,.72);
+}
+</style>
+
+<div class="community-page">
+    <div class="community-wrap">
+
+        <section class="community-hero">
+            <h1>กระดานพูดคุย</h1>
+            <p>
+                พื้นที่พูดคุยเรื่องงานใกล้บ้าน ประสบการณ์สมัครงาน และแจ้งเตือนงานน่าสงสัย
+                ระบบจะช่วยกรองข้อความไม่สุภาพ สแปม และโพสต์เสี่ยงก่อนแสดงผล
+            </p>
+        </section>
+
+        {% if current_user %}
+            <section class="post-form-card">
+                <form method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <label>เขียนโพสต์</label>
+                    <textarea name="content" placeholder="พิมพ์ข้อความสุภาพ เช่น มีใครเคยสมัครงานแถวพิจิตรบ้างครับ" required></textarea>
+                    <button type="submit">โพสต์ลงกระดาน</button>
+                </form>
+            </section>
+        {% else %}
+            <section class="post-form-card">
+                <h2>เข้าสู่ระบบก่อนโพสต์</h2>
+                <p>สมาชิกเท่านั้นที่สามารถโพสต์ในกระดานพูดคุยได้</p>
+                <a class="login-link" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+            </section>
+        {% endif %}
+
+        {% if posts %}
+            {% for post in posts %}
+                <article class="post-card">
+                    <div class="post-head">
+                        <strong>
+                            {% if post.author_name %}
+                                {{ post.author_name }}
+                            {% elif post.phone_number %}
+                                ผู้ใช้ {{ post.phone_number[-4:] }}
+                            {% else %}
+                                สมาชิก JobBoard
+                            {% endif %}
+                        </strong>
+
+                        <span class="post-status">
+                            {{ post.status or "ACTIVE" }}
+                        </span>
+                    </div>
+
+                    <div class="post-content">
+                        {{ post.content }}
+                    </div>
+
+                    {% if post.created_at %}
+                        <div class="post-head" style="margin-top:12px;">
+                            <span>{{ post.created_at }}</span>
+                        </div>
+                    {% endif %}
+                </article>
+            {% endfor %}
+        {% else %}
+            <div class="empty-card">
+                ยังไม่มีโพสต์ในกระดาน พิมพ์โพสต์แรกเพื่อเริ่มพูดคุยได้เลย
+            </div>
+        {% endif %}
+
+    </div>
+</div>
+
+{% endblock %}

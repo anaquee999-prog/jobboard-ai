@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}AI Scam Center | งานใกล้บ้าน{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>AI Scam Center</h1>
+    <p class="muted">ศูนย์ตรวจจับประกาศงานเสี่ยง / งานหลอก / งานที่ควรให้แอดมินตรวจซ้ำ</p>
+
+    <div class="actions-row">
+        <a class="btn-link-box secondary" href="{{ url_for('admin_dashboard') }}">กลับ Dashboard</a>
+        <form method="post" action="{{ url_for('admin_run_scam_scanner') }}" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">สแกนประกาศทั้งหมด</button>
+        </form>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-label">High Risk</div><div class="stat-value">{{ stats.high }}</div></div>
+        <div class="stat-card"><div class="stat-label">Medium Risk</div><div class="stat-value">{{ stats.medium }}</div></div>
+        <div class="stat-card"><div class="stat-label">Low Risk</div><div class="stat-value">{{ stats.low }}</div></div>
+        <div class="stat-card"><div class="stat-label">Pending Review</div><div class="stat-value">{{ stats.pending }}</div></div>
+    </div>
+</section>
+
+<section class="card section-space">
+    <h2>ประกาศที่ควรจับตา</h2>
+    <div class="table-list">
+        {% for job in jobs %}
+            {% set level = scam_risk_label(job.ai_risk_score) %}
+            <div class="job-row">
+                <div>
+                    <strong>{{ job.title }}</strong>
+                    <div class="muted">{{ job.company_name or "-" }} · Trust {{ job.trust_score or 0 }} · Reports {{ job.report_count }}</div>
+                    <div class="muted">Status {{ job.status }} · Risk {{ job.ai_risk_score if job.ai_risk_score is not none else 0 }} · {{ level }}</div>
+                    <div class="muted">{{ job.ai_risk_reason }}</div>
+                </div>
+                <div class="admin-actions">
+                    <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='approve') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">Approve</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='reject') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="danger-btn" type="submit">Reject</button>
+                    </form>
+                </div>
+            </div>
+        {% else %}
+            <p class="muted">ยังไม่มีประกาศให้ตรวจ</p>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="card section-space">
+    <h2>Scam Scan Logs</h2>
+    <div class="table-list">
+        {% for log in logs %}
+            <div class="table-row wide-row">
+                <strong>{{ log.title or ("Job #" ~ log.job_post_id) }}</strong>
+                <span>{{ log.risk_level }}</span>
+                <span>Risk {{ log.risk_score }}</span>
+                <span>{{ log.old_status }} → {{ log.new_status }}</span>
+                <span>{{ log.created_at }}</span>
+            </div>
+        {% else %}
+            <p class="muted">ยังไม่มี log การสแกน</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

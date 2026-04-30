@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}โพสต์งานใหม่ | JobBoard{% endblock %}
+
+{% block content %}
+<section class="auth-card wide">
+    <h1>โพสต์งานใหม่</h1>
+    <p class="muted">ระบบจะใช้ AI Anti-Scam แบบ Rule-based ตรวจคำเสี่ยงก่อนเผยแพร่</p>
+
+    {% if error %}
+        <div class="alert error">{{ error }}</div>
+    {% endif %}
+
+    {% if not locked %}
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <label>ชื่อตำแหน่งงาน</label>
+        <input type="text" name="title" value="{{ preview.title if preview else '' }}" required>
+
+        <label>รายละเอียดงาน</label>
+        <textarea name="description" required placeholder="อธิบายหน้าที่ คุณสมบัติ เวลาทำงาน สวัสดิการ และช่องทางติดต่อ">{{ preview.description if preview else '' }}</textarea>
+
+        <label>เงินเดือน</label>
+        <input type="text" name="salary_range" value="{{ preview.salary_range if preview else '' }}" placeholder="เช่น 18,000 - 25,000 บาท">
+
+        <label>สถานที่ทำงาน</label>
+        <input type="text" name="location" value="{{ preview.location if preview else '' }}" placeholder="เช่น Bangkok">
+
+        <button type="submit">บันทึกและให้ AI ตรวจ</button>
+    </form>
+    {% endif %}
+
+    <div class="hint-box">
+        ถ้า AI Risk ต่ำ งานจะเป็น ACTIVE ทันที ถ้าคะแนนกลางจะรอตรวจ ถ้าสูงมากจะ REJECTED
+    </div>
+</section>
+{% endblock %}

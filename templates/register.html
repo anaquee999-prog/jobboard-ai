@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}สมัครสมาชิก | JobBoard{% endblock %}
+
+{% block content %}
+
+<style>
+.register-page {
+    min-height: calc(100vh - 72px);
+    display: grid;
+    place-items: center;
+    padding: 36px 16px;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(56,189,248,.18), transparent 28%),
+        radial-gradient(circle at 90% 22%, rgba(14,165,233,.14), transparent 30%),
+        #050505;
+}
+
+.register-card {
+    width: min(520px, 100%);
+    padding: 34px;
+    border-radius: 28px;
+    border: 1px solid rgba(56,189,248,.24);
+    background: rgba(2,6,23,.82);
+    box-shadow: 0 28px 88px rgba(0,0,0,.48);
+    backdrop-filter: blur(18px);
+    color: #fff;
+}
+
+.register-card h1 {
+    margin: 0 0 8px;
+    font-size: 34px;
+}
+
+.register-card p {
+    margin: 0 0 24px;
+    color: rgba(255,255,255,.70);
+}
+
+.register-card label {
+    display: block;
+    margin: 16px 0 8px;
+    font-weight: 800;
+}
+
+.register-card input,
+.register-card select {
+    width: 100%;
+    min-height: 52px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.06);
+    color: #fff;
+    padding: 0 15px;
+    font-family: inherit;
+}
+
+.register-card select,
+.register-card select option {
+    background: #ffffff;
+    color: #111827;
+}
+
+.register-card input::placeholder {
+    color: rgba(255,255,255,.42);
+}
+
+.register-card button {
+    width: 100%;
+    min-height: 52px;
+    margin-top: 24px;
+    border: 0;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+    color: #03131f;
+    font-weight: 900;
+    cursor: pointer;
+}
+
+.checkbox-line {
+    display: flex;
+    gap: 10px;
+    margin-top: 16px;
+    font-size: 14px;
+    color: rgba(255,255,255,.72);
+}
+
+.checkbox-line input {
+    width: auto;
+    min-height: auto;
+}
+
+.register-alert {
+    margin-bottom: 14px;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: rgba(239,68,68,.12);
+    border: 1px solid rgba(239,68,68,.28);
+    color: #fca5a5;
+}
+
+.register-footer {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    color: rgba(255,255,255,.68);
+}
+
+.register-footer a {
+    color: #38bdf8;
+    font-weight: 800;
+}
+</style>
+
+<div class="register-page">
+    <section class="register-card">
+
+        <h1>สมัครสมาชิก</h1>
+        <p>ใช้เบอร์โทรศัพท์สมัครบัญชี JobBoard</p>
+
+        {% if error %}
+            <div class="register-alert">{{ error }}</div>
+        {% endif %}
+
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <label>ประเภทบัญชี</label>
+            <select name="role" required>
+                <option value="JOB_SEEKER">ผู้หางาน</option>
+                <option value="EMPLOYER">นายจ้าง</option>
+            </select>
+
+            <label>เบอร์โทรศัพท์</label>
+            <input type="text" name="phone_number" placeholder="เช่น 0800000000" required>
+
+            <label>ชื่อผู้ใช้งาน</label>
+            <input type="text" name="full_name" placeholder="เช่น สมชาย ใจดี">
+
+            <label>ชื่อบริษัท (ถ้าเป็นนายจ้าง)</label>
+            <input type="text" name="company_name" placeholder="เช่น บริษัท ABC จำกัด">
+
+            <label>รหัสผ่าน</label>
+            <input type="password" name="password" required>
+
+            <label>ยืนยันรหัสผ่าน</label>
+            <input type="password" name="confirm_password" required>
+
+            <label class="checkbox-line">
+                <input type="checkbox" name="accept_terms" required>
+                <span>ฉันยอมรับข้อกำหนดการใช้งานและนโยบายความเป็นส่วนตัว</span>
+            </label>
+
+            <button type="submit">สมัครสมาชิก</button>
+        </form>
+
+        <div class="register-footer">
+            มีบัญชีแล้ว? <a href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+        </div>
+
+    </section>
+</div>
+
+{% endblock %}

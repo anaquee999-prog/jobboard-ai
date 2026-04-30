@@ -1,0 +1,482 @@
+{% extends "base.html" %}
+
+{% block title %}{{ job.title }} | {{ job.company_name or "JobBoard" }}{% endblock %}
+{% block meta_description %}สมัครงาน {{ job.title }} ที่ {{ job.company_name or "หน่วยงานราชการ / นายจ้าง" }} {{ job.location or "" }} เงินเดือน {{ job.salary_range or "ตามตกลง" }}{% endblock %}
+
+{% block content %}
+
+<style>
+.job-detail-page {
+    min-height: calc(100vh - 72px);
+    padding: 34px 18px 56px;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(56,189,248,.16), transparent 28%),
+        radial-gradient(circle at 90% 20%, rgba(14,165,233,.12), transparent 30%),
+        #050505;
+    color: #fff;
+}
+
+.job-detail-wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+}
+
+.job-detail-card {
+    padding: clamp(22px, 4vw, 38px);
+    border-radius: 30px;
+    border: 1px solid rgba(56,189,248,.22);
+    background: rgba(2,6,23,.82);
+    box-shadow: 0 28px 88px rgba(0,0,0,.45);
+    backdrop-filter: blur(18px);
+}
+
+.job-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-bottom: 18px;
+}
+
+.job-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 30px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(56,189,248,.12);
+    color: #67e8f9;
+    border: 1px solid rgba(56,189,248,.22);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.job-badge.safe {
+    background: rgba(34,197,94,.12);
+    color: #86efac;
+    border-color: rgba(34,197,94,.22);
+}
+
+.job-badge.warning {
+    background: rgba(249,115,22,.12);
+    color: #fdba74;
+    border-color: rgba(249,115,22,.25);
+}
+
+.job-badge.danger {
+    background: rgba(239,68,68,.12);
+    color: #fca5a5;
+    border-color: rgba(239,68,68,.25);
+}
+
+.job-title {
+    margin: 0 0 10px;
+    font-size: clamp(32px, 5vw, 54px);
+    line-height: 1.12;
+    letter-spacing: -.04em;
+    color: #fff;
+}
+
+.job-company {
+    margin: 0 0 18px;
+    color: rgba(255,255,255,.74);
+    font-size: 17px;
+}
+
+.job-meta-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 20px 0 24px;
+}
+
+.job-meta-grid span {
+    display: inline-flex;
+    align-items: center;
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.07);
+    color: rgba(255,255,255,.86);
+    border: 1px solid rgba(255,255,255,.10);
+    font-weight: 700;
+}
+
+.safety-box,
+.apply-box,
+.report-box,
+.job-description-box {
+    margin-top: 24px;
+    padding: 22px;
+    border-radius: 24px;
+    border: 1px solid rgba(255,255,255,.10);
+    background: rgba(255,255,255,.06);
+}
+
+.safety-box.safe {
+    border-color: rgba(34,197,94,.24);
+    background: rgba(34,197,94,.08);
+}
+
+.safety-box.warning {
+    border-color: rgba(249,115,22,.28);
+    background: rgba(249,115,22,.08);
+}
+
+.safety-box.danger {
+    border-color: rgba(239,68,68,.30);
+    background: rgba(239,68,68,.08);
+}
+
+.safety-box strong,
+.apply-box strong,
+.report-box h3 {
+    display: block;
+    margin-bottom: 8px;
+    font-size: 20px;
+    color: #fff;
+}
+
+.safety-box p,
+.safety-box li,
+.apply-box p,
+.report-box p {
+    color: rgba(255,255,255,.78);
+    line-height: 1.8;
+}
+
+.risk-reason {
+    margin-top: 14px;
+    padding: 14px;
+    border-radius: 16px;
+    background: rgba(2,6,23,.48);
+    color: rgba(255,255,255,.82);
+}
+
+.job-description-box {
+    white-space: pre-line;
+    color: rgba(255,255,255,.88);
+    line-height: 1.9;
+    font-size: 16px;
+}
+
+.apply-box {
+    border-color: rgba(56,189,248,.30);
+    background:
+        radial-gradient(circle at top right, rgba(56,189,248,.14), transparent 34%),
+        rgba(56,189,248,.07);
+}
+
+.apply-box form {
+    display: grid;
+    gap: 14px;
+}
+
+.apply-box label,
+.report-box label {
+    display: block;
+    margin-bottom: 8px;
+    color: #fff;
+    font-weight: 800;
+}
+
+.apply-box textarea,
+.report-box input {
+    width: 100%;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(2,6,23,.70);
+    color: #fff;
+    padding: 14px 16px;
+    font-family: inherit;
+}
+
+.apply-box textarea {
+    min-height: 130px;
+    resize: vertical;
+}
+
+.apply-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.primary-btn,
+.secondary-btn,
+.report-box button {
+    min-height: 48px;
+    border: 0;
+    border-radius: 16px;
+    padding: 0 20px;
+    font-family: inherit;
+    font-weight: 900;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.primary-btn {
+    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+    color: #03131f;
+    box-shadow: 0 16px 38px rgba(56,189,248,.28);
+}
+
+.secondary-btn {
+    background: rgba(255,255,255,.08);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,.14);
+}
+
+.alert-box {
+    padding: 18px;
+    border-radius: 20px;
+    font-weight: 800;
+}
+
+.alert-box.success {
+    background: rgba(34,197,94,.13);
+    color: #86efac;
+    border: 1px solid rgba(34,197,94,.25);
+}
+
+.alert-box.danger {
+    background: rgba(239,68,68,.13);
+    color: #fca5a5;
+    border: 1px solid rgba(239,68,68,.25);
+}
+
+.login-required-box {
+    margin-top: 26px;
+    padding: 26px;
+    border-radius: 26px;
+    border: 1px solid rgba(56,189,248,.32);
+    background:
+        radial-gradient(circle at top right, rgba(56,189,248,.18), transparent 34%),
+        rgba(2,6,23,.78);
+}
+
+.login-required-box h2 {
+    margin: 0 0 8px;
+    color: #fff;
+    font-size: 26px;
+}
+
+.login-required-box p {
+    margin: 0;
+    color: rgba(255,255,255,.74);
+    line-height: 1.8;
+}
+
+.report-box {
+    border-color: rgba(249,115,22,.25);
+    background: rgba(249,115,22,.06);
+}
+
+.report-form {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: end;
+}
+
+.report-box button {
+    background: linear-gradient(135deg, #f97316, #fb923c);
+    color: #111827;
+}
+
+@media (max-width: 760px) {
+    .job-detail-page {
+        padding: 18px 10px 36px;
+    }
+
+    .job-detail-card {
+        border-radius: 22px;
+        padding: 18px;
+    }
+
+    .report-form {
+        grid-template-columns: 1fr;
+    }
+
+    .apply-actions {
+        flex-direction: column;
+    }
+
+    .primary-btn,
+    .secondary-btn,
+    .report-box button {
+        width: 100%;
+    }
+}
+</style>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org/",
+  "@type": "JobPosting",
+  "title": {{ job.title|tojson }},
+  "description": {{ job.description|tojson }},
+  "datePosted": {{ (job.created_at[:10] if job.created_at else "")|tojson }},
+  "validThrough": {{ (job.updated_at[:10] if job.updated_at else "")|tojson }},
+  "employmentType": "FULL_TIME",
+  "hiringOrganization": {
+    "@type": "Organization",
+    "name": {{ (job.company_name or "JobBoard Employer")|tojson }}
+  },
+  "jobLocation": {
+    "@type": "Place",
+    "address": {
+      "@type": "PostalAddress",
+      "addressLocality": {{ (job.location or "Thailand")|tojson }},
+      "addressCountry": "TH"
+    }
+  }
+}
+</script>
+
+{% set risk_score = job.ai_risk_score if job.ai_risk_score is not none else 0 %}
+{% set risk_level = scam_risk_label(risk_score) %}
+
+<div class="job-detail-page">
+    <div class="job-detail-wrap">
+        <section class="job-detail-card">
+
+            <div class="job-badges">
+                <span class="job-badge">{{ "ข่าวราชการ" if job.is_government_news else "ประกาศงาน" }}</span>
+
+                {% if job.is_company_verified %}
+                    <span class="job-badge safe">Verified Employer</span>
+                {% else %}
+                    <span class="job-badge warning">รอตรวจสอบนายจ้าง</span>
+                {% endif %}
+
+                {% if risk_level == "HIGH" %}
+                    <span class="job-badge danger">AI Risk สูง</span>
+                {% elif risk_level == "MEDIUM" %}
+                    <span class="job-badge warning">AI Risk ปานกลาง</span>
+                {% else %}
+                    <span class="job-badge safe">AI ตรวจแล้ว</span>
+                {% endif %}
+            </div>
+
+            <h1 class="job-title">{{ job.title }}</h1>
+            <p class="job-company">{{ job.company_name or "หน่วยงานราชการ / นายจ้าง" }}</p>
+
+            <div class="job-meta-grid">
+                {% if job.salary_range %}
+                    <span>💰 {{ job.salary_range }}</span>
+                {% else %}
+                    <span>💰 เงินเดือนตามตกลง</span>
+                {% endif %}
+
+                {% if job.location %}
+                    <span>📍 {{ job.location }}</span>
+                {% endif %}
+
+                <span>🚩 Report {{ job.report_count }}</span>
+                <span>🧠 Risk Score {{ risk_score }}</span>
+            </div>
+
+            <div class="safety-box {% if risk_level == 'HIGH' %}danger{% elif risk_level == 'MEDIUM' %}warning{% else %}safe{% endif %}">
+                {% if risk_level == "HIGH" %}
+                    <strong>⚠️ ประกาศนี้มีความเสี่ยงสูง</strong>
+                    <p>ระบบตรวจพบสัญญาณที่อาจเกี่ยวข้องกับงานหลอกลวง กรุณาอย่าโอนเงินหรือส่งข้อมูลส่วนตัวก่อนตรวจสอบ</p>
+                    <ul>
+                        <li>ห้ามโอนเงิน ค่าประกัน ค่าสมัคร หรือค่าดำเนินการใด ๆ</li>
+                        <li>อย่าส่งรูปบัตรประชาชน สมุดบัญชี หรือข้อมูลสำคัญผ่านแชตภายนอก</li>
+                        <li>ควรรอผู้ดูแลระบบตรวจสอบก่อนสมัครงานนี้</li>
+                    </ul>
+                {% elif risk_level == "MEDIUM" %}
+                    <strong>🟠 ประกาศนี้ควรตรวจสอบเพิ่ม</strong>
+                    <p>ระบบพบสัญญาณบางอย่างที่ควรระวัง อ่านรายละเอียดให้ครบ และตรวจสอบนายจ้างก่อนสมัคร</p>
+                    <ul>
+                        <li>ตรวจสอบชื่อบริษัท เบอร์โทร และช่องทางติดต่อ</li>
+                        <li>หลีกเลี่ยงงานที่ให้แอดไลน์ทันทีโดยไม่มีรายละเอียดชัดเจน</li>
+                        <li>หากมีการขอเงินก่อนเริ่มงาน ให้กด Report ทันที</li>
+                    </ul>
+                {% else %}
+                    <strong>🛡️ AI ตรวจสอบเบื้องต้นแล้ว</strong>
+                    <p>ยังไม่พบสัญญาณเสี่ยงเด่นจากระบบคัดกรอง แต่ผู้สมัครควรตรวจสอบข้อมูลนายจ้างก่อนติดต่อทุกครั้ง</p>
+                {% endif %}
+
+                {% if job.ai_risk_reason %}
+                    <div class="risk-reason">
+                        <strong>เหตุผลจากระบบ:</strong>
+                        <span>{{ job.ai_risk_reason }}</span>
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="job-description-box">
+                {{ job.description }}
+            </div>
+
+            {% if current_user and current_user.role == "JOB_SEEKER" %}
+                <div class="apply-box">
+                    {% if already_applied %}
+                        <div class="alert-box success">
+                            ✅ คุณสมัครงานนี้แล้ว สามารถติดตามสถานะได้ที่ Dashboard และรอข้อความจากนายจ้าง
+                        </div>
+                    {% elif risk_level == "HIGH" %}
+                        <div class="alert-box danger">
+                            ⚠️ ระบบไม่แนะนำให้สมัครงานนี้จนกว่าผู้ดูแลระบบจะตรวจสอบเพิ่มเติม
+                        </div>
+                    {% else %}
+                        <strong>สมัครงานนี้</strong>
+                        <p>เขียนแนะนำตัวสั้น ๆ เพื่อให้นายจ้างเข้าใจว่าคุณสนใจงานนี้เพราะอะไร</p>
+
+                        <form method="post" action="{{ url_for('apply_job', job_id=job.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                            <label>ข้อความถึงนายจ้าง</label>
+                            <textarea name="message" placeholder="ตัวอย่าง: สวัสดีครับ/ค่ะ สนใจสมัครตำแหน่งนี้ มีประสบการณ์ทำงานในพื้นที่ใกล้เคียง และพร้อมเริ่มงานได้ทันที"></textarea>
+
+                            <div class="apply-actions">
+                                <button class="primary-btn" type="submit">สมัครงานนี้</button>
+                                <a class="secondary-btn" href="{{ url_for('job_seeker_dashboard') }}">ดู Dashboard ของฉัน</a>
+                            </div>
+                        </form>
+                    {% endif %}
+                </div>
+
+            {% elif current_user and current_user.role != "JOB_SEEKER" %}
+                <div class="login-required-box">
+                    <h2>บัญชีนี้ไม่ใช่ผู้หางาน</h2>
+                    <p>การสมัครงานทำได้เฉพาะบัญชีผู้หางานเท่านั้น หากต้องการทดสอบการสมัคร ให้สมัครบัญชีใหม่ประเภท “ผู้หางาน”</p>
+                </div>
+
+            {% else %}
+                <div class="login-required-box">
+                    <h2>เข้าสู่ระบบเพื่อสมัครงาน</h2>
+                    <p>สมัครงานได้เฉพาะสมาชิกประเภทผู้หางาน หลังเข้าสู่ระบบแล้วปุ่มสมัครงานจะแสดงในหน้านี้ทันที</p>
+
+                    <div class="apply-actions">
+                        <a class="primary-btn" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+                        <a class="secondary-btn" href="{{ url_for('register') }}">สมัครสมาชิกผู้หางาน</a>
+                    </div>
+                </div>
+            {% endif %}
+
+            {% if current_user %}
+                <div class="report-box">
+                    <h3>Report งานต้องสงสัย</h3>
+                    <p>ใช้เมื่อพบการเรียกเก็บเงินก่อนสมัคร หลอกให้โอนเงิน หรือประกาศน่าสงสัย</p>
+
+                    <form class="report-form" method="post" action="{{ url_for('report_job', job_id=job.id) }}">
+                        <div>
+                            <label>เหตุผลที่ต้องการ Report</label>
+                            <input type="text" name="reason" placeholder="เช่น เรียกเก็บเงินก่อน / หลอกลวง / สแปม">
+                        </div>
+                        <button type="submit">ส่ง Report</button>
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    </form>
+                </div>
+            {% endif %}
+
+        </section>
+    </div>
+</div>
+
+{% endblock %}

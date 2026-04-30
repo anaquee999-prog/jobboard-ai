@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}เข้าสู่ระบบ | JobBoard{% endblock %}
+
+{% block content %}
+
+<style>
+.login-page {
+    min-height: calc(100vh - 72px);
+    display: grid;
+    place-items: center;
+    padding: 36px 16px;
+    background:
+        radial-gradient(circle at 20% 10%, rgba(56,189,248,.18), transparent 28%),
+        radial-gradient(circle at 90% 22%, rgba(14,165,233,.14), transparent 30%),
+        #050505;
+}
+
+.login-card {
+    width: min(460px, 100%);
+    padding: 32px;
+    border-radius: 28px;
+    border: 1px solid rgba(56,189,248,.24);
+    background: rgba(2,6,23,.82);
+    box-shadow: 0 28px 88px rgba(0,0,0,.48);
+    backdrop-filter: blur(18px);
+    color: #fff;
+}
+
+.login-card h1 {
+    margin: 0 0 8px;
+    font-size: 34px;
+}
+
+.login-card p {
+    margin: 0 0 22px;
+    color: rgba(255,255,255,.68);
+}
+
+.login-card label {
+    display: block;
+    margin: 16px 0 8px;
+    font-weight: 800;
+}
+
+.login-card input {
+    width: 100%;
+    min-height: 52px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.06);
+    color: #fff;
+    padding: 0 15px;
+    font-family: inherit;
+}
+
+.login-card input::placeholder {
+    color: rgba(255,255,255,.42);
+}
+
+.login-card button {
+    width: 100%;
+    min-height: 52px;
+    margin-top: 20px;
+    border: 0;
+    border-radius: 16px;
+    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+    color: #03131f;
+    font-weight: 900;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.login-alert {
+    margin: 14px 0;
+    padding: 14px 16px;
+    border-radius: 16px;
+    background: rgba(239,68,68,.12);
+    border: 1px solid rgba(239,68,68,.28);
+    color: #fca5a5;
+}
+
+.login-footer {
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    color: rgba(255,255,255,.68);
+    font-size: 14px;
+}
+
+.login-footer a {
+    color: #38bdf8;
+    font-weight: 800;
+}
+</style>
+
+<div class="login-page">
+    <section class="login-card">
+        <h1>เข้าสู่ระบบ</h1>
+        <p>ใช้เบอร์โทรศัพท์และรหัสผ่านที่สมัครไว้</p>
+
+        {% if error %}
+            <div class="login-alert">{{ error }}</div>
+        {% endif %}
+
+        <form method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <label>เบอร์โทรศัพท์</label>
+            <input type="text" name="phone_number" placeholder="เช่น 0800000000" required>
+
+            <label>รหัสผ่าน</label>
+            <input type="password" name="password" placeholder="กรอกรหัสผ่าน" required>
+
+            <button type="submit">เข้าสู่ระบบ</button>
+        </form>
+
+        <div class="login-footer">
+            ยังไม่มีบัญชี? <a href="{{ url_for('register') }}">สมัครใช้งาน</a>
+        </div>
+    </section>
+</div>
+
+{% endblock %}

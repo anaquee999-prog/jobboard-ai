@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Dashboard ผู้หางาน | JobBoard{% endblock %}
+
+{% block content %}
+<style>
+.seeker-page { min-height: 100vh; padding: 32px 20px 54px; background: radial-gradient(circle at 18% 8%, rgba(56,189,248,.16), transparent 28%), #050505; color: #fff; }
+.seeker-wrap { max-width: 1120px; margin: 0 auto; }
+.seeker-card { padding: 26px; border-radius: 28px; background: rgba(2,6,23,.78); border: 1px solid rgba(56,189,248,.25); box-shadow: 0 24px 70px rgba(0,0,0,.38); }
+.seeker-head { display: flex; justify-content: space-between; gap: 18px; align-items: center; }
+.seeker-head h1 { margin: 0 0 6px; font-size: clamp(30px, 5vw, 48px); }
+.seeker-head p { margin: 0; color: rgba(255,255,255,.68); }
+.primary-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 18px; border-radius: 14px; background: linear-gradient(135deg,#0ea5e9,#38bdf8); color: #03131f; font-weight: 900; }
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
+.stat-card { padding: 20px; border-radius: 22px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); }
+.stat-label { color: rgba(255,255,255,.64); font-size: 13px; }
+.stat-value { margin-top: 8px; font-size: 30px; font-weight: 900; color: #38bdf8; }
+.step-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 18px; }
+.step { padding: 18px; border-radius: 22px; background: rgba(255,255,255,.06); border: 1px solid rgba(56,189,248,.18); }
+.step strong { display: block; font-size: 17px; }
+.step p { color: rgba(255,255,255,.68); font-size: 13px; }
+.app-list { margin-top: 22px; display: grid; gap: 12px; }
+.app-item { padding: 18px; border-radius: 20px; background: rgba(255,255,255,.96); color: #0f172a; }
+.app-item h3 { margin: 0 0 6px; }
+.app-meta { color: #64748b; font-size: 13px; }
+.badge { display: inline-flex; padding: 6px 10px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-size: 12px; font-weight: 900; }
+.empty-box { margin-top: 22px; padding: 24px; border-radius: 22px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.10); }
+@media (max-width: 820px) { .seeker-head { align-items:flex-start; flex-direction:column; } .stats-grid, .step-grid { grid-template-columns: 1fr; } }
+</style>
+
+<div class="seeker-page">
+    <div class="seeker-wrap">
+        <section class="seeker-card">
+            <div class="seeker-head">
+                <div>
+                    <h1>Dashboard ผู้หางาน</h1>
+                    <p>สวัสดี {{ profile.full_name if profile else "ผู้ใช้งาน" }} · ใช้หน้านี้เพื่อติดตามใบสมัครและข้อความจากนายจ้าง</p>
+                </div>
+                <a class="primary-btn" href="{{ url_for('jobs_public') }}">ค้นหางานเพื่อสมัคร</a>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card"><div class="stat-label">สถานะโปรไฟล์</div><div class="stat-value">{{ "Public" if profile and profile.is_public else "Private" }}</div></div>
+                <div class="stat-card"><div class="stat-label">จำนวนใบสมัคร</div><div class="stat-value">{{ applications|length }}</div></div>
+                <div class="stat-card"><div class="stat-label">ขั้นตอนต่อไป</div><div class="stat-value">สมัครงาน</div></div>
+            </div>
+
+            <div class="step-grid">
+                <div class="step"><strong>1. ค้นหางาน</strong><p>กดปุ่มค้นหางาน แล้วเลือกงานที่สนใจ</p></div>
+                <div class="step"><strong>2. ส่งใบสมัคร</strong><p>เปิดรายละเอียดงาน กรอกข้อความแนะนำตัว แล้วกดส่งใบสมัคร</p></div>
+                <div class="step"><strong>3. รอข้อความ</strong><p>เมื่อนายจ้างตอบกลับ ระบบจะแสดงที่เมนูข้อความ</p></div>
+            </div>
+
+            <div class="app-list">
+                {% for item in applications %}
+                <article class="app-item">
+                    <span class="badge">{{ item.status }}</span>
+                    <h3>{{ item.title }}</h3>
+                    <div class="app-meta">{{ item.company_name or "นายจ้าง" }} · {{ item.location or "ไม่ระบุพื้นที่" }} · สมัครเมื่อ {{ item.created_at }}</div>
+                    {% if item.message %}<p>{{ item.message }}</p>{% endif %}
+                </article>
+                {% else %}
+                <div class="empty-box">
+                    <h2>ยังไม่มีใบสมัคร</h2>
+                    <p>เริ่มจากการค้นหางาน เปิดรายละเอียด แล้วกด “ส่งใบสมัคร”</p>
+                    <a class="primary-btn" href="{{ url_for('jobs_public') }}">ไปค้นหางาน</a>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

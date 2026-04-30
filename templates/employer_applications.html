@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+
+{% block title %}ใบสมัครที่ได้รับ | JobBoard{% endblock %}
+{% block meta_description %}กล่องใบสมัครสำหรับนายจ้าง ใช้ดูผู้สมัคร ส่งข้อความ และอัปเดตสถานะใบสมัคร{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>ใบสมัครที่ได้รับ</h1>
+    <p class="muted">ดูผู้สมัครที่สนใจงานของคุณ และส่งข้อความตอบกลับได้จากหน้านี้</p>
+
+    {% if applications %}
+        {% for app_item in applications %}
+            <div class="section-space" style="border:1px solid #e5e7eb;border-radius:16px;padding:18px;background:#ffffff;">
+                <div class="job-top">
+                    <span class="pill verified">ใบสมัคร</span>
+                    <span class="pill">{{ app_item.status }}</span>
+                    {% if app_item.job_location %}<span class="pill">{{ app_item.job_location }}</span>{% endif %}
+                </div>
+
+                <h2>{{ app_item.job_title }}</h2>
+                <p class="muted">ผู้สมัคร: {{ app_item.full_name or app_item.applicant_phone }}</p>
+
+                {% if app_item.headline %}
+                    <p><strong>ตำแหน่งที่สนใจ:</strong> {{ app_item.headline }}</p>
+                {% endif %}
+
+                {% if app_item.resume_url %}
+                    <div class="hint-box">
+                        <strong>โปรไฟล์ / แนะนำตัว:</strong>
+                        <p style="white-space:pre-line;">{{ app_item.resume_url }}</p>
+                    </div>
+                {% endif %}
+
+                {% if app_item.message %}
+                    <div class="hint-box">
+                        <strong>ข้อความจากผู้สมัคร:</strong>
+                        <p>{{ app_item.message }}</p>
+                    </div>
+                {% endif %}
+
+                <p class="muted">ส่งใบสมัครเมื่อ {{ app_item.created_at }}</p>
+
+                <div class="actions-row section-space">
+                    <form method="post" action="{{ url_for('employer_update_application', application_id=app_item.id, action='review') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">กำลังพิจารณา</button>
+                    </form>
+                    <form method="post" action="{{ url_for('employer_update_application', application_id=app_item.id, action='shortlist') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">รับเข้ารอบ</button>
+                    </form>
+                    <form method="post" action="{{ url_for('employer_update_application', application_id=app_item.id, action='reject') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">ปฏิเสธ</button>
+                    </form>
+                </div>
+
+                <form method="post" action="{{ url_for('send_message') }}" class="section-space">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="receiver_id" value="{{ app_item.job_seeker_id }}">
+                    <input type="hidden" name="application_id" value="{{ app_item.id }}">
+                    <label>ส่งข้อความถึงผู้สมัคร</label>
+                    <textarea name="message" placeholder="เช่น บริษัทได้รับใบสมัครแล้ว ขอข้อมูลเพิ่มเติม หรือนัดสัมภาษณ์"></textarea>
+                    <button type="submit">ส่งข้อความถึงผู้สมัคร</button>
+                </form>
+            </div>
+        {% endfor %}
+    {% else %}
+        <div class="hint-box">
+            ยังไม่มีใบสมัครเข้ามา เมื่องานของคุณมีผู้สมัคร ระบบจะแสดงที่นี่
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

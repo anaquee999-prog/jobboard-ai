@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Setup Check | JobBoard{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>Setup Check</h1>
+    <p class="muted">ถ้าเห็นหน้านี้ แปลว่า Flask ทำงานและฐานข้อมูลถูกสร้างแล้ว</p>
+
+    <div class="stats-grid">
+        {% for key, value in stats.items() %}
+            <div class="stat-card">
+                <div class="stat-label">{{ key }}</div>
+                <div class="stat-value">{{ value }}</div>
+            </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

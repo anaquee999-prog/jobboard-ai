@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Admin Users | JobBoard{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>จัดการผู้ใช้</h1>
+    <p class="muted">ดู Trust Score, สถานะบัญชี และ Ban/Unban ผู้ใช้</p>
+
+    <div class="actions-row">
+        <a class="btn-link-box secondary" href="{{ url_for('admin_dashboard') }}">กลับ Dashboard</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_moderation') }}">Moderation</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_logs') }}">Logs</a>
+    </div>
+</section>
+
+<section class="card section-space">
+    <div class="table-list">
+        {% for user in users %}
+            <div class="job-row">
+                <div>
+                    <strong>{{ user.phone_number }}</strong>
+                    <div class="muted">
+                        {{ user.role }} |
+                        Trust {{ user.trust_score }} |
+                        {{ "BANNED" if user.is_banned else "ACTIVE" }}
+                    </div>
+                    <div class="muted">
+                        {{ user.company_name or user.full_name or "-" }} |
+                        Jobs {{ user.job_count }}
+                    </div>
+                </div>
+                <div class="admin-actions">
+                    {% if user.role != 'ADMIN' %}
+                        {% if user.is_banned %}
+                            <form method="post" action="{{ url_for('admin_unban_user', user_id=user.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit">Unban</button>
+                            </form>
+                        {% else %}
+                            <form method="post" action="{{ url_for('admin_ban_user', user_id=user.id) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="reason" value="Ban from admin panel">
+                                <button class="danger-btn" type="submit">Ban</button>
+                            </form>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+{% block title %}OpenChat | JobBoard{% endblock %}
+
+{% block content %}
+<style>
+.openchat-page {
+    min-height: calc(100vh - 72px);
+    padding: 28px 14px 42px;
+    background:
+        radial-gradient(circle at 16% 8%, rgba(56,189,248,.18), transparent 30%),
+        radial-gradient(circle at 90% 16%, rgba(34,197,94,.12), transparent 28%),
+        radial-gradient(circle at 50% 100%, rgba(14,165,233,.08), transparent 32%),
+        #050505;
+    color: #fff;
+}
+
+.openchat-wrap {
+    max-width: 980px;
+    margin: 0 auto;
+}
+
+.openchat-card {
+    height: calc(100vh - 140px);
+    min-height: 640px;
+    border-radius: 30px;
+    border: 1px solid rgba(56,189,248,.24);
+    background: rgba(2,6,23,.86);
+    box-shadow: 0 26px 80px rgba(0,0,0,.46);
+    backdrop-filter: blur(20px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.openchat-header {
+    padding: 22px 24px;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    background: linear-gradient(135deg, rgba(15,23,42,.86), rgba(2,6,23,.66));
+}
+
+.openchat-title h1 {
+    margin: 0;
+    font-size: clamp(25px, 4vw, 40px);
+    letter-spacing: -.03em;
+}
+
+.openchat-title p {
+    margin: 7px 0 0;
+    color: rgba(255,255,255,.68);
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.openchat-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.online-badge,
+.safety-badge {
+    padding: 8px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+    border: 1px solid rgba(255,255,255,.10);
+}
+
+.online-badge {
+    background: rgba(34,197,94,.14);
+    color: #86efac;
+}
+
+.safety-badge {
+    background: rgba(56,189,248,.12);
+    color: #7dd3fc;
+}
+
+.chat-stream {
+    flex: 1;
+    padding: 22px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column-reverse;
+    gap: 14px;
+    scroll-behavior: smooth;
+}
+
+.chat-message {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    animation: chatIn .22s ease both;
+}
+
+@keyframes chatIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 15px;
+    background: linear-gradient(135deg,#0ea5e9,#38bdf8);
+    color: #03131f;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 1000;
+    flex: 0 0 auto;
+    box-shadow: 0 10px 24px rgba(56,189,248,.24);
+}
+
+.chat-bubble {
+    max-width: 74%;
+    padding: 12px 14px;
+    border-radius: 19px 19px 19px 7px;
+    background: rgba(255,255,255,.075);
+    border: 1px solid rgba(255,255,255,.085);
+}
+
+.chat-meta {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 5px;
+    color: rgba(255,255,255,.58);
+    font-size: 12px;
+    flex-wrap: wrap;
+}
+
+.chat-author {
+    color: #7dd3fc;
+    font-weight: 900;
+}
+
+.chat-role {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    color: rgba(255,255,255,.72);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.chat-text {
+    white-space: pre-line;
+    line-height: 1.75;
+    color: rgba(255,255,255,.93);
+    overflow-wrap: anywhere;
+}
+
+.my-message {
+    flex-direction: row-reverse;
+}
+
+.my-message .chat-bubble {
+    border-radius: 19px 19px 7px 19px;
+    background: linear-gradient(135deg, rgba(14,165,233,.28), rgba(56,189,248,.17));
+    border-color: rgba(56,189,248,.22);
+}
+
+.my-message .chat-meta {
+    justify-content: flex-end;
+}
+
+.chat-input-area {
+    padding: 16px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    background: rgba(0,0,0,.20);
+}
+
+.chat-input-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.chat-input-form input[type="text"] {
+    flex: 1;
+    min-height: 54px;
+    border-radius: 18px;
+    border: 1px solid rgba(255,255,255,.12);
+    background: rgba(255,255,255,.075);
+    color: #fff;
+    padding: 0 16px;
+    font-family: inherit;
+    outline: none;
+}
+
+.chat-input-form input[type="text"]:focus {
+    border-color: rgba(56,189,248,.55);
+    box-shadow: 0 0 0 4px rgba(56,189,248,.10);
+}
+
+.chat-input-form button {
+    min-height: 54px;
+    border: 0;
+    border-radius: 18px;
+    padding: 0 24px;
+    background: linear-gradient(135deg,#0ea5e9,#38bdf8);
+    color: #03131f;
+    font-weight: 1000;
+    cursor: pointer;
+    box-shadow: 0 14px 30px rgba(56,189,248,.24);
+}
+
+.chat-input-form button:hover {
+    transform: translateY(-1px);
+}
+
+.input-note {
+    margin: 10px 4px 0;
+    color: rgba(255,255,255,.48);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.empty-chat {
+    margin: auto;
+    text-align: center;
+    color: rgba(255,255,255,.68);
+    line-height: 1.9;
+    padding: 28px;
+    border-radius: 24px;
+    border: 1px solid rgba(255,255,255,.08);
+    background: rgba(255,255,255,.045);
+}
+
+.empty-chat strong {
+    display: block;
+    color: #fff;
+    font-size: 20px;
+    margin-bottom: 6px;
+}
+
+@media (max-width: 700px) {
+    .openchat-page {
+        padding: 12px 10px 20px;
+    }
+
+    .openchat-card {
+        min-height: calc(100vh - 96px);
+        height: calc(100vh - 96px);
+        border-radius: 22px;
+    }
+
+    .openchat-header {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 18px;
+    }
+
+    .openchat-actions {
+        justify-content: flex-start;
+    }
+
+    .chat-stream {
+        padding: 16px;
+        gap: 12px;
+    }
+
+    .chat-bubble {
+        max-width: 86%;
+    }
+
+    .chat-input-form button {
+        padding: 0 16px;
+    }
+}
+</style>
+
+<div class="openchat-page">
+    <div class="openchat-wrap">
+        <section class="openchat-card">
+            <div class="openchat-header">
+                <div class="openchat-title">
+                    <h1>OpenChat</h1>
+                    <p>ห้องคุยรวมสำหรับถามงาน แชร์ประสบการณ์ และเตือนภัยงานน่าสงสัย</p>
+                </div>
+                <div class="openchat-actions">
+                    <span class="safety-badge">AI Moderation</span>
+                    <span class="online-badge">● Community Live</span>
+                </div>
+            </div>
+
+            <div class="chat-stream" id="chatStream">
+                {% if messages %}
+                    {% for msg in messages %}
+                        <div class="chat-message {% if current_user and msg.user_id == current_user.id %}my-message{% endif %}">
+                            <div class="chat-avatar">
+                                {% if msg.author_name %}
+                                    {{ msg.author_name[0] }}
+                                {% elif msg.phone_number %}
+                                    {{ msg.phone_number[-2:] }}
+                                {% else %}
+                                    J
+                                {% endif %}
+                            </div>
+
+                            <div class="chat-bubble">
+                                <div class="chat-meta">
+                                    <span class="chat-author">
+                                        {% if msg.author_name %}
+                                            {{ msg.author_name }}
+                                        {% elif msg.phone_number %}
+                                            ผู้ใช้ {{ msg.phone_number[-4:] }}
+                                        {% else %}
+                                            สมาชิก JobBoard
+                                        {% endif %}
+                                    </span>
+
+                                    {% if msg.role %}
+                                        <span class="chat-role">{{ msg.role }}</span>
+                                    {% endif %}
+
+                                    {% if msg.created_at %}
+                                        <span>{{ msg.created_at }}</span>
+                                    {% endif %}
+                                </div>
+
+                                <div class="chat-text">{{ msg.message }}</div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-chat">
+                        <strong>ยังไม่มีข้อความใน OpenChat</strong>
+                        เริ่มพูดคุยเรื่องงาน หรือแจ้งเตือนงานน่าสงสัยได้เลย
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="chat-input-area">
+                <form class="chat-input-form" method="POST" action="{{ url_for('openchat_send') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="text" name="message" placeholder="พิมพ์ข้อความ..." maxlength="500" autocomplete="off" required>
+                    <button type="submit">ส่ง</button>
+                </form>
+                <div class="input-note">ข้อความที่มีคำหยาบ สแปม หรืองานเสี่ยงหลอกลวงจะถูกส่งเข้าระบบตรวจสอบอัตโนมัติ</div>
+            </div>
+        </section>
+    </div>
+</div>
+
+<script>
+(function () {
+    const input = document.querySelector('.chat-input-form input[name="message"]');
+    if (input) input.focus();
+})();
+</script>
+
+{% endblock %}

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}JobBoard | งานใกล้บ้าน.com{% endblock %}</title>
+    <meta name="description" content="{% block meta_description %}หางานใกล้บ้าน สมัครง่าย ปลอดภัยขึ้น พร้อมระบบช่วยคัดกรองงานน่าสงสัย{% endblock %}">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700;800&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --blue: #38bdf8;
+            --blue-deep: #0ea5e9;
+            --orange: #ff650f;
+            --black: #050505;
+            --white: #ffffff;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            min-height: 100%;
+            font-family: "Prompt", "Sarabun", sans-serif;
+            background: #050505;
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .site-shell {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background:
+                radial-gradient(circle at top right, rgba(56,189,248,.12), transparent 28%),
+                #050505;
+        }
+
+        .premium-navbar {
+            position: sticky;
+            top: 0;
+            z-index: 999;
+            background: rgba(5,5,5,.72);
+            backdrop-filter: blur(18px);
+            border-bottom: 1px solid rgba(56,189,248,.24);
+            box-shadow: 0 16px 48px rgba(0,0,0,.45);
+        }
+
+        .nav-inner {
+            max-width: 1240px;
+            margin: 0 auto;
+            min-height: 72px;
+            padding: 10px 22px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: white;
+        }
+
+        .brand-logo {
+            width: 46px;
+            height: 46px;
+            border-radius: 17px;
+            background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+            display: grid;
+            place-items: center;
+            box-shadow: 0 0 0 4px rgba(56,189,248,.12), 0 14px 34px rgba(56,189,248,.34);
+            position: relative;
+        }
+
+        .brand-logo::before {
+            content: "";
+            width: 20px;
+            height: 20px;
+            border: 4px solid #050505;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            position: absolute;
+        }
+
+        .brand-logo::after {
+            content: "";
+            width: 8px;
+            height: 8px;
+            background: #050505;
+            border-radius: 999px;
+            position: absolute;
+        }
+
+        .brand-main {
+            display: block;
+            color: white;
+            font-size: 22px;
+            line-height: 1;
+            font-weight: 800;
+            letter-spacing: -.03em;
+        }
+
+        .brand-main span { color: var(--blue); }
+
+        .brand-sub {
+            display: block;
+            margin-top: 4px;
+            color: rgba(255,255,255,.72);
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav-links a,
+        .nav-links button {
+            font-family: inherit;
+            border: 0;
+            background: transparent;
+            color: #ffffff;
+            padding: 10px 14px;
+            border-radius: 999px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: .22s ease;
+        }
+
+        .nav-links a:hover,
+        .nav-links button:hover {
+            color: var(--blue);
+            background: rgba(56,189,248,.10);
+            transform: translateY(-1px);
+        }
+
+        .nav-links .active-link {
+            color: var(--blue);
+            background: rgba(56,189,248,.10);
+            border: 1px solid rgba(56,189,248,.22);
+        }
+
+        .nav-login {
+            background: rgba(255,255,255,.08) !important;
+            border: 1px solid rgba(255,255,255,.12) !important;
+        }
+
+        .nav-cta {
+            background: linear-gradient(135deg, #0ea5e9, #38bdf8) !important;
+            color: #03131f !important;
+            box-shadow: 0 12px 28px rgba(56,189,248,.32);
+        }
+
+        .nav-openchat {
+            border: 1px solid rgba(34,197,94,.22) !important;
+            background: rgba(34,197,94,.10) !important;
+            color: #86efac !important;
+        }
+
+        .nav-message-link {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+        }
+
+        .message-badge {
+            min-width: 19px;
+            height: 19px;
+            padding: 0 6px;
+            border-radius: 999px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #ef4444, #f97316);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 800;
+            box-shadow: 0 0 0 3px rgba(239,68,68,.18), 0 10px 22px rgba(239,68,68,.34);
+        }
+
+        main {
+            flex: 1;
+            width: 100%;
+            max-width: none;
+            margin: 0;
+            padding: 0;
+            background: #050505;
+        }
+
+        button, .btn, .btn-link-box {
+            font-family: inherit;
+            border: none;
+            border-radius: 16px;
+            padding: 12px 18px;
+            font-weight: 700;
+            cursor: pointer;
+            color: #03131f;
+            background: linear-gradient(135deg, var(--blue-deep), var(--blue));
+            transition: .22s ease;
+        }
+
+        input, textarea, select {
+            width: 100%;
+            font-family: inherit;
+            border: 1px solid rgba(255,255,255,.12);
+            border-radius: 16px;
+            padding: 13px 15px;
+            outline: none;
+            background: #101010;
+            color: #ffffff;
+            font-weight: 500;
+        }
+
+        .footer {
+            margin-top: auto;
+            background:
+                radial-gradient(circle at top right, rgba(56,189,248,.10), transparent 30%),
+                linear-gradient(135deg, #050505, #090909);
+            color: white;
+            border-top: 1px solid rgba(56,189,248,.22);
+        }
+
+        .footer-inner {
+            max-width: 1240px;
+            margin: 0 auto;
+            padding: 34px 22px;
+            display: grid;
+            grid-template-columns: 1.4fr 1fr 1fr 1fr;
+            gap: 26px;
+        }
+
+        .footer h3, .footer h4 {
+            margin: 0 0 10px;
+            color: white;
+            font-weight: 700;
+        }
+
+        .footer p, .footer a {
+            color: rgba(255,255,255,.72);
+            font-size: 14px;
+            line-height: 1.75;
+            font-weight: 500;
+        }
+
+        .footer a:hover { color: var(--blue); }
+
+        .footer-bottom {
+            border-top: 1px solid rgba(255,255,255,.08);
+            color: rgba(255,255,255,.56);
+            font-size: 13px;
+            padding: 14px 22px;
+            text-align: center;
+        }
+
+        @media (max-width: 860px) {
+            .nav-inner {
+                align-items: flex-start;
+                flex-direction: column;
+            }
+
+            .nav-links { justify-content: flex-start; }
+
+            .footer-inner { grid-template-columns: 1fr; }
+        }
+    </style>
+
+    {% block extra_head %}{% endblock %}
+</head>
+
+<body>
+<div class="site-shell">
+
+    <header class="premium-navbar">
+        <div class="nav-inner">
+            <a class="brand" href="{{ url_for('home') }}">
+                <span class="brand-logo"></span>
+                <span>
+                    <span class="brand-main">Job<span>Board</span></span>
+                    <small class="brand-sub">งานใกล้บ้าน.com</small>
+                </span>
+            </a>
+
+            <nav class="nav-links">
+                <a class="active-link" href="{{ url_for('home') }}">หน้าแรก</a>
+                <a href="{{ url_for('jobs_public') }}">งานใกล้ฉัน</a>
+                <a href="{{ url_for('community_board') }}">กระดานพูดคุย</a>
+
+                {% if current_user %}
+                    <a class="nav-openchat" href="{{ url_for('openchat') }}">OpenChat</a>
+                    <a href="{{ url_for('dashboard') }}">Dashboard</a>
+                    <a class="nav-message-link" href="{{ url_for('inbox') }}">
+                        ข้อความ
+                        <span id="messageBadge" class="message-badge">0</span>
+                    </a>
+
+                    {% if current_user.role == "JOB_SEEKER" %}
+                        <a class="nav-cta" href="{{ url_for('job_seeker_post') }}">โพสต์หางาน</a>
+                    {% elif current_user.role == "EMPLOYER" %}
+                        <a class="nav-cta" href="{{ url_for('employer_create_job') }}">โพสต์งาน</a>
+                        <a href="{{ url_for('employer_applications') }}">ใบสมัคร</a>
+                    {% elif current_user.role == "ADMIN" %}
+                        <a href="{{ url_for('admin_trust_center') }}">Trust Center</a>
+                        <a href="{{ url_for('admin_scam_center') }}">Scam Center</a>
+                    {% endif %}
+
+                    <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">ออกจากระบบ</button>
+                    </form>
+                {% else %}
+                    <a class="nav-login" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+                    <a class="nav-cta" href="{{ url_for('register') }}">สมัครใช้งาน</a>
+                {% endif %}
+            </nav>
+        </div>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="footer-inner">
+            <div>
+                <h3>Job<span style="color:#38bdf8;">Board</span></h3>
+                <p>แพลตฟอร์มหางานใกล้บ้านที่ช่วยให้สมัครงานได้มั่นใจขึ้น ด้วยระบบตรวจประกาศและ Trust Score</p>
+            </div>
+
+            <div>
+                <h4>สำหรับผู้หางาน</h4>
+                <p><a href="{{ url_for('jobs_public') }}">งานใกล้ฉัน</a>
+                <a href="{{ url_for('community_board') }}">กระดานพูดคุย</a></p>
+                {% if current_user %}
+                    <p><a href="{{ url_for('openchat') }}">OpenChat</a></p>
+                {% endif %}
+                <p><a href="{{ url_for('job_seeker_post') if current_user and current_user.role == 'JOB_SEEKER' else url_for('register') }}">โพสต์หางาน</a></p>
+            </div>
+
+            <div>
+                <h4>สำหรับบริษัท</h4>
+                <p><a href="{{ url_for('register') }}">สมัครบัญชีนายจ้าง</a></p>
+                {% if current_user and current_user.role == "EMPLOYER" %}
+                    <p><a href="{{ url_for('employer_create_job') }}">โพสต์งาน</a></p>
+                    <p><a href="{{ url_for('employer_applications') }}">ดูใบสมัคร</a></p>
+                {% endif %}
+            </div>
+
+            <div>
+                <h4>ความปลอดภัย</h4>
+                <p>AI Anti-Scam</p>
+                <p>Community Report</p>
+                <p>Phone OTP + Role</p>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            © {{ current_year }} JobBoard Anti-Scam — หางานง่ายขึ้น ปลอดภัยขึ้น และดูเป็นมืออาชีพขึ้น
+        </div>
+    </footer>
+
+</div>
+
+{% if current_user %}
+<script>
+(function () {
+    const badge = document.getElementById("messageBadge");
+    if (!badge) return;
+
+    async function refreshUnreadCount() {
+        try {
+            const response = await fetch("{{ url_for('api_unread_messages_count') }}", {
+                headers: { "Accept": "application/json" },
+                credentials: "same-origin"
+            });
+
+            if (!response.ok) return;
+
+            const data = await response.json();
+            const count = Number(data.unread || 0);
+
+            if (count > 0) {
+                badge.textContent = count > 99 ? "99+" : String(count);
+                badge.style.display = "inline-flex";
+            } else {
+                badge.style.display = "none";
+            }
+        } catch (error) {
+            badge.style.display = "none";
+        }
+    }
+
+    refreshUnreadCount();
+    setInterval(refreshUnreadCount, 10000);
+})();
+</script>
+{% endif %}
+
+{% block extra_body %}{% endblock %}
+</body>
+</html>

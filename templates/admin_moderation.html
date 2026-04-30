@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Admin Moderation | JobBoard{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>Admin Moderation</h1>
+    <p class="muted">ตรวจประกาศงาน เปลี่ยนสถานะ ลบงาน และควบคุมความเสี่ยง</p>
+
+    <div class="actions-row">
+        <a class="btn-link-box secondary" href="{{ url_for('admin_dashboard') }}">กลับ Dashboard</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_users') }}">จัดการผู้ใช้</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_logs') }}">Logs</a>
+    </div>
+
+    <form method="get" class="search-form section-space">
+        <input type="text" name="q" value="{{ q }}" placeholder="ค้นหางาน / บริษัท">
+        <select name="status">
+            <option value="">ทุกสถานะ</option>
+            <option value="PENDING_AI_REVIEW" {% if status == 'PENDING_AI_REVIEW' %}selected{% endif %}>PENDING_AI_REVIEW</option>
+            <option value="ACTIVE" {% if status == 'ACTIVE' %}selected{% endif %}>ACTIVE</option>
+            <option value="REJECTED" {% if status == 'REJECTED' %}selected{% endif %}>REJECTED</option>
+            <option value="CLOSED" {% if status == 'CLOSED' %}selected{% endif %}>CLOSED</option>
+        </select>
+        <button type="submit">ค้นหา</button>
+    </form>
+</section>
+
+<section class="card section-space">
+    <h2>รายการประกาศงาน</h2>
+    <div class="table-list">
+        {% for job in jobs %}
+            <div class="job-row moderation-row">
+                <div>
+                    <strong>{{ job.title }}</strong>
+                    <div class="muted">{{ job.company_name or '-' }} | เบอร์ {{ job.phone_number }} | Trust {{ job.trust_score }}</div>
+                    <div class="muted">Status {{ job.status }} | Risk {{ job.ai_risk_score if job.ai_risk_score is not none else '-' }} | Reports {{ job.report_count }}</div>
+                    <div class="muted">{{ job.ai_risk_reason }}</div>
+                </div>
+                <div class="admin-actions">
+                    <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='approve') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">Approve</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='review') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">Review</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='reject') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">Reject</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='close') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">Close</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_delete_job', job_id=job.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="danger-btn" type="submit">Delete</button>
+                    </form>
+                </div>
+            </div>
+        {% else %}
+            <p class="muted">ไม่พบข้อมูล</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

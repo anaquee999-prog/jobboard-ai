@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+
+    <title>หางาน {{ province }} ล่าสุด | งานราชการ งานบริษัท {{ province }}</title>
+
+    <meta name="description" content="รวมงาน {{ province }} อัปเดตล่าสุด งานราชการ งานเอกชน สมัครงานง่าย ปลอดภัย มี AI ตรวจสอบมิจฉาชีพ">
+
+    <meta name="robots" content="index, follow">
+
+    <meta property="og:title" content="หางาน {{ province }} ล่าสุด">
+    <meta property="og:description" content="รวมงาน {{ province }} อัปเดตใหม่ทุกวัน ปลอดภัยด้วย AI ตรวจจับงานหลอก">
+</head>
+<body>
+
+<h1>หางานใน {{ province }}</h1>
+
+{% if jobs %}
+    {% for job in jobs %}
+        <div style="margin-bottom:20px;">
+            <h3>
+                <a href="{{ url_for('job_detail', slug=job_slug(job)) }}">
+                    {{ job.title }}
+                </a>
+            </h3>
+            <p>{{ job.description }}</p>
+            <small>{{ job.location }}</small>
+        </div>
+    {% endfor %}
+{% else %}
+    <p>ยังไม่มีงานในจังหวัดนี้</p>
+{% endif %}
+
+</body>
+</html>
