@@ -341,11 +341,27 @@ def init_db():
 
 def seed_admin(conn):
     phone = normalize_phone(ADMIN_PHONE)
+    current_time = now_str()
+    password_hash = hash_password(ADMIN_PASSWORD)
+
     row = conn.execute("SELECT id FROM users WHERE phone_number = ?", (phone,)).fetchone()
+
     if row:
+        conn.execute(
+            """
+            UPDATE users
+            SET password_hash = ?,
+                role = 'ADMIN',
+                is_verified = 1,
+                is_banned = 0,
+                trust_score = 100,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (password_hash, current_time, row["id"])
+        )
         return
 
-    current_time = now_str()
     conn.execute(
         """
         INSERT INTO users (
@@ -354,9 +370,8 @@ def seed_admin(conn):
         )
         VALUES (?, ?, 'ADMIN', 1, 0, 100, ?, ?)
         """,
-        (phone, hash_password(ADMIN_PASSWORD), current_time, current_time)
+        (phone, password_hash, current_time, current_time)
     )
-
 
 def seed_demo_jobs(conn):
     count = conn.execute("SELECT COUNT(*) AS count FROM job_posts").fetchone()["count"]
