@@ -13,6 +13,8 @@
         <a class="btn-link-box secondary" href="{{ url_for('admin_scam_center') }}">Scam Center</a>
         <a class="btn-link-box secondary" href="{{ url_for('admin_import_runs') }}">Import Runs</a>
         <a class="btn-link-box secondary" href="{{ url_for('admin_trust_center') }}">Trust Center</a>
+
+  <a class="btn-link-box secondary" href="{{ url_for('admin_backup_download') }}">ดาวน์โหลด Backup ZIP</a>
         <form method="post" action="{{ url_for('admin_fetch_government_news') }}" class="inline-form">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit">รัน Auto Job Engine</button>
