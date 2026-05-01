@@ -1405,6 +1405,49 @@ def send_job_report_discord_alert(job, reporter, reason, new_report_count, new_s
 
     return send_discord_alert(message, username="JobBoard Scam Alert Bot")
 
+
+def sanitize_discord_alert_text(value, limit=700):
+    text = str(value or "").strip()
+    text = text.replace("@", "@\u200b")
+    text = text.replace("\r", " ").replace("\n", " ")
+    text = " ".join(text.split())
+
+    if len(text) > limit:
+        text = text[:limit] + "..."
+
+    return text or "-"
+
+
+def send_content_moderation_discord_alert(content_type, content_id, user, body, status, score, reason):
+    try:
+        risk_score = int(score or 0)
+    except (TypeError, ValueError):
+        risk_score = 0
+
+    user_phone = user.get("phone_number", "-") if isinstance(user, dict) else "-"
+    user_role = user.get("role", "-") if isinstance(user, dict) else "-"
+
+    if content_type == "OPENCHAT":
+        title = "💬 OpenChat พบข้อความเสี่ยง"
+        admin_url = url_for("openchat", _external=True)
+    else:
+        title = "🛡️ Community พบโพสต์เสี่ยง"
+        admin_url = url_for("community_board", _external=True)
+
+    message = (
+        f"{title}\n"
+        f"Content Type: {content_type}\n"
+        f"Content ID: {content_id}\n"
+        f"สถานะ: {status}\n"
+        f"คะแนน Moderation: {risk_score}/100\n"
+        f"ผู้โพสต์: {user_phone} ({user_role})\n"
+        f"เหตุผล: {sanitize_discord_alert_text(reason, 700)}\n"
+        f"ข้อความ: {sanitize_discord_alert_text(body, 900)}\n"
+        f"ตรวจสอบในระบบ: {admin_url}"
+    )
+
+    return send_discord_alert(message, username="JobBoard Scam Alert Bot")
+
 @app.route("/community")
 def community_board():
     user = get_current_user()
@@ -1482,6 +1525,25 @@ def create_community_post():
 
     post_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     add_activity_log(user["id"], "CREATE_COMMUNITY_POST", "community_posts", post_id, f"status={status}, score={score}")
+
+    if status in {"PENDING_REVIEW", "BLOCKED"} or int(score or 0) >= 35:
+        alert_sent = send_content_moderation_discord_alert(
+            "COMMUNITY",
+            post_id,
+            user,
+            body,
+            status,
+            score,
+            reason,
+        )
+        add_activity_log(
+            user["id"],
+            "DISCORD_COMMUNITY_ALERT_SENT" if alert_sent else "DISCORD_COMMUNITY_ALERT_FAILED",
+            "community_posts",
+            post_id,
+            f"status={status}, score={score}",
+        )
+
     conn.commit()
 
     return redirect(url_for("community_board"))
@@ -1638,6 +1700,25 @@ def openchat_send():
 
     message_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
     add_activity_log(user["id"], "CREATE_OPENCHAT_MESSAGE", "openchat_messages", message_id, f"status={status}, score={score}")
+
+    if status in {"PENDING_REVIEW", "BLOCKED"} or int(score or 0) >= 35:
+        alert_sent = send_content_moderation_discord_alert(
+            "OPENCHAT",
+            message_id,
+            user,
+            message,
+            status,
+            score,
+            reason,
+        )
+        add_activity_log(
+            user["id"],
+            "DISCORD_OPENCHAT_ALERT_SENT" if alert_sent else "DISCORD_OPENCHAT_ALERT_FAILED",
+            "openchat_messages",
+            message_id,
+            f"status={status}, score={score}",
+        )
+
     conn.commit()
 
     return redirect(url_for("openchat"))
