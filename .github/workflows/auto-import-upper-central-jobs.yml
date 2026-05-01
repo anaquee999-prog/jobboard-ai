@@ -1,0 +1,25 @@
+name: Auto Import Upper Central Jobs
+
+on:
+  schedule:
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+
+jobs:
+  import-jobs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call JobBoard cron importer
+        env:
+          JOBBOARD_CRON_URL: https://jobboard-ai-app.onrender.com/internal/cron/import-upper-central-jobs
+          JOBBOARD_CRON_TOKEN: ${{ secrets.JOBBOARD_CRON_TOKEN }}
+        run: |
+          if [ -z "$JOBBOARD_CRON_TOKEN" ]; then
+            echo "Missing JOBBOARD_CRON_TOKEN secret"
+            exit 1
+          fi
+
+          curl -fsS \
+            --max-time 90 \
+            -H "X-Cron-Token: $JOBBOARD_CRON_TOKEN" \
+            "$JOBBOARD_CRON_URL"

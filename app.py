@@ -42,6 +42,7 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("JOBBOARD_SESSION_COOKIE_SE
 ADMIN_PHONE = os.environ.get("JOBBOARD_ADMIN_PHONE", "").strip()
 ADMIN_PASSWORD = os.environ.get("JOBBOARD_ADMIN_PASSWORD", "").strip()
 DISCORD_SCAM_ALERT_WEBHOOK_URL = os.environ.get("DISCORD_SCAM_ALERT_WEBHOOK_URL", "").strip()
+JOBBOARD_CRON_TOKEN = os.environ.get("JOBBOARD_CRON_TOKEN", "").strip()
 
 ROLES = {"JOB_SEEKER", "EMPLOYER", "ADMIN"}
 
@@ -2760,6 +2761,49 @@ def import_upper_central_jobs_to_db():
     return inserted, updated
 
 
+
+def is_valid_cron_request():
+    token = request.headers.get("X-Cron-Token", "").strip()
+    if not token:
+        token = request.args.get("token", "").strip()
+
+    return bool(JOBBOARD_CRON_TOKEN) and bool(token) and hmac.compare_digest(token, JOBBOARD_CRON_TOKEN)
+
+
+@app.route("/internal/cron/import-upper-central-jobs", methods=["GET", "POST"])
+def cron_import_upper_central_jobs():
+    if not is_valid_cron_request():
+        abort(403)
+
+    inserted, updated = import_upper_central_jobs_to_db()
+
+    add_activity_log(
+        None,
+        "CRON_IMPORT_UPPER_CENTRAL_JOBS",
+        "job_posts",
+        None,
+        f"inserted={inserted}, updated={updated}, provinces=phichit,phitsanulok,kamphaengphet,nakhonsawan",
+    )
+    get_db().commit()
+
+    send_discord_alert(
+        "? Auto Import ??? 4 ??????? ??????\n"
+        f"Inserted: {inserted}\n"
+        f"Updated: {updated}\n"
+        "???????: ?????? / ???????? / ????????? / ?????????\n"
+        f"????: {now_str()}",
+        username="JobBoard Auto Import Bot",
+    )
+
+    return jsonify({
+        "ok": True,
+        "inserted": inserted,
+        "updated": updated,
+        "provinces": ["??????", "????????", "?????????", "?????????"],
+        "checked_at": now_str(),
+    })
+
+
 @app.route("/admin/local-jobs/import-upper-central")
 @role_required("ADMIN")
 def admin_import_upper_central_jobs():
@@ -2832,6 +2876,7 @@ def admin_system_health():
         "JOBBOARD_DATABASE_PATH": bool(os.environ.get("JOBBOARD_DATABASE_PATH", "").strip()),
         "JOBBOARD_SESSION_COOKIE_SECURE": app.config.get("SESSION_COOKIE_SECURE") is True,
         "DISCORD_SCAM_ALERT_WEBHOOK_URL": bool(DISCORD_SCAM_ALERT_WEBHOOK_URL),
+        "JOBBOARD_CRON_TOKEN": bool(JOBBOARD_CRON_TOKEN),
     }
 
     stats = {
