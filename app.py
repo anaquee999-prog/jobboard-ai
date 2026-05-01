@@ -1468,6 +1468,44 @@ def analyze_safety_text(body, context="GENERAL"):
     return score, " | ".join(reasons[:10]), status
 
 
+
+def safe_send_moderation_alert(content_type, content_id, user, body, status, score, reason):
+    try:
+        if "send_content_moderation_discord_alert" in globals():
+            return send_content_moderation_discord_alert(
+                content_type,
+                content_id,
+                user,
+                body,
+                status,
+                score,
+                reason,
+            )
+
+        user_phone = user.get("phone_number", "-") if isinstance(user, dict) else "-"
+        message = (
+            "🛡️ Safety Guard Alert\n"
+            f"Type: {content_type}\n"
+            f"Content ID: {content_id}\n"
+            f"Status: {status}\n"
+            f"Score: {score}/100\n"
+            f"User: {user_phone}\n"
+            f"Reason: {str(reason or '-')[:700]}\n"
+            f"Text: {str(body or '-')[:900]}"
+        )
+        return send_discord_alert(message, username="JobBoard Safety Guard")
+    except Exception:
+        return False
+
+
+def safe_add_activity_log(actor_id, action, target_type="", target_id=None, detail=""):
+    try:
+        add_activity_log(actor_id, action, target_type, target_id, detail)
+        return True
+    except Exception:
+        return False
+
+
 def reject_unsafe_text_response(score, reason):
     safe_reason = str(reason or "ข้อความไม่ผ่านระบบความปลอดภัย")
     return (
@@ -1541,7 +1579,7 @@ def create_community_post():
     score, reason, status = analyze_safety_text(body, context="COMMUNITY")
 
     if status == "BLOCKED":
-        alert_sent = send_content_moderation_discord_alert(
+        alert_sent = safe_send_moderation_alert(
             "COMMUNITY_BLOCKED",
             "-",
             user,
@@ -1550,14 +1588,17 @@ def create_community_post():
             score,
             reason,
         )
-        add_activity_log(
+        safe_add_activity_log(
             user["id"],
             "COMMUNITY_POST_BLOCKED",
             "community_posts",
             None,
-            f"score={score}, alert={alert_sent}, reason={reason[:200]}",
+            f"score={score}, alert={alert_sent}, reason={str(reason)[:200]}",
         )
-        get_db().commit()
+        try:
+            get_db().commit()
+        except Exception:
+            pass
         return reject_unsafe_text_response(score, reason)
     current_time = now_str()
     conn = get_db()
@@ -1577,7 +1618,7 @@ def create_community_post():
     add_activity_log(user["id"], "CREATE_COMMUNITY_POST", "community_posts", post_id, f"status={status}, score={score}")
 
     if status in {"PENDING_REVIEW", "BLOCKED"} or int(score or 0) >= 35:
-        alert_sent = send_content_moderation_discord_alert(
+        alert_sent = safe_send_moderation_alert(
             "COMMUNITY",
             post_id,
             user,
@@ -1733,7 +1774,7 @@ def openchat_send():
     score, reason, status = analyze_safety_text(message, context="OPENCHAT")
 
     if status == "BLOCKED":
-        alert_sent = send_content_moderation_discord_alert(
+        alert_sent = safe_send_moderation_alert(
             "OPENCHAT_BLOCKED",
             "-",
             user,
@@ -1742,14 +1783,17 @@ def openchat_send():
             score,
             reason,
         )
-        add_activity_log(
+        safe_add_activity_log(
             user["id"],
             "OPENCHAT_MESSAGE_BLOCKED",
             "openchat_messages",
             None,
-            f"score={score}, alert={alert_sent}, reason={reason[:200]}",
+            f"score={score}, alert={alert_sent}, reason={str(reason)[:200]}",
         )
-        get_db().commit()
+        try:
+            get_db().commit()
+        except Exception:
+            pass
         return reject_unsafe_text_response(score, reason)
     current_time = now_str()
     conn = get_db()
@@ -1769,7 +1813,7 @@ def openchat_send():
     add_activity_log(user["id"], "CREATE_OPENCHAT_MESSAGE", "openchat_messages", message_id, f"status={status}, score={score}")
 
     if status in {"PENDING_REVIEW", "BLOCKED"} or int(score or 0) >= 35:
-        alert_sent = send_content_moderation_discord_alert(
+        alert_sent = safe_send_moderation_alert(
             "OPENCHAT",
             message_id,
             user,
@@ -3208,7 +3252,7 @@ def send_message():
 
     safety_score, safety_reason, safety_status = analyze_safety_text(message, context="PRIVATE_MESSAGE")
     if safety_status == "BLOCKED":
-        alert_sent = send_content_moderation_discord_alert(
+        alert_sent = safe_send_moderation_alert(
             "PRIVATE_MESSAGE_BLOCKED",
             "-",
             user,
@@ -3217,14 +3261,17 @@ def send_message():
             safety_score,
             safety_reason,
         )
-        add_activity_log(
+        safe_add_activity_log(
             user["id"],
             "PRIVATE_MESSAGE_BLOCKED",
             "messages",
             None,
-            f"score={safety_score}, alert={alert_sent}, reason={safety_reason[:200]}",
+            f"score={safety_score}, alert={alert_sent}, reason={str(safety_reason)[:200]}",
         )
-        get_db().commit()
+        try:
+            get_db().commit()
+        except Exception:
+            pass
         return reject_unsafe_text_response(safety_score, safety_reason)
 
     try:
