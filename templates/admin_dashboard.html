@@ -1,59 +1,108 @@
 {% extends "base.html" %}
+
 {% block title %}Admin Dashboard | JobBoard{% endblock %}
 
 {% block content %}
-<section class="card">
+<section class="admin-hero">
+  <div>
+    <p class="admin-eyebrow">AI Anti-Scam Control Center</p>
     <h1>Admin Dashboard</h1>
-    <p class="muted">ภาพรวมระบบ Anti-Scam</p>
+    <p>ภาพรวมระบบ ตรวจงานเสี่ยง จัดการผู้ใช้ และสำรองข้อมูลสำคัญของ JobBoard</p>
+  </div>
 
-    <div class="actions-row">
-        <a class="btn-link-box" href="{{ url_for('admin_moderation') }}">จัดการประกาศงาน</a>
-        <a class="btn-link-box secondary" href="{{ url_for('admin_users') }}">จัดการผู้ใช้</a>
-        <a class="btn-link-box secondary" href="{{ url_for('admin_logs') }}">ดู Logs</a>
-        <a class="btn-link-box secondary" href="{{ url_for('admin_scam_center') }}">Scam Center</a>
-        <a class="btn-link-box secondary" href="{{ url_for('admin_import_runs') }}">Import Runs</a>
-        <a class="btn-link-box secondary" href="{{ url_for('admin_trust_center') }}">Trust Center</a>
-
-  <a class="btn-link-box secondary" href="{{ url_for('admin_backup_download') }}">ดาวน์โหลด Backup ZIP</a>
-        <form method="post" action="{{ url_for('admin_fetch_government_news') }}" class="inline-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit">รัน Auto Job Engine</button>
-        </form>
-    </div>
-
-    <div class="stats-grid">
-        <div class="stat-card"><div class="stat-label">Users</div><div class="stat-value">{{ stats.users }}</div></div>
-        <div class="stat-card"><div class="stat-label">รอ AI ตรวจ</div><div class="stat-value">{{ stats.pending_ai }}</div></div>
-        <div class="stat-card"><div class="stat-label">งาน Active</div><div class="stat-value">{{ stats.active }}</div></div>
-        <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value">{{ stats.rejected }}</div></div>
-        <div class="stat-card"><div class="stat-label">Report รอตรวจ</div><div class="stat-value">{{ stats.reports }}</div></div>
-    </div>
+  <div class="admin-hero-actions">
+    <a class="admin-btn primary" href="{{ url_for('admin_moderation') }}">จัดการประกาศงาน</a>
+    <a class="admin-btn" href="{{ url_for('admin_scam_center') }}">Scam Center</a>
+    <a class="admin-btn success" href="{{ url_for('admin_backup_download') }}">ดาวน์โหลด Backup ZIP</a>
+  </div>
 </section>
 
-<section class="card section-space">
-    <h2>งานที่ต้องตรวจล่าสุด</h2>
-    <div class="table-list">
-        {% for job in review_jobs %}
-            <div class="job-row">
-                <div>
-                    <strong>{{ job.title }}</strong>
-                    <div class="muted">{{ job.company_name or '-' }} | {{ job.status }}</div>
-                    <div class="muted">Risk {{ job.ai_risk_score }} | {{ job.ai_risk_reason }}</div>
-                </div>
-                <div class="admin-actions">
-                    <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='approve') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit">Approve</button>
-                    </form>
-                    <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='reject') }}">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit">Reject</button>
-                    </form>
-                </div>
-            </div>
-        {% else %}
-            <p class="muted">ไม่มีงานรอตรวจ</p>
-        {% endfor %}
+<section class="admin-toolbar">
+  <a href="{{ url_for('admin_moderation') }}">จัดการประกาศงาน</a>
+  <a href="{{ url_for('admin_users') }}">จัดการผู้ใช้</a>
+  <a href="{{ url_for('admin_logs') }}">ดู Logs</a>
+  <a href="{{ url_for('admin_scam_center') }}">Scam Center</a>
+  <a href="{{ url_for('admin_import_runs') }}">Import Runs</a>
+  <a href="{{ url_for('admin_trust_center') }}">Trust Center</a>
+
+  <form method="post" action="{{ url_for('admin_fetch_government_news') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit">รัน Auto Job Engine</button>
+  </form>
+</section>
+
+<section class="admin-stats-grid">
+  <article class="admin-stat-card">
+    <span>Users</span>
+    <strong>{{ stats.users }}</strong>
+    <small>บัญชีทั้งหมดในระบบ</small>
+  </article>
+
+  <article class="admin-stat-card warning">
+    <span>รอ AI ตรวจ</span>
+    <strong>{{ stats.pending_ai }}</strong>
+    <small>ประกาศที่ต้องตรวจเพิ่ม</small>
+  </article>
+
+  <article class="admin-stat-card success">
+    <span>งาน Active</span>
+    <strong>{{ stats.active }}</strong>
+    <small>ประกาศที่เปิดใช้งาน</small>
+  </article>
+
+  <article class="admin-stat-card danger">
+    <span>Rejected</span>
+    <strong>{{ stats.rejected }}</strong>
+    <small>ประกาศที่ระบบปฏิเสธ</small>
+  </article>
+
+  <article class="admin-stat-card report">
+    <span>Report รอตรวจ</span>
+    <strong>{{ stats.reports }}</strong>
+    <small>รายงานจากผู้ใช้งาน</small>
+  </article>
+</section>
+
+<section class="admin-panel">
+  <div class="admin-panel-head">
+    <div>
+      <p class="admin-eyebrow">Review Queue</p>
+      <h2>งานที่ต้องตรวจล่าสุด</h2>
     </div>
+    <a class="admin-small-link" href="{{ url_for('admin_moderation') }}">ดูทั้งหมด</a>
+  </div>
+
+  <div class="admin-review-list">
+    {% for job in review_jobs %}
+      <article class="admin-review-card">
+        <div>
+          <div class="admin-review-title">{{ job.title }}</div>
+          <div class="admin-review-meta">
+            <span>{{ job.company_name or '-' }}</span>
+            <span>{{ job.status }}</span>
+            <span>Risk {{ job.ai_risk_score or 0 }}</span>
+          </div>
+          <p>{{ job.ai_risk_reason or 'ไม่มีเหตุผลจาก AI' }}</p>
+        </div>
+
+        <div class="admin-review-actions">
+          <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='approve') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="admin-mini-btn approve" type="submit">Approve</button>
+          </form>
+
+          <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='reject') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="admin-mini-btn reject" type="submit">Reject</button>
+          </form>
+        </div>
+      </article>
+    {% else %}
+      <div class="admin-empty">
+        <strong>ไม่มีงานรอตรวจ</strong>
+        <p>ระบบยังไม่พบประกาศเสี่ยงที่ต้องให้แอดมินตรวจเพิ่ม</p>
+      </div>
+    {% endfor %}
+  </div>
 </section>
 {% endblock %}
