@@ -1305,65 +1305,157 @@ def analyze_job_text(title, description):
     return score, " | ".join(reasons[:8]), status
 
 
-def analyze_community_text(body):
-    text = str(body or "").strip().lower()
+
+def normalize_user_text_for_safety(value, max_length=1500):
+    text = str(value or "")
+    text = text.replace("\x00", "")
+    text = re.sub(r"[\u200b-\u200f\u202a-\u202e]", "", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{4,}", "\n\n\n", text)
+    text = text.strip()
+
+    if len(text) > max_length:
+        text = text[:max_length].strip()
+
+    return text
+
+
+def detect_sensitive_personal_data(text):
+    raw = str(text or "")
+    digits = re.sub(r"\D", "", raw)
+    findings = []
+
+    if re.search(r"\b\d{13}\b", digits):
+        findings.append("พบเลขลักษณะคล้ายเลขบัตรประชาชน 13 หลัก")
+
+    if re.search(r"0[689]\d{8}", digits):
+        findings.append("พบเบอร์โทรศัพท์ในข้อความ")
+
+    if re.search(r"\b\d{10,12}\b", digits):
+        findings.append("พบเลขยาวลักษณะคล้ายเลขบัญชี/ข้อมูลการเงิน")
+
+    if re.search(r"(line\s*id|ไลน์|ไอดีไลน์|telegram|เทเลแกรม|whatsapp|วอทส์แอพ)", raw, re.IGNORECASE):
+        findings.append("พบช่องทางติดต่อภายนอก เช่น Line/Telegram/WhatsApp")
+
+    return findings
+
+
+def analyze_safety_text(body, context="GENERAL"):
+    text = normalize_user_text_for_safety(body, 2000)
+    lowered = text.lower()
+
     score = 0
     reasons = []
 
-    blocked_terms = {
-        "โอนเงินก่อน": 55,
-        "ค่าประกัน": 45,
-        "ค่าสมัคร": 40,
-        "พนัน": 45,
-        "เว็บพนัน": 60,
-        "เงินกู้": 35,
-        "แอดไลน์": 20,
-        "ทักไลน์": 20,
-        "รายได้หลักแสน": 45,
-        "ลงทุนก่อน": 55,
-        "18+": 40,
+    if not text:
+        return 100, "ข้อความว่างเปล่า", "BLOCKED"
+
+    if len(text) < 2:
+        score += 35
+        reasons.append("ข้อความสั้นเกินไป")
+
+    if len(text) > 1000:
+        score += 15
+        reasons.append("ข้อความยาวมากผิดปกติ")
+
+    if re.search(r"(.)\1{7,}", lowered):
+        score += 25
+        reasons.append("มีอักขระซ้ำจำนวนมาก")
+
+    url_count = len(re.findall(r"https?://|www\.|bit\.ly|shorturl|tinyurl|t\.me/", lowered))
+    if url_count >= 2:
+        score += 45
+        reasons.append("มีลิงก์หลายรายการ")
+    elif url_count == 1:
+        score += 18
+        reasons.append("มีลิงก์ในข้อความ")
+
+    dangerous_terms = {
+        "โอนเงินก่อน": 70,
+        "ค่าประกัน": 60,
+        "ค่าสมัคร": 55,
+        "ค่ามัดจำ": 55,
+        "ลงทุนก่อน": 70,
+        "เว็บพนัน": 80,
+        "พนัน": 65,
+        "บาคาร่า": 75,
+        "สล็อต": 75,
+        "เงินกู้": 55,
+        "ปล่อยกู้": 60,
+        "รับจำนำ": 45,
+        "รายได้หลักแสน": 55,
+        "ไม่ต้องสัมภาษณ์": 35,
+        "งานแพ็คของที่บ้าน": 60,
+        "แอดไลน์": 35,
+        "ทักไลน์": 35,
+        "telegram": 35,
+        "whatsapp": 35,
+    }
+
+    sexual_terms = {
+        "18+": 70,
+        "คลิปโป๊": 90,
+        "รูปโป๊": 90,
+        "หนังโป๊": 90,
+        "รับงานเสียว": 90,
+        "ไซด์ไลน์": 75,
+        "นัดเย": 95,
+        "เย็ด": 95,
+        "ควย": 65,
+        "หี": 65,
+        "นม": 35,
     }
 
     rude_terms = {
-        "เหี้ย": 45,
-        "ควย": 45,
-        "สัส": 35,
-        "สัด": 35,
-        "ไอ้ควาย": 35,
-        "ไอ้โง่": 30,
-        "มึง": 18,
-        "กู": 12,
+        "เหี้ย": 60,
+        "สัส": 50,
+        "สัด": 50,
+        "ไอ้ควาย": 55,
+        "ไอ้โง่": 45,
+        "มึง": 25,
+        "กู": 20,
     }
 
-    if len(text) < 3:
-        score += 30
-        reasons.append("ข้อความสั้นเกินไป")
+    threat_terms = {
+        "ฆ่า": 75,
+        "ทำร้าย": 65,
+        "ขู่": 45,
+        "ประจาน": 45,
+        "แบล็คเมล์": 70,
+    }
 
-    if re.search(r"(.)\1{6,}", text):
-        score += 20
-        reasons.append("มีอักขระซ้ำจำนวนมาก")
-
-    url_count = len(re.findall(r"https?://|www\.", text))
-    if url_count >= 2:
-        score += 35
-        reasons.append("มีลิงก์หลายรายการ")
-    elif url_count == 1:
-        score += 12
-        reasons.append("มีลิงก์ในข้อความ")
-
-    for term, point in blocked_terms.items():
-        if term in text:
+    for term, point in dangerous_terms.items():
+        if term in lowered:
             score += point
-            reasons.append(f"พบคำเสี่ยง: {term}")
+            reasons.append(f"พบคำเสี่ยงหลอกลวง/ผิดกฎ: {term}")
+
+    for term, point in sexual_terms.items():
+        if term in lowered:
+            score += point
+            reasons.append(f"พบคำลามก/อนาจาร: {term}")
 
     for term, point in rude_terms.items():
-        if term in text:
+        if term in lowered:
             score += point
             reasons.append(f"พบคำไม่สุภาพ: {term}")
 
+    for term, point in threat_terms.items():
+        if term in lowered:
+            score += point
+            reasons.append(f"พบคำข่มขู่/คุกคาม: {term}")
+
+    personal_findings = detect_sensitive_personal_data(text)
+    if personal_findings:
+        if context in {"OPENCHAT", "COMMUNITY"}:
+            score += 55
+        else:
+            score += 25
+        reasons.extend(personal_findings[:4])
+
     score = max(0, min(score, 100))
 
-    if score >= 70:
+    if score >= 75:
         status = "BLOCKED"
     elif score >= 35:
         status = "PENDING_REVIEW"
@@ -1371,83 +1463,23 @@ def analyze_community_text(body):
         status = "ACTIVE"
 
     if not reasons:
-        reasons.append("ผ่านการตรวจเบื้องต้น")
+        reasons.append("ผ่านการตรวจความปลอดภัยเบื้องต้น")
 
-    return score, " | ".join(reasons[:8]), status
-
-
-
-def send_job_report_discord_alert(job, reporter, reason, new_report_count, new_status):
-    try:
-        report_count = int(new_report_count or 0)
-    except (TypeError, ValueError):
-        report_count = 0
-
-    job_title = job["title"] if job and "title" in job.keys() else "-"
-    job_id = job["id"] if job and "id" in job.keys() else "-"
-    employer_id = job["employer_id"] if job and "employer_id" in job.keys() else "-"
-    risk_score = job["ai_risk_score"] if job and "ai_risk_score" in job.keys() else 0
-    reporter_phone = reporter.get("phone_number", "-") if isinstance(reporter, dict) else "-"
-
-    admin_url = url_for("admin_moderation", _external=True)
-
-    message = (
-        "⚠️ มีผู้ใช้ Report ประกาศงานน่าสงสัย\n"
-        f"Job ID: {job_id}\n"
-        f"ตำแหน่ง: {job_title}\n"
-        f"Employer ID: {employer_id}\n"
-        f"ผู้รายงาน: {reporter_phone}\n"
-        f"เหตุผล: {reason or '-'}\n"
-        f"จำนวน Report ล่าสุด: {report_count}\n"
-        f"สถานะล่าสุด: {new_status}\n"
-        f"AI Risk Score: {risk_score or 0}/100\n"
-        f"ตรวจสอบในระบบ: {admin_url}"
-    )
-
-    return send_discord_alert(message, username="JobBoard Scam Alert Bot")
+    return score, " | ".join(reasons[:10]), status
 
 
-def sanitize_discord_alert_text(value, limit=700):
-    text = str(value or "").strip()
-    text = text.replace("@", "@\u200b")
-    text = text.replace("\r", " ").replace("\n", " ")
-    text = " ".join(text.split())
+def reject_unsafe_text_response(score, reason):
+    safe_reason = str(reason or "ข้อความไม่ผ่านระบบความปลอดภัย")
+    return (
+        "ข้อความนี้ไม่สามารถส่งได้ เพราะระบบตรวจพบความเสี่ยงด้านความปลอดภัยหรือความเหมาะสม<br>"
+        f"คะแนนความเสี่ยง: {score}/100<br>"
+        f"เหตุผล: {safe_reason}<br>"
+        '<a href="javascript:history.back()">กลับไปแก้ไขข้อความ</a>'
+    ), 400
 
-    if len(text) > limit:
-        text = text[:limit] + "..."
+def analyze_community_text(body):
+    return analyze_safety_text(body, context="COMMUNITY")
 
-    return text or "-"
-
-
-def send_content_moderation_discord_alert(content_type, content_id, user, body, status, score, reason):
-    try:
-        risk_score = int(score or 0)
-    except (TypeError, ValueError):
-        risk_score = 0
-
-    user_phone = user.get("phone_number", "-") if isinstance(user, dict) else "-"
-    user_role = user.get("role", "-") if isinstance(user, dict) else "-"
-
-    if content_type == "OPENCHAT":
-        title = "💬 OpenChat พบข้อความเสี่ยง"
-        admin_url = url_for("openchat", _external=True)
-    else:
-        title = "🛡️ Community พบโพสต์เสี่ยง"
-        admin_url = url_for("community_board", _external=True)
-
-    message = (
-        f"{title}\n"
-        f"Content Type: {content_type}\n"
-        f"Content ID: {content_id}\n"
-        f"สถานะ: {status}\n"
-        f"คะแนน Moderation: {risk_score}/100\n"
-        f"ผู้โพสต์: {user_phone} ({user_role})\n"
-        f"เหตุผล: {sanitize_discord_alert_text(reason, 700)}\n"
-        f"ข้อความ: {sanitize_discord_alert_text(body, 900)}\n"
-        f"ตรวจสอบในระบบ: {admin_url}"
-    )
-
-    return send_discord_alert(message, username="JobBoard Scam Alert Bot")
 
 @app.route("/community")
 def community_board():
@@ -1501,15 +1533,32 @@ def create_community_post():
         return blocked
 
     user = get_current_user()
-    body = request.form.get("body", "").strip()
+    body = normalize_user_text_for_safety(request.form.get("body", ""), 1000)
 
     if not body:
         return redirect(url_for("community_board"))
 
-    if len(body) > 1000:
-        body = body[:1000]
+    score, reason, status = analyze_safety_text(body, context="COMMUNITY")
 
-    score, reason, status = analyze_community_text(body)
+    if status == "BLOCKED":
+        alert_sent = send_content_moderation_discord_alert(
+            "COMMUNITY_BLOCKED",
+            "-",
+            user,
+            body,
+            status,
+            score,
+            reason,
+        )
+        add_activity_log(
+            user["id"],
+            "COMMUNITY_POST_BLOCKED",
+            "community_posts",
+            None,
+            f"score={score}, alert={alert_sent}, reason={reason[:200]}",
+        )
+        get_db().commit()
+        return reject_unsafe_text_response(score, reason)
     current_time = now_str()
     conn = get_db()
 
@@ -1676,15 +1725,32 @@ def openchat_send():
         return blocked
 
     user = get_current_user()
-    message = request.form.get("message", "").strip()
+    message = normalize_user_text_for_safety(request.form.get("message", ""), 500)
 
     if not message:
         return redirect(url_for("openchat"))
 
-    if len(message) > 500:
-        message = message[:500]
+    score, reason, status = analyze_safety_text(message, context="OPENCHAT")
 
-    score, reason, status = analyze_community_text(message)
+    if status == "BLOCKED":
+        alert_sent = send_content_moderation_discord_alert(
+            "OPENCHAT_BLOCKED",
+            "-",
+            user,
+            message,
+            status,
+            score,
+            reason,
+        )
+        add_activity_log(
+            user["id"],
+            "OPENCHAT_MESSAGE_BLOCKED",
+            "openchat_messages",
+            None,
+            f"score={score}, alert={alert_sent}, reason={reason[:200]}",
+        )
+        get_db().commit()
+        return reject_unsafe_text_response(score, reason)
     current_time = now_str()
     conn = get_db()
 
@@ -3135,10 +3201,31 @@ def send_message():
     user = get_current_user()
     receiver_id = request.form.get("receiver_id", "").strip()
     application_id = request.form.get("application_id", "").strip()
-    message = request.form.get("message", "").strip()
+    message = normalize_user_text_for_safety(request.form.get("message", ""), 1000)
 
     if not receiver_id or not message:
         return "กรุณากรอกข้อความให้ครบ", 400
+
+    safety_score, safety_reason, safety_status = analyze_safety_text(message, context="PRIVATE_MESSAGE")
+    if safety_status == "BLOCKED":
+        alert_sent = send_content_moderation_discord_alert(
+            "PRIVATE_MESSAGE_BLOCKED",
+            "-",
+            user,
+            message,
+            safety_status,
+            safety_score,
+            safety_reason,
+        )
+        add_activity_log(
+            user["id"],
+            "PRIVATE_MESSAGE_BLOCKED",
+            "messages",
+            None,
+            f"score={safety_score}, alert={alert_sent}, reason={safety_reason[:200]}",
+        )
+        get_db().commit()
+        return reject_unsafe_text_response(safety_score, safety_reason)
 
     try:
         receiver_id_int = int(receiver_id)
