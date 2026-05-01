@@ -749,18 +749,7 @@ def employer_public_profile(user_id):
 
 @app.route("/setup-check")
 def setup_check():
-    conn = get_db()
-    stats = {
-        "users": conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"],
-        "employer_profiles": conn.execute("SELECT COUNT(*) AS count FROM employer_profiles").fetchone()["count"],
-        "job_seeker_profiles": conn.execute("SELECT COUNT(*) AS count FROM job_seeker_profiles").fetchone()["count"],
-        "job_posts": conn.execute("SELECT COUNT(*) AS count FROM job_posts").fetchone()["count"],
-        "applications": conn.execute("SELECT COUNT(*) AS count FROM applications").fetchone()["count"],
-        "reports": conn.execute("SELECT COUNT(*) AS count FROM reports").fetchone()["count"],
-        "db_path": str(DB_PATH),
-    }
-    return render_template("setup_check.html", stats=stats)
-
+    abort(404)
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
