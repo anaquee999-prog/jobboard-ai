@@ -2272,6 +2272,64 @@ def admin_fetch_government_news():
     return redirect(url_for("admin_dashboard"))
 
 
+
+def format_file_size(num_bytes):
+    try:
+        num_bytes = int(num_bytes or 0)
+    except (TypeError, ValueError):
+        num_bytes = 0
+
+    units = ["B", "KB", "MB", "GB"]
+    size = float(num_bytes)
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
+        size = size / 1024
+
+    return f"{num_bytes} B"
+
+
+@app.route("/admin/system-health")
+@role_required("ADMIN")
+def admin_system_health():
+    conn = get_db()
+
+    db_exists = DB_PATH.exists()
+    db_size = DB_PATH.stat().st_size if db_exists else 0
+
+    env_checks = {
+        "JOBBOARD_SECRET_KEY": bool(app.secret_key),
+        "JOBBOARD_ADMIN_PHONE": bool(ADMIN_PHONE),
+        "JOBBOARD_ADMIN_PASSWORD": bool(ADMIN_PASSWORD),
+        "JOBBOARD_DATABASE_PATH": bool(os.environ.get("JOBBOARD_DATABASE_PATH", "").strip()),
+        "JOBBOARD_SESSION_COOKIE_SECURE": app.config.get("SESSION_COOKIE_SECURE") is True,
+        "DISCORD_SCAM_ALERT_WEBHOOK_URL": bool(DISCORD_SCAM_ALERT_WEBHOOK_URL),
+    }
+
+    stats = {
+        "users": conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"],
+        "active_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'").fetchone()["count"],
+        "pending_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'").fetchone()["count"],
+        "rejected_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'").fetchone()["count"],
+        "reports": conn.execute("SELECT COUNT(*) AS count FROM reports").fetchone()["count"],
+        "activity_logs": conn.execute("SELECT COUNT(*) AS count FROM activity_logs").fetchone()["count"],
+    }
+
+    health = {
+        "checked_at": now_str(),
+        "render_git_commit": os.environ.get("RENDER_GIT_COMMIT", "").strip(),
+        "render_service_name": os.environ.get("RENDER_SERVICE_NAME", "").strip(),
+        "render_external_url": os.environ.get("RENDER_EXTERNAL_URL", "").strip(),
+        "database_path": str(DB_PATH),
+        "database_exists": db_exists,
+        "database_size": format_file_size(db_size),
+        "env_checks": env_checks,
+        "stats": stats,
+    }
+
+    return render_template("admin_system_health.html", health=health)
+
+
 @app.route("/admin")
 @role_required("ADMIN")
 def admin_dashboard():

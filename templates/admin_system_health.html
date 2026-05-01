@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+
+{% block title %}System Health | JobBoard Admin{% endblock %}
+
+{% block content %}
+<style>
+.health-page{
+  width:min(1180px,calc(100% - 32px));
+  margin:0 auto;
+  padding:34px 0 52px;
+}
+.health-hero{
+  padding:34px;
+  border-radius:32px;
+  border:1px solid rgba(56,189,248,.26);
+  background:
+    radial-gradient(circle at 12% 10%,rgba(14,165,233,.30),transparent 34%),
+    radial-gradient(circle at 88% 18%,rgba(34,197,94,.18),transparent 32%),
+    linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));
+  box-shadow:0 30px 90px rgba(0,0,0,.36);
+}
+.health-badge{
+  display:inline-flex;
+  padding:8px 13px;
+  border-radius:999px;
+  background:rgba(14,165,233,.16);
+  border:1px solid rgba(56,189,248,.28);
+  color:#38bdf8;
+  font-size:13px;
+  font-weight:950;
+}
+.health-hero h1{
+  margin:14px 0 10px;
+  color:#fff;
+  font-size:clamp(38px,6vw,62px);
+  line-height:1;
+}
+.health-hero p{
+  margin:0;
+  color:rgba(226,232,240,.78);
+  font-size:18px;
+}
+.health-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  margin:22px 0;
+}
+.health-actions a{
+  min-height:48px;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  padding:0 18px;
+  border-radius:16px;
+  color:#e0f2fe!important;
+  text-decoration:none!important;
+  font-weight:950;
+  background:rgba(15,23,42,.78);
+  border:1px solid rgba(56,189,248,.22);
+}
+.health-actions a.primary{
+  color:#00111f!important;
+  border:0;
+  background:linear-gradient(135deg,#0ea5e9,#38bdf8);
+}
+.health-actions a.green{
+  color:#fff!important;
+  border:0;
+  background:linear-gradient(135deg,#22c55e,#16a34a);
+}
+.health-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:14px;
+  margin-top:22px;
+}
+.health-card{
+  padding:22px;
+  border-radius:26px;
+  border:1px solid rgba(56,189,248,.18);
+  background:rgba(15,23,42,.78);
+  box-shadow:0 20px 54px rgba(0,0,0,.24);
+}
+.health-card h2{
+  margin:0 0 14px;
+  color:#fff;
+  font-size:22px;
+}
+.health-row{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  padding:10px 0;
+  border-bottom:1px solid rgba(148,163,184,.12);
+}
+.health-row:last-child{border-bottom:0}
+.health-row span:first-child{
+  color:rgba(226,232,240,.70);
+  font-weight:800;
+}
+.health-row span:last-child{
+  color:#fff;
+  font-weight:950;
+  text-align:right;
+  overflow-wrap:anywhere;
+}
+.health-ok{color:#22c55e!important}
+.health-bad{color:#ef4444!important}
+@media(max-width:980px){
+  .health-grid{grid-template-columns:1fr}
+}
+</style>
+
+<section class="health-page">
+  <div class="health-hero">
+    <div class="health-badge">Production System Health</div>
+    <h1>System Health</h1>
+    <p>ตรวจสถานะ production, database, environment variables และระบบสำคัญของ JobBoard</p>
+  </div>
+
+  <div class="health-actions">
+    <a class="primary" href="{{ url_for('admin_dashboard') }}">กลับ Admin Dashboard</a>
+    <a class="green" href="{{ url_for('admin_backup_download') }}">ดาวน์โหลด Backup ZIP</a>
+    <a href="{{ url_for('admin_discord_test') }}">ทดสอบ Discord</a>
+    <a href="{{ url_for('admin_logs') }}">ดู Logs</a>
+  </div>
+
+  <div class="health-grid">
+    <article class="health-card">
+      <h2>Deploy</h2>
+      <div class="health-row"><span>Checked at</span><span>{{ health.checked_at }}</span></div>
+      <div class="health-row"><span>Commit</span><span>{{ health.render_git_commit[:12] if health.render_git_commit else '-' }}</span></div>
+      <div class="health-row"><span>Service</span><span>{{ health.render_service_name or '-' }}</span></div>
+      <div class="health-row"><span>URL</span><span>{{ health.render_external_url or '-' }}</span></div>
+    </article>
+
+    <article class="health-card">
+      <h2>Database</h2>
+      <div class="health-row"><span>Exists</span><span class="{{ 'health-ok' if health.database_exists else 'health-bad' }}">{{ 'YES' if health.database_exists else 'NO' }}</span></div>
+      <div class="health-row"><span>Size</span><span>{{ health.database_size }}</span></div>
+      <div class="health-row"><span>Path</span><span>{{ health.database_path }}</span></div>
+    </article>
+
+    <article class="health-card">
+      <h2>Stats</h2>
+      <div class="health-row"><span>Users</span><span>{{ health.stats.users }}</span></div>
+      <div class="health-row"><span>Active Jobs</span><span>{{ health.stats.active_jobs }}</span></div>
+      <div class="health-row"><span>Pending Jobs</span><span>{{ health.stats.pending_jobs }}</span></div>
+      <div class="health-row"><span>Rejected Jobs</span><span>{{ health.stats.rejected_jobs }}</span></div>
+      <div class="health-row"><span>Reports</span><span>{{ health.stats.reports }}</span></div>
+      <div class="health-row"><span>Activity Logs</span><span>{{ health.stats.activity_logs }}</span></div>
+    </article>
+
+    <article class="health-card">
+      <h2>Environment</h2>
+      {% for key, ok in health.env_checks.items() %}
+        <div class="health-row">
+          <span>{{ key }}</span>
+          <span class="{{ 'health-ok' if ok else 'health-bad' }}">{{ 'OK' if ok else 'MISSING' }}</span>
+        </div>
+      {% endfor %}
+    </article>
+  </div>
+</section>
+{% endblock %}
