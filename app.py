@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import bcrypt
+import requests
 from flask import (
     Flask,
     g,
@@ -38,6 +39,7 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("JOBBOARD_SESSION_COOKIE_SE
 
 ADMIN_PHONE = os.environ.get("JOBBOARD_ADMIN_PHONE", "").strip()
 ADMIN_PASSWORD = os.environ.get("JOBBOARD_ADMIN_PASSWORD", "").strip()
+DISCORD_SCAM_ALERT_WEBHOOK_URL = os.environ.get("DISCORD_SCAM_ALERT_WEBHOOK_URL", "").strip()
 
 ROLES = {"JOB_SEEKER", "EMPLOYER", "ADMIN"}
 
@@ -497,6 +499,24 @@ def enforce_security(action):
             pass
         return message, 429
     return None
+
+def send_discord_alert(message, username="JobBoard Alert"):
+    if not DISCORD_SCAM_ALERT_WEBHOOK_URL:
+        return False
+
+    try:
+        response = requests.post(
+            DISCORD_SCAM_ALERT_WEBHOOK_URL,
+            json={
+                "username": username,
+                "content": message[:1900],
+            },
+            timeout=5,
+        )
+        return 200 <= response.status_code < 300
+    except Exception:
+        return False
+
 @app.route("/")
 def home():
     conn = get_db()
@@ -931,6 +951,21 @@ def logout():
     session.clear()
     return redirect(url_for("home"))
 
+
+
+@app.route("/admin/discord-test")
+@role_required("ADMIN")
+def admin_discord_test():
+    ok = send_discord_alert(
+        "✅ ทดสอบ Discord Webhook สำเร็จ\n"
+        "ระบบ JobBoard AI Anti-Scam เชื่อมต่อ Discord แล้ว",
+        username="JobBoard Scam Alert Bot",
+    )
+
+    if ok:
+        return "OK: Discord webhook sent"
+
+    return "ERROR: Discord webhook failed or DISCORD_SCAM_ALERT_WEBHOOK_URL is missing", 500
 
 @app.route("/dashboard")
 @login_required
