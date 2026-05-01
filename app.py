@@ -3,9 +3,11 @@ load_dotenv()
 
 import os
 import hmac
+import io
 import sqlite3
 import secrets
 import re
+import zipfile
 from functools import wraps
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1002,6 +1004,98 @@ def admin_discord_test():
         return "OK: Discord webhook sent"
 
     return "ERROR: Discord webhook failed or DISCORD_SCAM_ALERT_WEBHOOK_URL is missing", 500
+
+@app.route("/admin/backup/download")
+@app.route("/admin/backup.zip")
+@role_required("ADMIN")
+def admin_backup_download():
+    admin = get_current_user()
+    conn = get_db()
+
+    try:
+        conn.commit()
+        conn.execute("PRAGMA wal_checkpoint(FULL)")
+    except Exception:
+        pass
+
+    add_activity_log(
+        admin["id"],
+        "ADMIN_DOWNLOAD_BACKUP",
+        "system",
+        None,
+        "download database and source backup zip",
+    )
+    conn.commit()
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    zip_buffer = io.BytesIO()
+
+    def add_file(zip_file, file_path, arcname):
+        file_path = Path(file_path)
+        if file_path.exists() and file_path.is_file():
+            zip_file.write(file_path, arcname)
+
+    def add_directory(zip_file, dir_path, arc_prefix):
+        dir_path = Path(dir_path)
+        if not dir_path.exists() or not dir_path.is_dir():
+            return
+
+        blocked_names = {
+            ".env",
+            "__pycache__",
+            ".git",
+            ".venv",
+            "venv",
+            "node_modules",
+            ".pytest_cache",
+        }
+
+        for item in dir_path.rglob("*"):
+            if any(part in blocked_names for part in item.parts):
+                continue
+            if item.is_file():
+                relative_name = item.relative_to(dir_path).as_posix()
+                zip_file.write(item, f"{arc_prefix}/{relative_name}")
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        add_file(zip_file, DB_PATH, f"database/{DB_PATH.name}")
+        add_file(zip_file, str(DB_PATH) + "-wal", f"database/{DB_PATH.name}-wal")
+        add_file(zip_file, str(DB_PATH) + "-shm", f"database/{DB_PATH.name}-shm")
+
+        important_files = [
+            "app.py",
+            "requirements.txt",
+            "Procfile",
+            ".gitignore",
+            "security_engine.py",
+            "scam_engine.py",
+            "auto_job_engine.py",
+            "government_scraper.py",
+            "graphic_generator.py",
+        ]
+
+        for filename in important_files:
+            add_file(zip_file, BASE_DIR / filename, f"source/{filename}")
+
+        add_directory(zip_file, BASE_DIR / "templates", "source/templates")
+        add_directory(zip_file, BASE_DIR / "static", "source/static")
+
+        info = (
+            "JobBoard AI Anti-Scam Backup\n"
+            f"Created at: {now_str()}\n"
+            "Includes: SQLite database, templates, static files, and key Python source files\n"
+            "Excluded: .env, .git, virtualenv, cache folders, and secrets\n"
+        )
+        zip_file.writestr("README-BACKUP.txt", info)
+
+    zip_buffer.seek(0)
+    filename = f"jobboard-ai-backup-{timestamp}.zip"
+
+    response = Response(zip_buffer.getvalue(), mimetype="application/zip")
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 
 @app.route("/dashboard")
 @login_required
