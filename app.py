@@ -517,6 +517,42 @@ def send_discord_alert(message, username="JobBoard Alert"):
     except Exception:
         return False
 
+
+def send_job_risk_discord_alert(job_id, user, title, description, salary_range, location, status, score, reason):
+    try:
+        risk_score = int(score or 0)
+    except (TypeError, ValueError):
+        risk_score = 0
+
+    risk_label = scam_risk_label(risk_score)
+    employer_phone = user.get("phone_number", "-") if isinstance(user, dict) else "-"
+
+    short_description = str(description or "").strip().replace("\r", " ").replace("\n", " ")
+    if len(short_description) > 300:
+        short_description = short_description[:300] + "..."
+
+    safe_reason = str(reason or "-").strip()
+    if len(safe_reason) > 700:
+        safe_reason = safe_reason[:700] + "..."
+
+    admin_url = url_for("admin_scam_center", _external=True)
+
+    message = (
+        "🚨 พบประกาศงานเสี่ยงจากระบบ AI Anti-Scam\n"
+        f"Job ID: {job_id}\n"
+        f"สถานะ: {status}\n"
+        f"ระดับความเสี่ยง: {risk_label} ({risk_score}/100)\n"
+        f"นายจ้าง: {employer_phone}\n"
+        f"ตำแหน่ง: {title}\n"
+        f"เงินเดือน: {salary_range or '-'}\n"
+        f"พื้นที่: {location or '-'}\n"
+        f"เหตุผล: {safe_reason}\n"
+        f"รายละเอียดย่อ: {short_description or '-'}\n"
+        f"ตรวจสอบในระบบ: {admin_url}"
+    )
+
+    return send_discord_alert(message, username="JobBoard Scam Alert Bot")
+
 @app.route("/")
 def home():
     conn = get_db()
@@ -1739,6 +1775,27 @@ def employer_create_job():
                 adjust_trust_score(user["id"], 2)
             elif status == "REJECTED":
                 adjust_trust_score(user["id"], -20)
+
+            if status in {"PENDING_AI_REVIEW", "REJECTED"} or scam_risk_label(score) == "HIGH":
+                alert_sent = send_job_risk_discord_alert(
+                    job_id,
+                    user,
+                    title,
+                    description,
+                    salary_range,
+                    location,
+                    status,
+                    score,
+                    reason,
+                )
+                add_activity_log(
+                    user["id"],
+                    "DISCORD_JOB_RISK_ALERT_SENT" if alert_sent else "DISCORD_JOB_RISK_ALERT_FAILED",
+                    "job_posts",
+                    job_id,
+                    f"status={status}, risk={score}",
+                )
+
             conn.commit()
             return redirect(url_for("employer_dashboard"))
 
