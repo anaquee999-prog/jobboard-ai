@@ -2386,6 +2386,404 @@ def admin_unverify_employer(user_id):
     return redirect(url_for("admin_trust_center"))
 
 
+
+def ensure_local_source_employer(conn, phone, company_name, tax_id, province):
+    current_time = now_str()
+
+    user = conn.execute(
+        "SELECT id FROM users WHERE phone_number = ?",
+        (phone,)
+    ).fetchone()
+
+    if user:
+        employer_id = user["id"]
+        conn.execute(
+            """
+            UPDATE users
+            SET role = 'EMPLOYER',
+                is_verified = 1,
+                is_banned = 0,
+                trust_score = 90,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (current_time, employer_id)
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO users (
+                phone_number, password_hash, role, is_verified, is_banned,
+                trust_score, created_at, updated_at
+            )
+            VALUES (?, ?, 'EMPLOYER', 1, 0, 90, ?, ?)
+            """,
+            (
+                phone,
+                hash_password(f"source-import-{province}-disabled-login"),
+                current_time,
+                current_time,
+            )
+        )
+        employer_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+
+    profile = conn.execute(
+        "SELECT id FROM employer_profiles WHERE user_id = ?",
+        (employer_id,)
+    ).fetchone()
+
+    if profile:
+        conn.execute(
+            """
+            UPDATE employer_profiles
+            SET company_name = ?,
+                tax_id = ?,
+                is_company_verified = 1,
+                address = ?,
+                website = '',
+                updated_at = ?
+            WHERE user_id = ?
+            """,
+            (company_name, tax_id, province, current_time, employer_id)
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO employer_profiles (
+                user_id, company_name, tax_id, is_company_verified,
+                address, website, created_at, updated_at
+            )
+            VALUES (?, ?, ?, 1, ?, '', ?, ?)
+            """,
+            (employer_id, company_name, tax_id, province, current_time, current_time)
+        )
+
+    return employer_id
+
+
+def get_upper_central_job_import_data():
+    return [
+        {
+            "province": "พิจิตร",
+            "phone": "0996600001",
+            "employer": "สำนักงานจัดหางานจังหวัดพิจิตร / แหล่งงานท้องถิ่น",
+            "tax_id": "LOCAL-SOURCE-PHICHIT",
+            "source_url": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label",
+            "jobs": [
+                {
+                    "title": "เจ้าหน้าที่บัญชี วิทยาลัยชุมชนพิจิตร",
+                    "description": "ข้อมูลนำเข้าจากประกาศรับสมัครงานจังหวัดพิจิตร ตำแหน่งเจ้าหน้าที่บัญชี จำนวน 1 อัตรา ผู้สมัครควรตรวจสอบรายละเอียด วันรับสมัคร คุณสมบัติ และเอกสารที่ต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "พิจิตร",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "พนักงานบัญชี จังหวัดพิจิตร",
+                    "description": "ตำแหน่งงานว่างในพื้นที่จังหวัดพิจิตรจากข้อมูลสำนักงานจัดหางาน เหมาะสำหรับผู้มีพื้นฐานบัญชี เอกสาร และงานสำนักงาน กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "พิจิตร",
+                    "is_gov": 0,
+                },
+                {
+                    "title": "บาริสต้า จังหวัดพิจิตร",
+                    "description": "ตำแหน่งงานบริการในพื้นที่จังหวัดพิจิตรจากข้อมูลตำแหน่งงานว่าง เหมาะสำหรับผู้สนใจงานร้านกาแฟ งานบริการลูกค้า และงานหน้าร้าน กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "พิจิตร",
+                    "is_gov": 0,
+                },
+                {
+                    "title": "พนักงานทั่วไป จังหวัดพิจิตร",
+                    "description": "ตำแหน่งงานทั่วไปในพื้นที่จังหวัดพิจิตรจากข้อมูลสำนักงานจัดหางาน เหมาะสำหรับผู้ต้องการงานใกล้บ้านและพร้อมเริ่มงานตามเงื่อนไขนายจ้าง กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "พิจิตร",
+                    "is_gov": 0,
+                },
+                {
+                    "title": "ฝ่ายผลิต จังหวัดพิจิตร",
+                    "description": "ตำแหน่งงานฝ่ายผลิตในพื้นที่จังหวัดพิจิตรจากข้อมูลตำแหน่งงานว่าง เหมาะสำหรับผู้สนใจงานโรงงาน งานผลิต และงานประจำพื้นที่ กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "พิจิตร",
+                    "is_gov": 0,
+                },
+                {
+                    "title": "พนักงานปฏิบัติการพิเศษ จังหวัดพิจิตร",
+                    "description": "ตำแหน่งงานในพื้นที่จังหวัดพิจิตรจากข้อมูลสำนักงานจัดหางาน เหมาะสำหรับผู้ที่ต้องการงานประจำในพื้นที่และสามารถปฏิบัติงานตามเงื่อนไขนายจ้าง กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "พิจิตร",
+                    "is_gov": 0,
+                },
+            ],
+        },
+        {
+            "province": "พิษณุโลก",
+            "phone": "0996500002",
+            "employer": "สำนักงานจัดหางานจังหวัดพิษณุโลก / แหล่งงานท้องถิ่น",
+            "tax_id": "LOCAL-SOURCE-PHITSANULOK",
+            "source_url": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label",
+            "jobs": [
+                {
+                    "title": "พนักงานทั่วไป โรงพยาบาลมหาวิทยาลัยนเรศวร",
+                    "description": "ข้อมูลนำเข้าจากข่าวประชาสัมพันธ์ตำแหน่งงานในจังหวัดพิษณุโลก ตำแหน่งพนักงานทั่วไป ผู้สมัครควรตรวจสอบคุณสมบัติ วันรับสมัคร และเอกสารที่ต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "พิษณุโลก",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "ลูกจ้างชั่วคราว โรงพยาบาลพุทธชินราช พิษณุโลก",
+                    "description": "ประกาศตำแหน่งลูกจ้างชั่วคราวในพื้นที่จังหวัดพิษณุโลกจากแหล่งข้อมูลสำนักงานจัดหางาน ผู้สมัครควรตรวจสอบตำแหน่งย่อย คุณสมบัติ และกำหนดการที่ต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "พิษณุโลก",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "พนักงานรักษาความปลอดภัย วิทยาลัยอาชีวศึกษาพิษณุโลก",
+                    "description": "ข้อมูลประกาศรับสมัครพนักงานรักษาความปลอดภัยในพื้นที่จังหวัดพิษณุโลก เหมาะสำหรับผู้สนใจงานดูแลความปลอดภัยในหน่วยงาน กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "พิษณุโลก",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "นักวิชาการสรรพสามิต สำนักงานสรรพสามิตภาคที่ 6",
+                    "description": "ข้อมูลประกาศรับสมัครงานหน่วยงานในพื้นที่พิษณุโลก ตำแหน่งนักวิชาการสรรพสามิต ผู้สมัครควรตรวจสอบคุณสมบัติ เอกสาร และวันรับสมัครที่ต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "พิษณุโลก",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "พนักงานทำความสะอาด สทบ.สาขาเขต 3",
+                    "description": "ข้อมูลประกาศรับสมัครพนักงานทำความสะอาดในพื้นที่จังหวัดพิษณุโลกจากสำนักงานจัดหางาน เหมาะสำหรับผู้ต้องการงานบริการทั่วไป กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "พิษณุโลก",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "ตำแหน่งงานว่างจังหวัดพิษณุโลก ประจำเดือนล่าสุด",
+                    "description": "รวมตำแหน่งงานว่างจากสำนักงานจัดหางานจังหวัดพิษณุโลก ผู้สมัครสามารถตรวจสอบรายการตำแหน่งล่าสุด รายละเอียดนายจ้าง และเงื่อนไขการสมัครจากต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "พิษณุโลก",
+                    "is_gov": 0,
+                },
+            ],
+        },
+        {
+            "province": "กำแพงเพชร",
+            "phone": "0996200003",
+            "employer": "สำนักงานจัดหางานจังหวัดกำแพงเพชร / แหล่งงานท้องถิ่น",
+            "tax_id": "LOCAL-SOURCE-KAMPHAENGPHET",
+            "source_url": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label",
+            "jobs": [
+                {
+                    "title": "นักวิชาการแรงงาน สำนักงานจัดหางานจังหวัดกำแพงเพชร",
+                    "description": "ข้อมูลประกาศตำแหน่งนักวิชาการแรงงาน สังกัดสำนักงานจัดหางานจังหวัดกำแพงเพชร ผู้สมัครควรตรวจสอบคุณสมบัติ กำหนดการ และรายละเอียดที่ต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "กำแพงเพชร",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "นักวิชาการแรงงาน จิตวิทยาการแนะแนว จังหวัดกำแพงเพชร",
+                    "description": "ข้อมูลประกาศรับสมัครตำแหน่งนักวิชาการแรงงานด้านจิตวิทยาการแนะแนวในจังหวัดกำแพงเพชร ผู้สมัครควรตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "กำแพงเพชร",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "ตำแหน่งงานว่างจังหวัดกำแพงเพชร ประจำเดือนมกราคม 2569",
+                    "description": "ข้อมูลตำแหน่งงานว่างประจำเดือนจากสำนักงานจัดหางานจังหวัดกำแพงเพชร ผู้สมัครควรตรวจสอบรายการตำแหน่ง นายจ้าง และเงื่อนไขการสมัครที่ต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "กำแพงเพชร",
+                    "is_gov": 0,
+                },
+                {
+                    "title": "ตำแหน่งงานว่างจังหวัดกำแพงเพชร ประจำเดือนธันวาคม 2568",
+                    "description": "ข้อมูลตำแหน่งงานว่างประจำเดือนจากสำนักงานจัดหางานจังหวัดกำแพงเพชร เหมาะสำหรับผู้ต้องการหางานใกล้บ้านในพื้นที่ กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "กำแพงเพชร",
+                    "is_gov": 0,
+                },
+                {
+                    "title": "ตำแหน่งงานนัดพบแรงงาน @ ชากังราว",
+                    "description": "ข้อมูลกิจกรรมตำแหน่งงานนัดพบแรงงานในจังหวัดกำแพงเพชร ผู้สมัครสามารถติดตามรายละเอียดนายจ้าง วันเวลา และตำแหน่งที่เปิดรับจากต้นทางก่อนเข้าร่วม",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "กำแพงเพชร",
+                    "is_gov": 0,
+                },
+                {
+                    "title": "ตำแหน่งงานว่างจังหวัดกำแพงเพชร ประจำเดือนพฤศจิกายน 2568",
+                    "description": "ข้อมูลตำแหน่งงานว่างจากสำนักงานจัดหางานจังหวัดกำแพงเพชร ผู้สมัครควรตรวจสอบรายการตำแหน่งล่าสุดและรายละเอียดการสมัครจากต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "กำแพงเพชร",
+                    "is_gov": 0,
+                },
+            ],
+        },
+        {
+            "province": "นครสวรรค์",
+            "phone": "0996000004",
+            "employer": "สำนักงานจัดหางานจังหวัดนครสวรรค์ / แหล่งงานท้องถิ่น",
+            "tax_id": "LOCAL-SOURCE-NAKHONSAWAN",
+            "source_url": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label",
+            "jobs": [
+                {
+                    "title": "พนักงานวิเคราะห์นโยบายและแผน สำนักงานจังหวัดนครสวรรค์",
+                    "description": "ข้อมูลประกาศรับสมัครพนักงานวิเคราะห์นโยบายและแผนในจังหวัดนครสวรรค์ ผู้สมัครควรตรวจสอบคุณสมบัติ กำหนดวันรับสมัคร และเอกสารที่ต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "นครสวรรค์",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "เจ้าหน้าที่วิเคราะห์นโยบายและแผน สำนักงานทรัพยากรน้ำแห่งชาติ",
+                    "description": "ข้อมูลประกาศรับสมัครพนักงานจ้างเหมาบริการ ตำแหน่งเจ้าหน้าที่วิเคราะห์นโยบายและแผน ค่าจ้างตามประกาศ ผู้สมัครควรตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "15,000 บาท",
+                    "location": "นครสวรรค์",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "งานดูแลรักษาความปลอดภัย อุทยานแห่งชาติแม่วงก์",
+                    "description": "ข้อมูลประกาศรับสมัครพนักงานจ้างเอกชนดำเนินงาน ตำแหน่งงานดูแลรักษาความปลอดภัย ในพื้นที่นครสวรรค์ ผู้สมัครควรตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "9,000 บาท",
+                    "location": "นครสวรรค์",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "ตำแหน่งงานโรงพยาบาลสวรรค์ประชารักษ์",
+                    "description": "ข้อมูลประกาศรับสมัครงานโรงพยาบาลสวรรค์ประชารักษ์หลายตำแหน่ง เช่น นักโภชนาการ นักกายภาพบำบัด นักเทคนิคการแพทย์ เภสัชกร และแพทย์แผนไทย กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
+                    "salary": "ตรวจสอบตามประกาศ",
+                    "location": "นครสวรรค์",
+                    "is_gov": 1,
+                },
+                {
+                    "title": "ตำแหน่งงานว่างจังหวัดนครสวรรค์ ประจำวันที่ 27 เมษายน 2569",
+                    "description": "ข้อมูลตำแหน่งงานว่างรายวันจากสำนักงานจัดหางานจังหวัดนครสวรรค์ ผู้สมัครควรตรวจสอบรายการตำแหน่ง นายจ้าง และวิธีสมัครจากต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "นครสวรรค์",
+                    "is_gov": 0,
+                },
+                {
+                    "title": "ตำแหน่งงานว่างจังหวัดนครสวรรค์ ประจำเดือนกุมภาพันธ์ 2569",
+                    "description": "ข้อมูลวารสาร/ตำแหน่งงานว่างประจำเดือนจากสำนักงานจัดหางานจังหวัดนครสวรรค์ ผู้สมัครควรตรวจสอบรายละเอียดรายการตำแหน่งจากต้นทางก่อนสมัคร",
+                    "salary": "ตามโครงสร้างนายจ้าง",
+                    "location": "นครสวรรค์",
+                    "is_gov": 0,
+                },
+            ],
+        },
+    ]
+
+
+def import_upper_central_jobs_to_db():
+    conn = get_db()
+    current_time = now_str()
+
+    inserted = 0
+    updated = 0
+
+    for group in get_upper_central_job_import_data():
+        employer_id = ensure_local_source_employer(
+            conn,
+            group["phone"],
+            group["employer"],
+            group["tax_id"],
+            group["province"],
+        )
+
+        for job in group["jobs"]:
+            title = job["title"].strip()
+            location = job["location"].strip()
+            source_url = group["source_url"].strip()
+            description = (
+                job["description"].strip()
+                + "\n\nที่มา: "
+                + group["employer"]
+                + "\nหมายเหตุ: โปรดตรวจสอบรายละเอียดล่าสุดจากแหล่งข้อมูลต้นทางก่อนสมัครทุกครั้ง"
+            )
+
+            exists = conn.execute(
+                """
+                SELECT id
+                FROM job_posts
+                WHERE title = ?
+                  AND location = ?
+                  AND source_url = ?
+                LIMIT 1
+                """,
+                (title, location, source_url)
+            ).fetchone()
+
+            if exists:
+                conn.execute(
+                    """
+                    UPDATE job_posts
+                    SET employer_id = ?,
+                        description = ?,
+                        salary_range = ?,
+                        is_government_news = ?,
+                        status = 'ACTIVE',
+                        ai_risk_score = 0,
+                        ai_risk_reason = 'official/local source import',
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        employer_id,
+                        description,
+                        job["salary"],
+                        int(job["is_gov"]),
+                        current_time,
+                        exists["id"],
+                    )
+                )
+                updated += 1
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO job_posts (
+                        employer_id, title, description, salary_range, location,
+                        is_government_news, source_url, status, ai_risk_score,
+                        ai_risk_reason, report_count, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, 'official/local source import', 0, ?, ?)
+                    """,
+                    (
+                        employer_id,
+                        title,
+                        description,
+                        job["salary"],
+                        location,
+                        int(job["is_gov"]),
+                        source_url,
+                        current_time,
+                        current_time,
+                    )
+                )
+                inserted += 1
+
+    return inserted, updated
+
+
+@app.route("/admin/local-jobs/import-upper-central")
+@role_required("ADMIN")
+def admin_import_upper_central_jobs():
+    admin = get_current_user()
+    inserted, updated = import_upper_central_jobs_to_db()
+
+    add_activity_log(
+        admin["id"],
+        "ADMIN_IMPORT_UPPER_CENTRAL_JOBS",
+        "job_posts",
+        None,
+        f"inserted={inserted}, updated={updated}, provinces=phichit,phitsanulok,kamphaengphet,nakhonsawan",
+    )
+    get_db().commit()
+
+    return (
+        "OK: imported upper central local jobs<br>"
+        f"Inserted: {inserted}<br>"
+        f"Updated: {updated}<br>"
+        '<a href="/admin">Back to Admin</a> | '
+        '<a href="/jobs">View Jobs</a>'
+    )
+
+
 @app.route("/admin/government-news/fetch", methods=["POST"])
 @role_required("ADMIN")
 def admin_fetch_government_news():
