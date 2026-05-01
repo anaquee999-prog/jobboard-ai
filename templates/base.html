@@ -302,9 +302,7 @@
             <nav class="nav-links">
                 <a class="active-link" href="{{ url_for('home') }}">หน้าแรก</a>
                 <a href="{{ url_for('jobs_public') }}">งานใกล้ฉัน</a>
-                <a href="{{ url_for('community_board') }}">กระดานพูดคุย</a>
-
-                {% if current_user %}
+{% if current_user %}
                     <a class="nav-openchat" href="{{ url_for('openchat') }}">OpenChat</a>
                     <a href="{{ url_for('dashboard') }}">Dashboard</a>
                     <a class="nav-message-link" href="{{ url_for('inbox') }}">
@@ -348,7 +346,7 @@
             <div>
                 <h4>สำหรับผู้หางาน</h4>
                 <p><a href="{{ url_for('jobs_public') }}">งานใกล้ฉัน</a>
-                <a href="{{ url_for('community_board') }}">กระดานพูดคุย</a></p>
+</p>
                 {% if current_user %}
                     <p><a href="{{ url_for('openchat') }}">OpenChat</a></p>
                 {% endif %}
