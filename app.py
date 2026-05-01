@@ -1375,6 +1375,36 @@ def analyze_community_text(body):
     return score, " | ".join(reasons[:8]), status
 
 
+
+def send_job_report_discord_alert(job, reporter, reason, new_report_count, new_status):
+    try:
+        report_count = int(new_report_count or 0)
+    except (TypeError, ValueError):
+        report_count = 0
+
+    job_title = job["title"] if job and "title" in job.keys() else "-"
+    job_id = job["id"] if job and "id" in job.keys() else "-"
+    employer_id = job["employer_id"] if job and "employer_id" in job.keys() else "-"
+    risk_score = job["ai_risk_score"] if job and "ai_risk_score" in job.keys() else 0
+    reporter_phone = reporter.get("phone_number", "-") if isinstance(reporter, dict) else "-"
+
+    admin_url = url_for("admin_moderation", _external=True)
+
+    message = (
+        "⚠️ มีผู้ใช้ Report ประกาศงานน่าสงสัย\n"
+        f"Job ID: {job_id}\n"
+        f"ตำแหน่ง: {job_title}\n"
+        f"Employer ID: {employer_id}\n"
+        f"ผู้รายงาน: {reporter_phone}\n"
+        f"เหตุผล: {reason or '-'}\n"
+        f"จำนวน Report ล่าสุด: {report_count}\n"
+        f"สถานะล่าสุด: {new_status}\n"
+        f"AI Risk Score: {risk_score or 0}/100\n"
+        f"ตรวจสอบในระบบ: {admin_url}"
+    )
+
+    return send_discord_alert(message, username="JobBoard Scam Alert Bot")
+
 @app.route("/community")
 def community_board():
     user = get_current_user()
@@ -1740,7 +1770,7 @@ def report_job(job_id):
         reason = "ประกาศน่าสงสัย"
 
     conn = get_db()
-    job = conn.execute("SELECT id FROM job_posts WHERE id = ?", (job_id,)).fetchone()
+    job = conn.execute("SELECT * FROM job_posts WHERE id = ?", (job_id,)).fetchone()
     if not job:
         abort(404)
 
@@ -1760,17 +1790,36 @@ def report_job(job_id):
             """,
             (job_id, user["id"], reason, current_time, current_time)
         )
+        new_report_count = int(job["report_count"] or 0) + 1
+        new_status = "PENDING_AI_REVIEW" if new_report_count >= 3 else job["status"]
+
         conn.execute(
             """
             UPDATE job_posts
-            SET report_count = report_count + 1,
-                status = CASE WHEN report_count + 1 >= 3 THEN 'PENDING_AI_REVIEW' ELSE status END,
+            SET report_count = ?,
+                status = ?,
                 updated_at = ?
             WHERE id = ?
             """,
-            (current_time, job_id)
+            (new_report_count, new_status, current_time, job_id)
         )
+
+        alert_sent = send_job_report_discord_alert(
+            job,
+            user,
+            reason,
+            new_report_count,
+            new_status,
+        )
+
         add_activity_log(user["id"], "REPORT_JOB", "job_posts", job_id, reason)
+        add_activity_log(
+            user["id"],
+            "DISCORD_JOB_REPORT_ALERT_SENT" if alert_sent else "DISCORD_JOB_REPORT_ALERT_FAILED",
+            "job_posts",
+            job_id,
+            f"reports={new_report_count}, status={new_status}",
+        )
         conn.commit()
 
     return redirect(url_for("job_detail_old", job_id=job_id))
