@@ -1,4 +1,4 @@
-name: Auto Import Upper Central Jobs
+name: Auto Import Jobs and DOE News
 
 on:
   schedule:

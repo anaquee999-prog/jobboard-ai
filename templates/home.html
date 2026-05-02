@@ -1,258 +1,159 @@
 {% extends "base.html" %}
 
-{% block title %}JobBoard | หางานใกล้บ้าน ปลอดภัยขึ้น{% endblock %}
-{% block meta_description %}แพลตฟอร์มหางานใกล้บ้าน สมัครง่าย พร้อมระบบช่วยคัดกรองประกาศน่าสงสัย Verified Employer และ Community Report{% endblock %}
+{% block title %}งานใกล้บ้าน.com | JobBoard AI{% endblock %}
 
 {% block content %}
 <style>
-.ux-home {
-    min-height: 100vh;
-    background:
-        radial-gradient(circle at 18% 8%, rgba(56,189,248,.18), transparent 28%),
-        radial-gradient(circle at 88% 18%, rgba(14,165,233,.14), transparent 30%),
-        linear-gradient(180deg, #020617 0%, #050505 46%, #020202 100%);
-    color: #fff;
-}
-.ux-wrap { max-width: 1180px; margin: 0 auto; padding: 0 22px; }
-.ux-hero {
-    position: relative;
-    padding: 76px 0 120px;
-    overflow: hidden;
-    background:
-        linear-gradient(90deg, rgba(2,6,23,.98), rgba(2,6,23,.78), rgba(2,6,23,.30)),
-        url("{{ url_for('static', filename='hero-city-orange.png') }}") center/cover no-repeat;
-}
-.ux-hero::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(180deg, transparent 52%, #050505 100%);
-    pointer-events: none;
-}
-.ux-hero .ux-wrap { position: relative; z-index: 2; }
-.ux-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border-radius: 999px;
-    border: 1px solid rgba(56,189,248,.45);
-    background: rgba(2,6,23,.62);
-    color: #bff3ff;
-    font-size: 13px;
-    font-weight: 700;
-}
-.ux-hero h1 {
-    max-width: 820px;
-    margin: 26px 0 14px;
-    font-size: clamp(42px, 6vw, 78px);
-    line-height: 1.05;
-    letter-spacing: -.05em;
-}
-.ux-hero h1 span { color: #38bdf8; }
-.ux-subtitle {
-    max-width: 720px;
-    color: rgba(255,255,255,.82);
-    font-size: 19px;
-    line-height: 1.7;
-}
-.ux-steps {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-    margin-top: 30px;
-}
-.ux-step {
-    padding: 18px;
-    border-radius: 22px;
-    background: rgba(2,6,23,.62);
-    border: 1px solid rgba(56,189,248,.25);
-    backdrop-filter: blur(14px);
-}
-.ux-step strong { display: block; font-size: 17px; }
-.ux-step span { display: block; margin-top: 5px; color: rgba(255,255,255,.72); font-size: 13px; }
-.ux-search {
-    position: relative;
-    z-index: 3;
-    margin-top: -58px;
-}
-.ux-search-panel {
-    display: grid;
-    grid-template-columns: 1fr 1fr 170px;
-    gap: 12px;
-    padding: 16px;
-    border-radius: 28px;
-    background: rgba(2,6,23,.84);
-    border: 1px solid rgba(56,189,248,.35);
-    box-shadow: 0 34px 90px rgba(0,0,0,.55);
-    backdrop-filter: blur(18px);
-}
-.ux-search-panel input {
-    min-height: 58px;
-    border-radius: 18px;
-    border: 1px solid rgba(255,255,255,.12);
-    background: rgba(255,255,255,.07);
-    color: #fff;
-}
-.ux-search-panel button {
-    min-height: 58px;
-    border-radius: 18px;
-    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
-    color: #03131f;
-    font-weight: 900;
-}
-.ux-stats {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 14px;
-    margin: 28px 0 36px;
-}
-.ux-stat {
-    padding: 22px;
-    border-radius: 24px;
-    background: rgba(15,23,42,.72);
-    border: 1px solid rgba(56,189,248,.22);
-}
-.ux-stat strong { display: block; color: #38bdf8; font-size: 30px; line-height: 1; }
-.ux-stat span { display: block; margin-top: 8px; color: rgba(255,255,255,.72); font-size: 13px; }
-.ux-section-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-    align-items: end;
-    margin: 10px 0 18px;
-}
-.ux-section-head h2 { margin: 0; font-size: 29px; }
-.ux-section-head p { margin: 6px 0 0; color: rgba(255,255,255,.66); }
-.ux-section-head a { color: #38bdf8; font-weight: 800; }
-.ux-job-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 18px;
-}
-.ux-job-card {
-    min-height: 320px;
-    display: flex;
-    flex-direction: column;
-    padding: 18px;
-    border-radius: 24px;
-    background: #fff;
-    color: #111827;
-    box-shadow: 0 20px 54px rgba(0,0,0,.34);
-    transition: .22s ease;
-}
-.ux-job-card:hover { transform: translateY(-6px); box-shadow: 0 28px 70px rgba(56,189,248,.20); }
-.ux-card-top, .ux-meta, .ux-tags { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.ux-card-top { justify-content: space-between; }
-.ux-badge { padding: 6px 10px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-size: 12px; font-weight: 800; }
-.ux-logo {
-    width: 54px; height: 54px; border-radius: 17px; display: grid; place-items: center;
-    margin-top: 15px; background: #020617; color: #38bdf8; font-size: 23px; font-weight: 900;
-}
-.ux-job-card h3 { margin: 15px 0 8px; font-size: 18px; line-height: 1.35; }
-.ux-job-card p { margin: 0 0 10px; color: #475569; font-size: 13px; }
-.ux-meta span, .ux-tags span { padding: 6px 9px; border-radius: 999px; background: #f1f5f9; color: #334155; font-size: 12px; }
-.ux-detail-btn {
-    display: block; margin-top: auto; padding: 12px; border-radius: 14px; text-align: center;
-    color: #03131f; background: linear-gradient(135deg,#0ea5e9,#38bdf8); font-weight: 900;
-}
-.ux-safety {
-    margin: 34px 0 0;
-    padding: 28px;
-    border-radius: 28px;
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 18px;
-    align-items: center;
-    background: linear-gradient(135deg, rgba(2,6,23,.98), rgba(15,23,42,.92));
-    border: 1px solid rgba(56,189,248,.30);
-}
-.ux-safety h3 { margin: 0; font-size: 24px; }
-.ux-safety p { margin: 8px 0 0; color: rgba(255,255,255,.72); }
-.ux-safety a { padding: 13px 20px; border-radius: 16px; background: #38bdf8; color: #03131f; font-weight: 900; }
-@media (max-width: 1000px) {
-    .ux-steps, .ux-stats, .ux-job-grid { grid-template-columns: repeat(2, 1fr); }
-    .ux-search-panel { grid-template-columns: 1fr; }
-}
-@media (max-width: 620px) {
-    .ux-hero { padding-top: 46px; }
-    .ux-steps, .ux-stats, .ux-job-grid, .ux-safety { grid-template-columns: 1fr; }
-}
+.home-page{width:min(1180px,calc(100% - 30px));margin:0 auto;padding:28px 0 52px}
+.home-hero{display:grid;grid-template-columns:1fr 360px;gap:22px;align-items:stretch}
+.hero-main{padding:36px;border-radius:34px;border:1px solid rgba(56,189,248,.24);background:radial-gradient(circle at 15% 10%,rgba(14,165,233,.30),transparent 36%),radial-gradient(circle at 90% 20%,rgba(34,197,94,.18),transparent 32%),linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));box-shadow:0 30px 90px rgba(0,0,0,.35)}
+.hero-badge{display:inline-flex;padding:8px 14px;border-radius:999px;background:rgba(14,165,233,.16);border:1px solid rgba(56,189,248,.28);color:#7dd3fc;font-weight:950;font-size:13px}
+.hero-main h1{margin:14px 0 10px;color:#fff;font-size:clamp(42px,7vw,74px);line-height:.98;letter-spacing:-2px}
+.hero-main p{max-width:760px;color:rgba(226,232,240,.78);font-size:18px;line-height:1.75}
+.hero-actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:22px}
+.hero-actions a{min-height:50px;display:inline-flex;align-items:center;justify-content:center;padding:0 18px;border-radius:17px;text-decoration:none!important;font-weight:950}
+.hero-actions .primary{background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f!important}
+.hero-actions .secondary{background:rgba(15,23,42,.80);border:1px solid rgba(56,189,248,.22);color:#dbeafe!important}
+.hero-panel{padding:24px;border-radius:34px;border:1px solid rgba(34,197,94,.20);background:rgba(15,23,42,.84);box-shadow:0 26px 80px rgba(0,0,0,.28)}
+.hero-panel h2{margin:0 0 12px;color:#fff;font-size:26px}
+.quick-search{display:grid;gap:10px}
+.quick-search input{min-height:48px;border-radius:16px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.70);color:#fff;padding:0 14px;font-weight:800}
+.quick-search button{min-height:48px;border:0;border-radius:16px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;font-weight:950;cursor:pointer}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:22px 0}
+.stat-card{padding:20px;border-radius:26px;background:rgba(15,23,42,.78);border:1px solid rgba(56,189,248,.16);box-shadow:0 20px 54px rgba(0,0,0,.22)}
+.stat-card span{display:block;color:rgba(226,232,240,.68);font-weight:900}
+.stat-card strong{display:block;margin-top:8px;color:#fff;font-size:38px}
+.section-head{display:flex;justify-content:space-between;gap:14px;align-items:flex-end;margin:28px 0 14px}
+.section-head h2{margin:0;color:#fff;font-size:clamp(28px,4vw,42px)}
+.section-head p{margin:6px 0 0;color:rgba(226,232,240,.64)}
+.section-head a{color:#7dd3fc;font-weight:950;text-decoration:none}
+.doe-feature{padding:24px;border-radius:32px;border:1px solid rgba(251,191,36,.22);background:radial-gradient(circle at 10% 10%,rgba(251,191,36,.16),transparent 34%),rgba(15,23,42,.80);box-shadow:0 24px 70px rgba(0,0,0,.26)}
+.doe-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.job-card{padding:18px;border-radius:24px;background:rgba(2,6,23,.58);border:1px solid rgba(148,163,184,.14)}
+.job-card h3{margin:0 0 8px;color:#fff;font-size:20px;line-height:1.35}
+.job-card p{margin:0 0 12px;color:rgba(226,232,240,.66);line-height:1.55}
+.job-meta{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.job-meta span{padding:6px 10px;border-radius:999px;background:rgba(56,189,248,.12);color:#bae6fd;font-size:12px;font-weight:900}
+.job-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.job-links a{min-height:36px;display:inline-flex;align-items:center;padding:0 12px;border-radius:13px;text-decoration:none!important;font-weight:950;font-size:13px}
+.job-links .detail{background:rgba(14,165,233,.16);color:#7dd3fc!important;border:1px solid rgba(56,189,248,.22)}
+.job-links .source{background:rgba(251,191,36,.14);color:#fde68a!important;border:1px solid rgba(251,191,36,.24)}
+.normal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.location-list{display:flex;flex-wrap:wrap;gap:10px}
+.location-list a{padding:10px 14px;border-radius:999px;background:rgba(15,23,42,.78);border:1px solid rgba(56,189,248,.16);color:#dbeafe!important;text-decoration:none!important;font-weight:900}
+.empty-box{padding:24px;border-radius:24px;background:rgba(15,23,42,.72);color:rgba(226,232,240,.70);text-align:center}
+@media(max-width:980px){.home-hero,.doe-grid{grid-template-columns:1fr}.stats-grid,.normal-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:640px){.stats-grid,.normal-grid{grid-template-columns:1fr}.section-head{display:block}}
 </style>
 
-<div class="ux-home">
-    <section class="ux-hero">
-        <div class="ux-wrap">
-            <div class="ux-pill">✦ AI ช่วยคัดกรองประกาศงาน</div>
-            <h1>หางานใกล้บ้าน <span>สมัครง่ายขึ้น ปลอดภัยขึ้น</span></h1>
-            <p class="ux-subtitle">JobBoard ช่วยรวมงานใกล้บ้าน งานเอกชน และข่าวงานราชการ พร้อมป้าย AI ตรวจสอบเบื้องต้น และระบบแจ้ง Report เมื่อพบประกาศน่าสงสัย</p>
-            <div class="ux-steps">
-                <div class="ux-step"><strong>1. ค้นหางาน</strong><span>เลือกจังหวัด ตำแหน่ง หรือคีย์เวิร์ดที่สนใจ</span></div>
-                <div class="ux-step"><strong>2. สมัครงาน</strong><span>สมัครด้วยบัญชีผู้หางาน และส่งข้อความแนะนำตัว</span></div>
-                <div class="ux-step"><strong>3. คุยในระบบ</strong><span>ติดตามข้อความจากนายจ้างในหน้าแชท</span></div>
-            </div>
-        </div>
-    </section>
+<section class="home-page">
+  <div class="home-hero">
+    <div class="hero-main">
+      <div class="hero-badge">AI Anti-Scam JobBoard</div>
+      <h1>หางานใกล้บ้าน<br>พร้อมลิงก์ต้นทางจริง</h1>
+      <p>รวมงานทั่วไป งานท้องถิ่น และข่าวประกาศจากกรมการจัดหางาน/สำนักงานจัดหางานจังหวัด พร้อมระบบตรวจความเสี่ยงและ Trust Score เพื่อช่วยให้ผู้หางานสมัครได้มั่นใจขึ้น</p>
 
-    <div class="ux-wrap ux-search">
-        <form method="get" action="{{ url_for('jobs_public') }}" class="ux-search-panel">
-            <input type="text" name="q" placeholder="ค้นหาตำแหน่งงาน เช่น แคชเชียร์ กราฟิก ธุรการ">
-            <input type="text" name="location" placeholder="จังหวัด / พื้นที่ เช่น พิจิตร กรุงเทพ">
-            <button type="submit">ค้นหางาน</button>
-        </form>
-
-        <section class="ux-stats">
-            <div class="ux-stat"><strong>{{ stats.active_jobs|default(0) }}</strong><span>งานที่เปิดรับอยู่</span></div>
-            <div class="ux-stat"><strong>{{ stats.verified_employers|default(0) }}</strong><span>นายจ้างที่ยืนยันแล้ว</span></div>
-            <div class="ux-stat"><strong>{{ stats.reports|default(0) }}</strong><span>Report จากผู้ใช้</span></div>
-            <div class="ux-stat"><strong>{{ stats.blocked_jobs|default(0) }}</strong><span>ประกาศที่ถูกบล็อก</span></div>
-        </section>
-
-        <div class="ux-section-head">
-            <div>
-                <h2>ตำแหน่งงานแนะนำ</h2>
-                <p>งานที่ระบบจัดลำดับจากความเสี่ยงต่ำและข้อมูลครบถ้วน</p>
-            </div>
-            <a href="{{ url_for('jobs_public') }}">ดูงานทั้งหมด →</a>
-        </div>
-
-        <section class="ux-job-grid">
-            {% for job in recommended_jobs[:4] %}
-            <article class="ux-job-card">
-                <div class="ux-card-top">
-                    <span class="ux-badge">{{ "งานราชการ" if job.is_government_news else "งานเอกชน" }}</span>
-                    <span class="ux-badge">AI ตรวจแล้ว</span>
-                </div>
-                <div class="ux-logo">{{ (job.company_name or job.title or "J")[:1] }}</div>
-                <h3>{{ job.title }}</h3>
-                <p>{{ job.company_name or "หน่วยงาน / นายจ้าง" }}</p>
-                <div class="ux-meta">
-                    {% if job.location %}<span>📍 {{ job.location }}</span>{% endif %}
-                    {% if job.salary_range %}<span>{{ job.salary_range }}</span>{% endif %}
-                </div>
-                <div class="ux-tags">
-                    <span>อ่านรายละเอียดก่อนสมัคร</span>
-                    <span>Report ได้</span>
-                </div>
-                <a class="ux-detail-btn" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูรายละเอียดและสมัคร →</a>
-            </article>
-            {% else %}
-            <article class="ux-job-card">
-                <span class="ux-badge">ยังไม่มีงานแนะนำ</span>
-                <h3>เริ่มจากหน้าค้นหางาน</h3>
-                <p>เมื่อมีประกาศงาน ระบบจะแสดงงานที่เหมาะสมในส่วนนี้</p>
-                <a class="ux-detail-btn" href="{{ url_for('jobs_public') }}">ไปค้นหางาน →</a>
-            </article>
-            {% endfor %}
-        </section>
-
-        <section class="ux-safety">
-            <div>
-                <h3>คำแนะนำความปลอดภัยก่อนสมัครงาน</h3>
-                <p>อย่าโอนเงิน ค่าประกัน ค่าสมัคร หรือส่งเอกสารสำคัญนอกระบบ หากพบพฤติกรรมน่าสงสัยให้กด Report ทันที</p>
-            </div>
-            <a href="{{ url_for('jobs_public') }}">เริ่มค้นหางาน</a>
-        </section>
+      <div class="hero-actions">
+        <a class="primary" href="{{ url_for('jobs_public') }}">ค้นหางานทั้งหมด</a>
+        <a class="secondary" href="{{ url_for('openchat') }}">ถามงานใน OpenChat</a>
+      </div>
     </div>
-</div>
+
+    <aside class="hero-panel">
+      <h2>ค้นหางานเร็ว</h2>
+      <form class="quick-search" method="get" action="{{ url_for('jobs_public') }}">
+        <input name="q" placeholder="ตำแหน่ง / บริษัท / คำค้น">
+        <input name="location" placeholder="จังหวัด เช่น พิจิตร">
+        <button type="submit">ค้นหางาน</button>
+      </form>
+    </aside>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card"><span>งาน Active</span><strong>{{ stats.active_jobs }}</strong></div>
+    <div class="stat-card"><span>บล็อกงานเสี่ยง</span><strong>{{ stats.blocked_jobs }}</strong></div>
+    <div class="stat-card"><span>Reports</span><strong>{{ stats.reports }}</strong></div>
+    <div class="stat-card"><span>นายจ้างยืนยัน</span><strong>{{ stats.verified_employers }}</strong></div>
+  </div>
+
+  <section class="doe-feature">
+    <div class="section-head">
+      <div>
+        <h2>ข่าวกรมแรงงาน / กรมการจัดหางานเด่น</h2>
+        <p>ดึงจากแหล่งต้นทางจริง พร้อมลิงก์ให้ผู้หางานตรวจสอบรายละเอียดก่อนสมัคร</p>
+      </div>
+      <a href="{{ url_for('jobs_public', q='กรมการจัดหางาน') }}">ดูข่าวทั้งหมด</a>
+    </div>
+
+    <div class="doe-grid">
+      {% for job in government_jobs %}
+        <article class="job-card">
+          <h3>{{ job.title }}</h3>
+          <div class="job-meta">
+            <span>{{ job.location or 'ทั่วประเทศ' }}</span>
+            <span>{{ job.company_name or 'กรมการจัดหางาน' }}</span>
+            {% if job.source_url and 'doe.go.th' in job.source_url %}
+              <span>Official DOE</span>
+            {% endif %}
+          </div>
+          <p>{{ job.description[:180] }}{% if job.description|length > 180 %}...{% endif %}</p>
+
+          <div class="job-links">
+            <a class="detail" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูในระบบ</a>
+            {% if job.source_url %}
+              <a class="source" href="{{ job.source_url }}" target="_blank" rel="noopener noreferrer">เปิดลิงก์ต้นทาง</a>
+            {% endif %}
+          </div>
+        </article>
+      {% else %}
+        <div class="empty-box">ยังไม่มีข่าวกรมแรงงานในระบบ กดดึงข่าวจาก Admin ได้ทันที</div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <div class="section-head">
+    <div>
+      <h2>งานล่าสุดใกล้บ้าน</h2>
+      <p>ประกาศที่เปิดรับล่าสุดจากนายจ้างและแหล่งงานในระบบ</p>
+    </div>
+    <a href="{{ url_for('jobs_public') }}">ดูงานทั้งหมด</a>
+  </div>
+
+  <div class="normal-grid">
+    {% for job in latest_jobs %}
+      <article class="job-card">
+        <h3>{{ job.title }}</h3>
+        <div class="job-meta">
+          <span>{{ job.location or 'ไม่ระบุพื้นที่' }}</span>
+          <span>{{ job.salary_range or 'เงินเดือนตามตกลง' }}</span>
+          {% if job.is_company_verified %}<span>Verified</span>{% endif %}
+        </div>
+        <p>{{ job.description[:140] }}{% if job.description|length > 140 %}...{% endif %}</p>
+        <div class="job-links">
+          <a class="detail" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูรายละเอียด</a>
+          {% if job.source_url %}
+            <a class="source" href="{{ job.source_url }}" target="_blank" rel="noopener noreferrer">ต้นทาง</a>
+          {% endif %}
+        </div>
+      </article>
+    {% else %}
+      <div class="empty-box">ยังไม่มีประกาศงาน</div>
+    {% endfor %}
+  </div>
+
+  <div class="section-head">
+    <div>
+      <h2>ค้นหาตามจังหวัด</h2>
+      <p>พื้นที่ที่มีประกาศงานในระบบ</p>
+    </div>
+  </div>
+
+  <div class="location-list">
+    {% for loc in locations %}
+      <a href="{{ url_for('jobs_public', location=loc.location) }}">{{ loc.location }} ({{ loc.count }})</a>
+    {% else %}
+      <span class="empty-box">ยังไม่มีข้อมูลจังหวัด</span>
+    {% endfor %}
+  </div>
+</section>
 {% endblock %}

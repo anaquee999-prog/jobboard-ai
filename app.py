@@ -7,10 +7,12 @@ import io
 import sqlite3
 import secrets
 import re
+from html import unescape
 import zipfile
 from functools import wraps
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import urljoin
 
 import bcrypt
 import requests
@@ -45,6 +47,53 @@ app.config["MAX_CONTENT_LENGTH"] = 55 * 1024 * 1024
 ADMIN_PHONE = os.environ.get("JOBBOARD_ADMIN_PHONE", "").strip()
 ADMIN_PASSWORD = os.environ.get("JOBBOARD_ADMIN_PASSWORD", "").strip()
 DISCORD_SCAM_ALERT_WEBHOOK_URL = os.environ.get("DISCORD_SCAM_ALERT_WEBHOOK_URL", "").strip()
+DOE_NEWS_SOURCES = [
+    {
+        "key": "doe-main",
+        "province": "กรมการจัดหางาน",
+        "phone": "0996101000",
+        "employer": "กรมการจัดหางาน / ข่าวประกาศรับสมัครงาน",
+        "tax_id": "DOE-SOURCE-MAIN",
+        "url": "https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label",
+        "priority": 100,
+    },
+    {
+        "key": "phichit",
+        "province": "พิจิตร",
+        "phone": "0996101001",
+        "employer": "สำนักงานจัดหางานจังหวัดพิจิตร / ข่าวงานท้องถิ่น",
+        "tax_id": "DOE-SOURCE-PHICHIT-LIVE",
+        "url": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label",
+        "priority": 95,
+    },
+    {
+        "key": "phitsanulok",
+        "province": "พิษณุโลก",
+        "phone": "0996101002",
+        "employer": "สำนักงานจัดหางานจังหวัดพิษณุโลก / ข่าวงานท้องถิ่น",
+        "tax_id": "DOE-SOURCE-PHITSANULOK-LIVE",
+        "url": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label",
+        "priority": 94,
+    },
+    {
+        "key": "kamphaengphet",
+        "province": "กำแพงเพชร",
+        "phone": "0996101003",
+        "employer": "สำนักงานจัดหางานจังหวัดกำแพงเพชร / ข่าวงานท้องถิ่น",
+        "tax_id": "DOE-SOURCE-KAMPHAENGPHET-LIVE",
+        "url": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label",
+        "priority": 93,
+    },
+    {
+        "key": "nakhonsawan",
+        "province": "นครสวรรค์",
+        "phone": "0996101004",
+        "employer": "สำนักงานจัดหางานจังหวัดนครสวรรค์ / ข่าวงานท้องถิ่น",
+        "tax_id": "DOE-SOURCE-NAKHONSAWAN-LIVE",
+        "url": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label",
+        "priority": 92,
+    },
+]
 OPENCHAT_UPLOAD_DIR = BASE_DIR / "instance" / "uploads" / "openchat"
 OPENCHAT_ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 OPENCHAT_ALLOWED_VIDEO_EXTENSIONS = {"mp4", "webm"}
@@ -744,8 +793,12 @@ def home():
         LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
         WHERE job_posts.status = 'ACTIVE'
           AND job_posts.is_government_news = 1
-        ORDER BY datetime(job_posts.created_at) DESC, job_posts.id DESC
-        LIMIT 4
+        ORDER BY
+            CASE WHEN job_posts.source_url LIKE '%doe.go.th%' THEN 0 ELSE 1 END,
+            datetime(job_posts.updated_at) DESC,
+            datetime(job_posts.created_at) DESC,
+            job_posts.id DESC
+        LIMIT 8
         """
     ).fetchall()
 
@@ -3172,6 +3225,300 @@ def get_upper_central_job_import_data():
     ]
 
 
+
+def clean_doe_title(value):
+    value = unescape(str(value or ""))
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(r"\s+", " ", value)
+    value = value.strip(" \n\t-–—•|")
+    return value
+
+
+def is_useful_doe_job_title(title):
+    title = clean_doe_title(title)
+    lowered = title.lower()
+
+    if len(title) < 10:
+        return False
+
+    bad_terms = [
+        "เข้าสู่ระบบ",
+        "ค้นหา",
+        "หน้าหลัก",
+        "ศูนย์ข่าว",
+        "ดาวน์โหลด",
+        "ติดต่อ",
+        "previous",
+        "next",
+        "first",
+        "last",
+        "rss",
+        "read more",
+        "ข่าวประชาสัมพันธ์ทั่วไป",
+        "การจัดซื้อจัดจ้าง",
+    ]
+
+    if any(term in lowered for term in bad_terms):
+        return False
+
+    good_terms = [
+        "ตำแหน่งงานว่าง",
+        "รับสมัคร",
+        "เปิดรับสมัคร",
+        "ประกาศ",
+        "พนักงาน",
+        "ลูกจ้าง",
+        "จ้างเหมา",
+        "ราชการ",
+        "งาน",
+        "คนหางาน",
+        "นัดพบแรงงาน",
+    ]
+
+    return any(term in title for term in good_terms)
+
+
+def extract_doe_listing_items(source, limit=12):
+    url = source["url"]
+    headers = {
+        "User-Agent": "JobBoardAI/1.0 (+https://jobboard-ai-app.onrender.com)",
+        "Accept": "text/html,application/xhtml+xml",
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=15)
+        response.raise_for_status()
+        html = response.text
+    except Exception as exc:
+        return [], str(exc)
+
+    pairs = re.findall(
+        r'<a[^>]+href=["\\\']([^"\\\']+)["\\\'][^>]*>(.*?)</a>',
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    items = []
+    seen = set()
+
+    for href, label_html in pairs:
+        title = clean_doe_title(label_html)
+        if not is_useful_doe_job_title(title):
+            continue
+
+        href = unescape(str(href or "")).strip()
+        if not href or href.startswith("#") or href.lower().startswith("javascript:"):
+            continue
+
+        source_url = urljoin(url, href)
+
+        key = (title, source_url)
+        if key in seen:
+            continue
+
+        seen.add(key)
+        items.append({
+            "title": title[:180],
+            "source_url": source_url,
+            "province": source["province"],
+            "employer": source["employer"],
+            "priority": source.get("priority", 50),
+        })
+
+        if len(items) >= limit:
+            break
+
+    return items, ""
+
+
+def ensure_doe_source_employer(conn, source):
+    current_time = now_str()
+    phone = normalize_phone(source["phone"])
+
+    user = conn.execute(
+        "SELECT id FROM users WHERE phone_number = ?",
+        (phone,)
+    ).fetchone()
+
+    if user:
+        employer_id = user["id"]
+        conn.execute(
+            """
+            UPDATE users
+            SET role = 'EMPLOYER',
+                is_verified = 1,
+                is_banned = 0,
+                trust_score = 95,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (current_time, employer_id)
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO users (
+                phone_number, password_hash, role, is_verified, is_banned,
+                trust_score, created_at, updated_at
+            )
+            VALUES (?, ?, 'EMPLOYER', 1, 0, 95, ?, ?)
+            """,
+            (
+                phone,
+                hash_password(f"doe-source-{source['key']}-disabled-login"),
+                current_time,
+                current_time,
+            )
+        )
+        employer_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+
+    profile = conn.execute(
+        "SELECT id FROM employer_profiles WHERE user_id = ?",
+        (employer_id,)
+    ).fetchone()
+
+    if profile:
+        conn.execute(
+            """
+            UPDATE employer_profiles
+            SET company_name = ?,
+                tax_id = ?,
+                is_company_verified = 1,
+                address = ?,
+                website = ?,
+                updated_at = ?
+            WHERE user_id = ?
+            """,
+            (
+                source["employer"],
+                source["tax_id"],
+                source["province"],
+                source["url"],
+                current_time,
+                employer_id,
+            )
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO employer_profiles (
+                user_id, company_name, tax_id, is_company_verified,
+                address, website, created_at, updated_at
+            )
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+            """,
+            (
+                employer_id,
+                source["employer"],
+                source["tax_id"],
+                source["province"],
+                source["url"],
+                current_time,
+                current_time,
+            )
+        )
+
+    return employer_id
+
+
+def import_latest_doe_news_to_db():
+    conn = get_db()
+    current_time = now_str()
+
+    inserted = 0
+    updated = 0
+    scanned = 0
+    errors = []
+
+    for source in DOE_NEWS_SOURCES:
+        employer_id = ensure_doe_source_employer(conn, source)
+        items, error = extract_doe_listing_items(source, limit=12)
+
+        if error:
+            errors.append(f"{source['province']}: {error[:120]}")
+            continue
+
+        for item in items:
+            scanned += 1
+            title = item["title"]
+            province = item["province"]
+            source_url = item["source_url"]
+
+            description = (
+                f"ข่าวประกาศรับสมัครงาน/ตำแหน่งงานว่างจาก {source['employer']}\\n\\n"
+                f"หัวข้อ: {title}\\n"
+                f"พื้นที่: {province}\\n\\n"
+                "ผู้หางานควรกดลิงก์ต้นทางเพื่อตรวจสอบรายละเอียดล่าสุด คุณสมบัติ วิธีสมัคร วันรับสมัคร และเอกสารที่ต้องใช้ก่อนสมัครทุกครั้ง"
+            )
+
+            exists = conn.execute(
+                """
+                SELECT id
+                FROM job_posts
+                WHERE source_url = ?
+                LIMIT 1
+                """,
+                (source_url,)
+            ).fetchone()
+
+            if exists:
+                conn.execute(
+                    """
+                    UPDATE job_posts
+                    SET employer_id = ?,
+                        title = ?,
+                        description = ?,
+                        salary_range = ?,
+                        location = ?,
+                        is_government_news = 1,
+                        status = 'ACTIVE',
+                        ai_risk_score = 0,
+                        ai_risk_reason = 'DOE official live import',
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        employer_id,
+                        title,
+                        description,
+                        "ตรวจสอบตามประกาศต้นทาง",
+                        province,
+                        current_time,
+                        exists["id"],
+                    )
+                )
+                updated += 1
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO job_posts (
+                        employer_id, title, description, salary_range, location,
+                        is_government_news, source_url, status, ai_risk_score,
+                        ai_risk_reason, report_count, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, 1, ?, 'ACTIVE', 0, 'DOE official live import', 0, ?, ?)
+                    """,
+                    (
+                        employer_id,
+                        title,
+                        description,
+                        "ตรวจสอบตามประกาศต้นทาง",
+                        province,
+                        source_url,
+                        current_time,
+                        current_time,
+                    )
+                )
+                inserted += 1
+
+    return {
+        "inserted": inserted,
+        "updated": updated,
+        "scanned": scanned,
+        "errors": errors,
+    }
+
+
 def import_upper_central_jobs_to_db():
     conn = get_db()
     current_time = now_str()
@@ -3276,23 +3623,28 @@ def cron_import_upper_central_jobs():
     if not is_valid_cron_request():
         abort(403)
 
-    inserted, updated = import_upper_central_jobs_to_db()
+    static_inserted, static_updated = import_upper_central_jobs_to_db()
+    doe_result = import_latest_doe_news_to_db()
+
+    inserted = int(static_inserted or 0) + int(doe_result.get("inserted", 0))
+    updated = int(static_updated or 0) + int(doe_result.get("updated", 0))
 
     add_activity_log(
         None,
-        "CRON_IMPORT_UPPER_CENTRAL_JOBS",
+        "CRON_IMPORT_UPPER_CENTRAL_AND_DOE_NEWS",
         "job_posts",
         None,
-        f"inserted={inserted}, updated={updated}, provinces=phichit,phitsanulok,kamphaengphet,nakhonsawan",
+        f"inserted={inserted}, updated={updated}, doe_scanned={doe_result.get('scanned', 0)}, errors={len(doe_result.get('errors', []))}",
     )
     get_db().commit()
 
     send_discord_alert(
-        "? Auto Import ??? 4 ??????? ??????\n"
+        "✅ Auto Import งาน/ข่าวกรมแรงงานสำเร็จ\n"
         f"Inserted: {inserted}\n"
         f"Updated: {updated}\n"
-        "???????: ?????? / ???????? / ????????? / ?????????\n"
-        f"????: {now_str()}",
+        f"DOE Scanned: {doe_result.get('scanned', 0)}\n"
+        "พื้นที่: พิจิตร / พิษณุโลก / กำแพงเพชร / นครสวรรค์ / กรมการจัดหางาน\n"
+        f"เวลา: {now_str()}",
         username="JobBoard Auto Import Bot",
     )
 
@@ -3300,9 +3652,48 @@ def cron_import_upper_central_jobs():
         "ok": True,
         "inserted": inserted,
         "updated": updated,
-        "provinces": ["??????", "????????", "?????????", "?????????"],
+        "doe_scanned": doe_result.get("scanned", 0),
+        "doe_errors": doe_result.get("errors", []),
+        "provinces": ["พิจิตร", "พิษณุโลก", "กำแพงเพชร", "นครสวรรค์"],
         "checked_at": now_str(),
     })
+
+
+
+@app.route("/admin/doe-news/import-latest")
+@role_required("ADMIN")
+def admin_import_latest_doe_news():
+    admin = get_current_user()
+    result = import_latest_doe_news_to_db()
+
+    add_activity_log(
+        admin["id"],
+        "ADMIN_IMPORT_LATEST_DOE_NEWS",
+        "job_posts",
+        None,
+        f"inserted={result['inserted']}, updated={result['updated']}, scanned={result['scanned']}, errors={len(result['errors'])}",
+    )
+    get_db().commit()
+
+    send_discord_alert(
+        "✅ ดึงข่าวกรมแรงงาน/กรมการจัดหางานล่าสุดสำเร็จ\\n"
+        f"Inserted: {result['inserted']}\\n"
+        f"Updated: {result['updated']}\\n"
+        f"Scanned: {result['scanned']}\\n"
+        f"Errors: {len(result['errors'])}",
+        username="JobBoard DOE Import Bot",
+    )
+
+    return (
+        "OK: imported latest DOE news<br>"
+        f"Inserted: {result['inserted']}<br>"
+        f"Updated: {result['updated']}<br>"
+        f"Scanned: {result['scanned']}<br>"
+        f"Errors: {len(result['errors'])}<br>"
+        '<a href="/admin">Back to Admin</a> | '
+        '<a href="/jobs">View Jobs</a> | '
+        '<a href="/">Home</a>'
+    )
 
 
 @app.route("/admin/local-jobs/import-upper-central")
