@@ -14,6 +14,7 @@ from pathlib import Path
 
 import bcrypt
 import requests
+from werkzeug.utils import secure_filename
 from flask import (
     Flask,
     g,
@@ -25,6 +26,7 @@ from flask import (
     abort,
     Response,
     jsonify,
+    send_from_directory,
 )
 from security_engine import security_guard
 
@@ -42,6 +44,11 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("JOBBOARD_SESSION_COOKIE_SE
 ADMIN_PHONE = os.environ.get("JOBBOARD_ADMIN_PHONE", "").strip()
 ADMIN_PASSWORD = os.environ.get("JOBBOARD_ADMIN_PASSWORD", "").strip()
 DISCORD_SCAM_ALERT_WEBHOOK_URL = os.environ.get("DISCORD_SCAM_ALERT_WEBHOOK_URL", "").strip()
+COMMUNITY_UPLOAD_DIR = BASE_DIR / "instance" / "uploads" / "community"
+ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+ALLOWED_VIDEO_EXTENSIONS = {"mp4", "webm"}
+MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024
 JOBBOARD_CRON_TOKEN = os.environ.get("JOBBOARD_CRON_TOKEN", "").strip()
 
 ROLES = {"JOB_SEEKER", "EMPLOYER", "ADMIN"}
@@ -338,6 +345,31 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_openchat_messages_created ON openchat_messages(created_at);
         """
     )
+
+    conn.executescript("""
+
+        CREATE TABLE IF NOT EXISTS post_media (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            file_name TEXT NOT NULL UNIQUE,
+            original_name TEXT DEFAULT '',
+            file_type TEXT NOT NULL,
+            mime_type TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
+            review_note TEXT DEFAULT '',
+            reviewed_by INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (post_id) REFERENCES community_posts(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id);
+        CREATE INDEX IF NOT EXISTS idx_post_media_status ON post_media(status);
+
+    """)
 
     seed_admin(conn)
     seed_demo_jobs(conn)
@@ -1519,6 +1551,165 @@ def analyze_community_text(body):
     return analyze_safety_text(body, context="COMMUNITY")
 
 
+
+def get_display_name_for_user_row(row):
+    if not row:
+        return "สมาชิก"
+
+    full_name = ""
+    company_name = ""
+    phone = ""
+
+    try:
+        full_name = row["full_name"] or ""
+    except Exception:
+        pass
+
+    try:
+        company_name = row["company_name"] or ""
+    except Exception:
+        pass
+
+    try:
+        phone = row["phone_number"] or ""
+    except Exception:
+        pass
+
+    if company_name:
+        return company_name
+    if full_name:
+        return full_name
+    if phone and len(phone) >= 7:
+        return phone[:3] + "****" + phone[-3:]
+    return "สมาชิก"
+
+
+def detect_media_kind(ext):
+    ext = str(ext or "").lower().strip(".")
+    if ext in ALLOWED_IMAGE_EXTENSIONS:
+        return "IMAGE"
+    if ext in ALLOWED_VIDEO_EXTENSIONS:
+        return "VIDEO"
+    return ""
+
+
+def validate_and_prepare_community_media(file_storage):
+    if not file_storage or not file_storage.filename:
+        return True, None
+
+    original_name = secure_filename(file_storage.filename or "")
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    file_type = detect_media_kind(ext)
+
+    if not file_type:
+        return False, "รองรับเฉพาะไฟล์รูปภาพ jpg, jpeg, png, webp และวิดีโอ mp4, webm เท่านั้น"
+
+    data = file_storage.read()
+    file_storage.seek(0)
+
+    if not data:
+        return False, "ไฟล์ว่างเปล่า"
+
+    if file_type == "IMAGE" and len(data) > MAX_IMAGE_UPLOAD_BYTES:
+        return False, "ไฟล์รูปภาพต้องไม่เกิน 5 MB"
+
+    if file_type == "VIDEO" and len(data) > MAX_VIDEO_UPLOAD_BYTES:
+        return False, "ไฟล์วิดีโอต้องไม่เกิน 50 MB"
+
+    header = data[:64]
+
+    if ext in {"jpg", "jpeg"} and not header.startswith(b"\xff\xd8\xff"):
+        return False, "ไฟล์ jpg/jpeg ไม่ถูกต้อง"
+
+    if ext == "png" and not header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return False, "ไฟล์ png ไม่ถูกต้อง"
+
+    if ext == "webp" and not (header.startswith(b"RIFF") and b"WEBP" in header[:16]):
+        return False, "ไฟล์ webp ไม่ถูกต้อง"
+
+    if ext == "mp4" and b"ftyp" not in header:
+        return False, "ไฟล์ mp4 ไม่ถูกต้อง"
+
+    if ext == "webm" and not header.startswith(b"\x1a\x45\xdf\xa3"):
+        return False, "ไฟล์ webm ไม่ถูกต้อง"
+
+    token = secrets.token_hex(20)
+    file_name = f"{token}.{ext}"
+
+    return True, {
+        "file_name": file_name,
+        "original_name": original_name,
+        "file_type": file_type,
+        "mime_type": file_storage.mimetype or "",
+        "data": data,
+    }
+
+
+def save_prepared_community_media(prepared_media):
+    COMMUNITY_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = COMMUNITY_UPLOAD_DIR / prepared_media["file_name"]
+    file_path.write_bytes(prepared_media["data"])
+    return file_path
+
+
+def build_media_by_post(conn, posts, user=None):
+    media_by_post = {}
+    post_ids = [post["id"] for post in posts]
+    if not post_ids:
+        return media_by_post
+
+    placeholders = ",".join(["?"] * len(post_ids))
+
+    if user and user.get("role") == "ADMIN":
+        where_status = ""
+        params = post_ids
+    else:
+        where_status = "AND status = 'APPROVED'"
+        params = post_ids
+
+    rows = conn.execute(
+        f"""
+        SELECT *
+        FROM post_media
+        WHERE post_id IN ({placeholders})
+        {where_status}
+        ORDER BY datetime(created_at) ASC, id ASC
+        """,
+        tuple(params)
+    ).fetchall()
+
+    for row in rows:
+        media_by_post.setdefault(row["post_id"], []).append(row)
+
+    return media_by_post
+
+
+@app.route("/media/community/<path:filename>")
+def uploaded_community_media(filename):
+    safe_name = secure_filename(filename)
+    if not safe_name:
+        abort(404)
+
+    conn = get_db()
+    media = conn.execute(
+        "SELECT * FROM post_media WHERE file_name = ?",
+        (safe_name,)
+    ).fetchone()
+
+    if not media:
+        abort(404)
+
+    current = get_current_user()
+
+    if media["status"] != "APPROVED":
+        if not current:
+            abort(404)
+        if current["role"] != "ADMIN" and current["id"] != media["user_id"]:
+            abort(404)
+
+    return send_from_directory(str(COMMUNITY_UPLOAD_DIR), safe_name)
+
+
 @app.route("/community")
 def community_board():
     user = get_current_user()
@@ -1560,7 +1751,16 @@ def community_board():
         "blocked": conn.execute("SELECT COUNT(*) AS count FROM community_posts WHERE status = 'BLOCKED'").fetchone()["count"],
     }
 
-    return render_template("community.html", posts=posts, stats=stats, status_filter=status_filter)
+    media_by_post = build_media_by_post(conn, posts, user)
+
+    return render_template(
+        "community.html",
+        posts=posts,
+        stats=stats,
+        status_filter=status_filter,
+        media_by_post=media_by_post,
+        get_display_name_for_user_row=get_display_name_for_user_row,
+    )
 
 
 @app.route("/community/posts", methods=["POST"])
@@ -1572,11 +1772,27 @@ def create_community_post():
 
     user = get_current_user()
     body = normalize_user_text_for_safety(request.form.get("body", ""), 1000)
+    media_file = request.files.get("media")
+    has_media = bool(media_file and media_file.filename)
 
-    if not body:
+    if not body and not has_media:
         return redirect(url_for("community_board"))
 
+    prepared_media = None
+    if has_media:
+        ok, result = validate_and_prepare_community_media(media_file)
+        if not ok:
+            return result, 400
+        prepared_media = result
+
+    if not body and prepared_media:
+        body = "โพสต์รูปภาพ/วิดีโอ"
+
     score, reason, status = analyze_safety_text(body, context="COMMUNITY")
+
+    if prepared_media and status == "ACTIVE":
+        status = "PENDING_REVIEW"
+        reason = reason + " | มีรูปภาพ/วิดีโอรอ Admin ตรวจ"
 
     if status == "BLOCKED":
         alert_sent = safe_send_moderation_alert(
@@ -1615,6 +1831,42 @@ def create_community_post():
     )
 
     post_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+
+    if prepared_media:
+        save_prepared_community_media(prepared_media)
+        conn.execute(
+            """
+            INSERT INTO post_media (
+                post_id, user_id, file_name, original_name, file_type,
+                mime_type, status, review_note, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'PENDING_REVIEW', '', ?, ?)
+            """,
+            (
+                post_id,
+                user["id"],
+                prepared_media["file_name"],
+                prepared_media["original_name"],
+                prepared_media["file_type"],
+                prepared_media["mime_type"],
+                current_time,
+                current_time,
+            )
+        )
+
+        media_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+        add_activity_log(user["id"], "CREATE_COMMUNITY_MEDIA", "post_media", media_id, f"post_id={post_id}, type={prepared_media['file_type']}")
+
+        safe_send_moderation_alert(
+            "COMMUNITY_MEDIA_PENDING_REVIEW",
+            media_id,
+            user,
+            body,
+            "PENDING_REVIEW",
+            score,
+            "มีรูปภาพ/วิดีโอใหม่รอ Admin ตรวจ",
+        )
+
     add_activity_log(user["id"], "CREATE_COMMUNITY_POST", "community_posts", post_id, f"status={status}, score={score}")
 
     if status in {"PENDING_REVIEW", "BLOCKED"} or int(score or 0) >= 35:
@@ -3011,6 +3263,127 @@ def admin_system_health():
     }
 
     return render_template("admin_system_health.html", health=health)
+
+
+
+@app.route("/admin/media-review")
+@role_required("ADMIN")
+def admin_media_review():
+    conn = get_db()
+    status_filter = request.args.get("status", "PENDING_REVIEW").strip().upper()
+
+    where = "WHERE 1=1"
+    params = []
+
+    if status_filter in {"PENDING_REVIEW", "APPROVED", "REJECTED"}:
+        where += " AND post_media.status = ?"
+        params.append(status_filter)
+
+    media_items = conn.execute(
+        f"""
+        SELECT
+            post_media.*,
+            community_posts.body,
+            community_posts.status AS post_status,
+            community_posts.moderation_score,
+            community_posts.moderation_reason,
+            users.phone_number,
+            users.role,
+            job_seeker_profiles.full_name,
+            employer_profiles.company_name
+        FROM post_media
+        JOIN community_posts ON community_posts.id = post_media.post_id
+        JOIN users ON users.id = post_media.user_id
+        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = users.id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = users.id
+        {where}
+        ORDER BY datetime(post_media.created_at) DESC, post_media.id DESC
+        LIMIT 200
+        """,
+        tuple(params)
+    ).fetchall()
+
+    stats = {
+        "pending": conn.execute("SELECT COUNT(*) AS count FROM post_media WHERE status = 'PENDING_REVIEW'").fetchone()["count"],
+        "approved": conn.execute("SELECT COUNT(*) AS count FROM post_media WHERE status = 'APPROVED'").fetchone()["count"],
+        "rejected": conn.execute("SELECT COUNT(*) AS count FROM post_media WHERE status = 'REJECTED'").fetchone()["count"],
+    }
+
+    return render_template(
+        "admin_media_review.html",
+        media_items=media_items,
+        stats=stats,
+        status_filter=status_filter,
+        get_display_name_for_user_row=get_display_name_for_user_row,
+    )
+
+
+@app.route("/admin/media-review/<int:media_id>/<action>", methods=["POST"])
+@role_required("ADMIN")
+def admin_update_media_review(media_id, action):
+    admin = get_current_user()
+    conn = get_db()
+
+    media = conn.execute("SELECT * FROM post_media WHERE id = ?", (media_id,)).fetchone()
+    if not media:
+        abort(404)
+
+    current_time = now_str()
+
+    if action == "approve":
+        conn.execute(
+            """
+            UPDATE post_media
+            SET status = 'APPROVED',
+                reviewed_by = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (admin["id"], current_time, media_id)
+        )
+        conn.execute(
+            """
+            UPDATE community_posts
+            SET status = CASE
+                    WHEN moderation_score < 35 THEN 'ACTIVE'
+                    ELSE status
+                END,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (current_time, media["post_id"])
+        )
+        add_activity_log(admin["id"], "ADMIN_APPROVE_MEDIA", "post_media", media_id, f"post_id={media['post_id']}")
+
+    elif action == "reject":
+        conn.execute(
+            """
+            UPDATE post_media
+            SET status = 'REJECTED',
+                reviewed_by = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (admin["id"], current_time, media_id)
+        )
+        add_activity_log(admin["id"], "ADMIN_REJECT_MEDIA", "post_media", media_id, f"post_id={media['post_id']}")
+
+    elif action == "delete":
+        file_path = COMMUNITY_UPLOAD_DIR / media["file_name"]
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except Exception:
+            pass
+
+        conn.execute("DELETE FROM post_media WHERE id = ?", (media_id,))
+        add_activity_log(admin["id"], "ADMIN_DELETE_MEDIA", "post_media", media_id, f"post_id={media['post_id']}")
+
+    else:
+        abort(404)
+
+    conn.commit()
+    return redirect(url_for("admin_media_review"))
 
 
 @app.route("/admin")

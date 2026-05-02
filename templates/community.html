@@ -1,195 +1,108 @@
 {% extends "base.html" %}
-{% block title %}กระดานพูดคุย | JobBoard{% endblock %}
+
+{% block title %}Open Community | JobBoard{% endblock %}
 
 {% block content %}
-
 <style>
-.community-page {
-    min-height: calc(100vh - 72px);
-    padding: 36px 16px 56px;
-    background:
-        radial-gradient(circle at 20% 10%, rgba(56,189,248,.18), transparent 28%),
-        radial-gradient(circle at 90% 20%, rgba(14,165,233,.14), transparent 30%),
-        #050505;
-    color: #fff;
-}
-
-.community-wrap {
-    max-width: 980px;
-    margin: 0 auto;
-}
-
-.community-hero,
-.post-form-card,
-.post-card,
-.empty-card {
-    border-radius: 26px;
-    border: 1px solid rgba(56,189,248,.22);
-    background: rgba(2,6,23,.82);
-    box-shadow: 0 24px 70px rgba(0,0,0,.38);
-    backdrop-filter: blur(18px);
-}
-
-.community-hero {
-    padding: 30px;
-    margin-bottom: 20px;
-}
-
-.community-hero h1 {
-    margin: 0 0 8px;
-    font-size: clamp(32px, 5vw, 52px);
-}
-
-.community-hero p {
-    margin: 0;
-    color: rgba(255,255,255,.72);
-    line-height: 1.8;
-}
-
-.post-form-card {
-    padding: 22px;
-    margin-bottom: 22px;
-}
-
-.post-form-card label {
-    display: block;
-    margin-bottom: 10px;
-    font-weight: 800;
-}
-
-.post-form-card textarea {
-    width: 100%;
-    min-height: 120px;
-    border-radius: 18px;
-    border: 1px solid rgba(255,255,255,.12);
-    background: rgba(255,255,255,.06);
-    color: #fff;
-    padding: 14px 16px;
-    font-family: inherit;
-    resize: vertical;
-}
-
-.post-form-card button,
-.login-link {
-    min-height: 48px;
-    margin-top: 14px;
-    border: 0;
-    border-radius: 16px;
-    padding: 0 20px;
-    background: linear-gradient(135deg,#0ea5e9,#38bdf8);
-    color: #03131f;
-    font-weight: 900;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.login-link {
-    text-decoration: none;
-}
-
-.post-card {
-    padding: 20px;
-    margin-bottom: 14px;
-}
-
-.post-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 10px;
-    color: rgba(255,255,255,.72);
-    font-size: 14px;
-}
-
-.post-content {
-    white-space: pre-line;
-    line-height: 1.8;
-    font-size: 16px;
-}
-
-.post-status {
-    display: inline-flex;
-    padding: 5px 10px;
-    border-radius: 999px;
-    background: rgba(34,197,94,.12);
-    color: #86efac;
-    font-size: 12px;
-    font-weight: 800;
-}
-
-.empty-card {
-    padding: 24px;
-    color: rgba(255,255,255,.72);
-}
+.community-page{width:min(1100px,calc(100% - 28px));margin:0 auto;padding:28px 0 42px}
+.community-hero{padding:30px;border-radius:30px;border:1px solid rgba(56,189,248,.22);background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));box-shadow:0 24px 70px rgba(0,0,0,.30)}
+.community-hero h1{margin:0 0 8px;color:#fff;font-size:clamp(34px,5vw,52px)}
+.community-hero p{margin:0;color:rgba(226,232,240,.72);font-size:17px}
+.community-grid{display:grid;grid-template-columns:360px 1fr;gap:18px;margin-top:20px}
+.community-card{padding:20px;border-radius:24px;border:1px solid rgba(56,189,248,.16);background:rgba(15,23,42,.76);box-shadow:0 18px 52px rgba(0,0,0,.22)}
+.community-card h2{margin:0 0 12px;color:#fff}
+.community-card textarea{width:100%;min-height:140px;border-radius:18px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.72);color:#fff;padding:14px;resize:vertical}
+.community-card input[type=file]{width:100%;margin:12px 0;color:#dbeafe}
+.community-note{padding:12px;border-radius:16px;background:rgba(251,191,36,.10);color:#fde68a;font-size:13px;line-height:1.55}
+.community-btn{width:100%;min-height:46px;border:0;border-radius:16px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;cursor:pointer;margin-top:12px}
+.community-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
+.community-stat{padding:14px;border-radius:18px;background:rgba(2,6,23,.56);border:1px solid rgba(56,189,248,.12);color:#fff}
+.community-stat strong{display:block;font-size:26px}
+.community-feed{display:grid;gap:14px}
+.community-post{padding:18px;border-radius:24px;border:1px solid rgba(148,163,184,.14);background:rgba(15,23,42,.78)}
+.community-author{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}
+.community-author strong{color:#fff}
+.community-author span{color:#7dd3fc;font-size:13px;font-weight:900}
+.community-body{white-space:pre-wrap;color:rgba(226,232,240,.82);line-height:1.65}
+.community-media{margin-top:14px}
+.community-media img{max-width:100%;border-radius:18px;border:1px solid rgba(148,163,184,.18)}
+.community-media video{width:100%;max-height:420px;border-radius:18px;border:1px solid rgba(148,163,184,.18);background:#000}
+.community-status{display:inline-flex;margin-top:12px;padding:6px 10px;border-radius:999px;background:rgba(251,191,36,.14);color:#fde68a;font-size:12px;font-weight:900}
+.community-empty{padding:30px;text-align:center;color:rgba(226,232,240,.72)}
+@media(max-width:900px){.community-grid{grid-template-columns:1fr}.community-stats{grid-template-columns:1fr}}
 </style>
 
-<div class="community-page">
-    <div class="community-wrap">
+<section class="community-page">
+  <div class="community-hero">
+    <h1>กระดานโพสต์ชุมชน</h1>
+    <p>โพสต์ข้อความ รูปภาพ หรือวิดีโอได้อย่างปลอดภัย โดยสื่อทุกไฟล์ต้องรอ Admin ตรวจอนุมัติก่อนแสดงสาธารณะ</p>
+  </div>
 
-        <section class="community-hero">
-            <h1>กระดานพูดคุย</h1>
-            <p>
-                พื้นที่พูดคุยเรื่องงานใกล้บ้าน ประสบการณ์สมัครงาน และแจ้งเตือนงานน่าสงสัย
-                ระบบจะช่วยกรองข้อความไม่สุภาพ สแปม และโพสต์เสี่ยงก่อนแสดงผล
-            </p>
-        </section>
+  <div class="community-grid">
+    <aside>
+      <div class="community-card">
+        <h2>สร้างโพสต์</h2>
 
         {% if current_user %}
-            <section class="post-form-card">
-                <form method="post">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <label>เขียนโพสต์</label>
-                    <textarea name="content" placeholder="พิมพ์ข้อความสุภาพ เช่น มีใครเคยสมัครงานแถวพิจิตรบ้างครับ" required></textarea>
-                    <button type="submit">โพสต์ลงกระดาน</button>
-                </form>
-            </section>
-        {% else %}
-            <section class="post-form-card">
-                <h2>เข้าสู่ระบบก่อนโพสต์</h2>
-                <p>สมาชิกเท่านั้นที่สามารถโพสต์ในกระดานพูดคุยได้</p>
-                <a class="login-link" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
-            </section>
-        {% endif %}
+          <form method="post" action="{{ url_for('create_community_post') }}" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <textarea name="body" placeholder="เขียนข้อความของคุณ..."></textarea>
+            <input type="file" name="media" accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,image/jpeg,image/png,image/webp,video/mp4,video/webm">
 
-        {% if posts %}
-            {% for post in posts %}
-                <article class="post-card">
-                    <div class="post-head">
-                        <strong>
-                            {% if post.author_name %}
-                                {{ post.author_name }}
-                            {% elif post.phone_number %}
-                                ผู้ใช้ {{ post.phone_number[-4:] }}
-                            {% else %}
-                                สมาชิก JobBoard
-                            {% endif %}
-                        </strong>
-
-                        <span class="post-status">
-                            {{ post.status or "ACTIVE" }}
-                        </span>
-                    </div>
-
-                    <div class="post-content">
-                        {{ post.content }}
-                    </div>
-
-                    {% if post.created_at %}
-                        <div class="post-head" style="margin-top:12px;">
-                            <span>{{ post.created_at }}</span>
-                        </div>
-                    {% endif %}
-                </article>
-            {% endfor %}
-        {% else %}
-            <div class="empty-card">
-                ยังไม่มีโพสต์ในกระดาน พิมพ์โพสต์แรกเพื่อเริ่มพูดคุยได้เลย
+            <div class="community-note">
+              ห้ามโพสต์ภาพโป๊ อนาจาร การพนัน หลอกลวง ข้อมูลส่วนตัว หรือเนื้อหาผิดกฎหมาย<br>
+              รูปภาพไม่เกิน 5 MB / วิดีโอไม่เกิน 50 MB และต้องรอ Admin อนุมัติ
             </div>
+
+            <button class="community-btn" type="submit">โพสต์</button>
+          </form>
+        {% else %}
+          <p>กรุณาเข้าสู่ระบบก่อนโพสต์</p>
+          <a class="community-btn" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
         {% endif %}
+      </div>
 
-    </div>
-</div>
+      <div class="community-stats">
+        <div class="community-stat"><strong>{{ stats.active }}</strong>Active</div>
+        <div class="community-stat"><strong>{{ stats.pending }}</strong>Pending</div>
+        <div class="community-stat"><strong>{{ stats.blocked }}</strong>Blocked</div>
+      </div>
+    </aside>
 
+    <main class="community-feed">
+      {% for post in posts %}
+        <article class="community-post">
+          <div class="community-author">
+            <strong>{{ get_display_name_for_user_row(post) }}</strong>
+            <span>{{ post.created_at }}</span>
+          </div>
+
+          <div class="community-body">{{ post.body }}</div>
+
+          {% for media in media_by_post.get(post.id, []) %}
+            <div class="community-media">
+              {% if media.file_type == 'IMAGE' %}
+                <img src="{{ url_for('uploaded_community_media', filename=media.file_name) }}" alt="community image">
+              {% elif media.file_type == 'VIDEO' %}
+                <video controls preload="metadata">
+                  <source src="{{ url_for('uploaded_community_media', filename=media.file_name) }}">
+                </video>
+              {% endif %}
+
+              {% if current_user and current_user.role == 'ADMIN' and media.status != 'APPROVED' %}
+                <div class="community-status">{{ media.status }}</div>
+              {% endif %}
+            </div>
+          {% endfor %}
+
+          {% if current_user and current_user.role == 'ADMIN' and post.status != 'ACTIVE' %}
+            <div class="community-status">POST: {{ post.status }} / SCORE {{ post.moderation_score }}</div>
+          {% endif %}
+        </article>
+      {% else %}
+        <div class="community-card community-empty">ยังไม่มีโพสต์ในชุมชน</div>
+      {% endfor %}
+    </main>
+  </div>
+</section>
 {% endblock %}

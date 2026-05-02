@@ -260,6 +260,7 @@
     <a class="green" href="{{ url_for('admin_backup_download') }}">Backup ZIP</a>
     <a href="{{ url_for('admin_import_upper_central_jobs') }}">ดึงงาน 4 จังหวัด</a>
     <a href="{{ url_for('admin_system_health') }}">System Health</a>
+    <a href="{{ url_for('admin_media_review') }}">Media Review</a>
 
     <form method="post" action="{{ url_for('admin_fetch_government_news') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
