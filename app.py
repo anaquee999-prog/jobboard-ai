@@ -1252,6 +1252,8 @@ def register():
         role = request.form.get("role", "JOB_SEEKER").strip()
         phone_number = normalize_phone(request.form.get("phone_number"))
         password = request.form.get("password", "")
+        email = request.form.get("email", "").strip().lower()
+        notify_consent = request.form.get("notify_consent") == "1"
         confirm_password = request.form.get("confirm_password", "")
         accept_terms = request.form.get("accept_terms", "")
 
@@ -1273,6 +1275,15 @@ def register():
         elif role == "EMPLOYER" and not validate_profile_name(company_name, "ชื่อบริษัท", 120)[0]:
             error = validate_profile_name(company_name, "ชื่อบริษัท", 120)[1]
         else:
+            if not error and not phone:
+                error = "กรุณากรอกเบอร์โทรศัพท์"
+            elif not error and not email:
+                error = "กรุณากรอกอีเมล"
+            elif not error and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email or ""):
+                error = "รูปแบบอีเมลไม่ถูกต้อง"
+            elif not error and not notify_consent:
+                error = "กรุณายอมรับการรับแจ้งเตือน"
+
             conn = get_db()
             exists = conn.execute("SELECT id FROM users WHERE phone_number = ?", (phone_number,)).fetchone()
             if exists:

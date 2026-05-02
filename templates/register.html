@@ -51,9 +51,11 @@
       <div class="auth-error">{{ error }}</div>
     {% endif %}
 
-    <p style="color:#bbf7d0;font-weight:900;margin:0 0 14px;">สมัครแล้วเข้าใช้งานได้ทันที ระบบจะมีแจ้งเตือนในเว็บและอีเมลตามที่ตั้งค่าไว้</p>
+    <p style="color:#bbf7d0;font-weight:900;margin:0 0 14px;">สมัครแล้วเข้าใช้งานได้ทันที ต้องกรอกเบอร์โทรและอีเมล และยินยอมรับการแจ้งเตือน</p>
 
     <form method="post" action="{{ url_for('register') }}">
+      <div class="auth-help" style="margin:10px 0 16px;font-weight:800;color:#bbf7d0;">เบอร์โทรและอีเมลเป็นข้อมูลจำเป็น และต้องยอมรับการรับแจ้งเตือน</div>
+
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
       <div class="role-grid">
@@ -78,6 +80,10 @@
 
       <div class="auth-field">
         <label for="password">รหัสผ่าน</label>
+
+      <label>อีเมล</label>
+      <input type="email" name="email" placeholder="you@example.com" required autocomplete="email">
+      <div class="auth-help">จำเป็นต้องกรอก เพื่อรับการแจ้งเตือนในเว็บและทางอีเมล</div>
         <input id="password" name="password" type="password" autocomplete="new-password" required>
         <div class="auth-help">อย่างน้อย 8 ตัว มีตัวอักษรและตัวเลข ห้ามใช้เบอร์โทรเป็นรหัสผ่าน</div>
       </div>
@@ -90,6 +96,11 @@
       <label class="terms">
         <input type="checkbox" name="accept_terms" required>
         <span>ยอมรับนโยบายความปลอดภัย ห้ามโพสต์หลอกลวง การพนัน เนื้อหาลามก ข้อมูลส่วนตัว หรือเนื้อหาผิดกฎหมาย</span>
+      </label>
+
+      <label class="check-row" style="display:flex;gap:10px;align-items:flex-start;margin:12px 0;">
+        <input type="checkbox" name="notify_consent" value="1" required checked style="margin-top:4px;">
+        <span>ยินยอมรับการแจ้งเตือนในเว็บและทางอีเมล</span>
       </label>
 
       <button class="auth-submit" type="submit">สมัครใช้งาน</button>
