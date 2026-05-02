@@ -4655,6 +4655,31 @@ def ensure_database_ready():
     return None
 
 
+
+
+# AUTO_FIX_BAD_SOURCE_URLS_ONCE
+_AUTO_SOURCE_REPAIR_DONE = False
+
+@app.before_request
+def auto_repair_bad_source_urls_once():
+    global _AUTO_SOURCE_REPAIR_DONE
+
+    if _AUTO_SOURCE_REPAIR_DONE:
+        return None
+
+    try:
+        endpoint = request.endpoint or ""
+        if endpoint.startswith("static"):
+            return None
+
+        repair_job_source_urls_to_official()
+        _AUTO_SOURCE_REPAIR_DONE = True
+    except Exception:
+        return None
+
+    return None
+
+
 if __name__ == "__main__":
     validate_runtime_config()
     with app.app_context():

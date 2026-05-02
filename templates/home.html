@@ -100,8 +100,8 @@
 
           <div class="job-links">
             <a class="detail" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูในระบบ</a>
-            {% if job.source_url %}
-              <a class="source" href="{{ job.source_url }}" target="_blank" rel="noopener noreferrer">เปิดแหล่งทางการ</a>
+            {% if job.source_url and not is_bad_source_url(job.source_url) %}
+              <a class="source" href="{{ official_source_url(job.location) if is_bad_source_url(job.source_url) else job.source_url }}" target="_blank" rel="noopener noreferrer">เปิดแหล่งทางการ</a>
             {% endif %}
           </div>
         </article>
@@ -131,8 +131,8 @@
         <p>{{ job.description[:140] }}{% if job.description|length > 140 %}...{% endif %}</p>
         <div class="job-links">
           <a class="detail" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูรายละเอียด</a>
-          {% if job.source_url %}
-            <a class="source" href="{{ job.source_url }}" target="_blank" rel="noopener noreferrer">แหล่งทางการ</a>
+          {% if job.source_url and not is_bad_source_url(job.source_url) %}
+            <a class="source" href="{{ official_source_url(job.location) if is_bad_source_url(job.source_url) else job.source_url }}" target="_blank" rel="noopener noreferrer">แหล่งทางการ</a>
           {% endif %}
         </div>
       </article>
