@@ -86,6 +86,70 @@ def is_valid_thai_phone(phone):
     return len(phone) == 10 and phone.startswith("0")
 
 
+def validate_account_password(password, phone_number=""):
+    password = str(password or "")
+    phone_number = normalize_phone(phone_number)
+
+    weak_passwords = {
+        "password",
+        "password123",
+        "12345678",
+        "123456789",
+        "00000000",
+        "11111111",
+        "qwerty123",
+        "admin1234",
+    }
+
+    if len(password) < 8:
+        return False, "รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร"
+
+    if len(password) > 128:
+        return False, "รหัสผ่านยาวเกินไป"
+
+    if password.lower() in weak_passwords:
+        return False, "รหัสผ่านนี้เดาง่ายเกินไป กรุณาตั้งใหม่"
+
+    if phone_number and password == phone_number:
+        return False, "ห้ามใช้เบอร์โทรศัพท์เป็นรหัสผ่าน"
+
+    if password.isdigit():
+        return False, "รหัสผ่านไม่ควรเป็นตัวเลขล้วน"
+
+    if not re.search(r"[A-Za-zก-๙]", password) or not re.search(r"\d", password):
+        return False, "รหัสผ่านควรมีทั้งตัวอักษรและตัวเลข"
+
+    return True, ""
+
+
+def validate_profile_name(value, label, max_length=120):
+    value = str(value or "").strip()
+
+    if not value:
+        return False, f"กรุณากรอก{label}"
+
+    if len(value) > max_length:
+        return False, f"{label}ยาวเกินไป"
+
+    blocked_patterns = [
+        r"https?://",
+        r"www\.",
+        r"line\s*id",
+        r"telegram",
+        r"whatsapp",
+        r"เว็บพนัน",
+        r"พนัน",
+        r"เงินกู้",
+    ]
+
+    lowered = value.lower()
+    for pattern in blocked_patterns:
+        if re.search(pattern, lowered, re.IGNORECASE):
+            return False, f"{label}มีข้อความที่ไม่เหมาะสม"
+
+    return True, ""
+
+
 def hash_password(password):
     return bcrypt.hashpw(str(password).encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -904,16 +968,16 @@ def register():
             error = "ประเภทบัญชีไม่ถูกต้อง"
         elif not is_valid_thai_phone(phone_number):
             error = "กรุณากรอกเบอร์โทรศัพท์ 10 หลัก เช่น 0800000000"
-        elif len(password) < 8:
-            error = "รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร"
+        elif not validate_account_password(password, phone_number)[0]:
+            error = validate_account_password(password, phone_number)[1]
         elif password != confirm_password:
             error = "รหัสผ่านไม่ตรงกัน"
         elif accept_terms != "on":
             error = "กรุณายอมรับนโยบายความเป็นส่วนตัวและข้อกำหนดการใช้งาน"
-        elif role == "JOB_SEEKER" and not full_name:
-            error = "กรุณากรอกชื่อผู้หางาน"
-        elif role == "EMPLOYER" and not company_name:
-            error = "กรุณากรอกชื่อบริษัท"
+        elif role == "JOB_SEEKER" and not validate_profile_name(full_name, "ชื่อผู้หางาน", 80)[0]:
+            error = validate_profile_name(full_name, "ชื่อผู้หางาน", 80)[1]
+        elif role == "EMPLOYER" and not validate_profile_name(company_name, "ชื่อบริษัท", 120)[0]:
+            error = validate_profile_name(company_name, "ชื่อบริษัท", 120)[1]
         else:
             conn = get_db()
             exists = conn.execute("SELECT id FROM users WHERE phone_number = ?", (phone_number,)).fetchone()

@@ -1,163 +1,133 @@
 {% extends "base.html" %}
-{% block title %}สมัครสมาชิก | JobBoard{% endblock %}
+
+{% block title %}สมัครใช้งาน | JobBoard{% endblock %}
 
 {% block content %}
-
 <style>
-.register-page {
-    min-height: calc(100vh - 72px);
-    display: grid;
-    place-items: center;
-    padding: 36px 16px;
-    background:
-        radial-gradient(circle at 20% 10%, rgba(56,189,248,.18), transparent 28%),
-        radial-gradient(circle at 90% 22%, rgba(14,165,233,.14), transparent 30%),
-        #050505;
-}
-
-.register-card {
-    width: min(520px, 100%);
-    padding: 34px;
-    border-radius: 28px;
-    border: 1px solid rgba(56,189,248,.24);
-    background: rgba(2,6,23,.82);
-    box-shadow: 0 28px 88px rgba(0,0,0,.48);
-    backdrop-filter: blur(18px);
-    color: #fff;
-}
-
-.register-card h1 {
-    margin: 0 0 8px;
-    font-size: 34px;
-}
-
-.register-card p {
-    margin: 0 0 24px;
-    color: rgba(255,255,255,.70);
-}
-
-.register-card label {
-    display: block;
-    margin: 16px 0 8px;
-    font-weight: 800;
-}
-
-.register-card input,
-.register-card select {
-    width: 100%;
-    min-height: 52px;
-    border-radius: 16px;
-    border: 1px solid rgba(255,255,255,.12);
-    background: rgba(255,255,255,.06);
-    color: #fff;
-    padding: 0 15px;
-    font-family: inherit;
-}
-
-.register-card select,
-.register-card select option {
-    background: #ffffff;
-    color: #111827;
-}
-
-.register-card input::placeholder {
-    color: rgba(255,255,255,.42);
-}
-
-.register-card button {
-    width: 100%;
-    min-height: 52px;
-    margin-top: 24px;
-    border: 0;
-    border-radius: 16px;
-    background: linear-gradient(135deg, #0ea5e9, #38bdf8);
-    color: #03131f;
-    font-weight: 900;
-    cursor: pointer;
-}
-
-.checkbox-line {
-    display: flex;
-    gap: 10px;
-    margin-top: 16px;
-    font-size: 14px;
-    color: rgba(255,255,255,.72);
-}
-
-.checkbox-line input {
-    width: auto;
-    min-height: auto;
-}
-
-.register-alert {
-    margin-bottom: 14px;
-    padding: 14px 16px;
-    border-radius: 16px;
-    background: rgba(239,68,68,.12);
-    border: 1px solid rgba(239,68,68,.28);
-    color: #fca5a5;
-}
-
-.register-footer {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid rgba(255,255,255,.08);
-    color: rgba(255,255,255,.68);
-}
-
-.register-footer a {
-    color: #38bdf8;
-    font-weight: 800;
-}
+.auth-page{width:min(1120px,calc(100% - 28px));margin:30px auto 50px;display:grid;grid-template-columns:1fr 470px;gap:22px;align-items:start}
+.auth-hero{padding:34px;border-radius:32px;border:1px solid rgba(56,189,248,.22);background:radial-gradient(circle at 15% 10%,rgba(14,165,233,.28),transparent 34%),radial-gradient(circle at 88% 18%,rgba(34,197,94,.18),transparent 30%),linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));box-shadow:0 28px 90px rgba(0,0,0,.34)}
+.auth-hero h1{margin:10px 0;color:#fff;font-size:clamp(38px,6vw,62px);line-height:1}
+.auth-hero p{color:rgba(226,232,240,.78);font-size:18px;line-height:1.7}
+.auth-badge{display:inline-flex;padding:8px 13px;border-radius:999px;border:1px solid rgba(56,189,248,.26);background:rgba(14,165,233,.14);color:#7dd3fc;font-weight:950;font-size:13px}
+.auth-list{display:grid;gap:10px;margin-top:22px}
+.auth-list div{padding:13px;border-radius:18px;background:rgba(15,23,42,.62);border:1px solid rgba(148,163,184,.14);color:#e0f2fe;font-weight:850}
+.auth-card{padding:26px;border-radius:30px;border:1px solid rgba(56,189,248,.18);background:rgba(15,23,42,.84);box-shadow:0 24px 72px rgba(0,0,0,.30)}
+.auth-card h2{margin:0 0 6px;color:#fff;font-size:30px}
+.auth-card p{margin:0 0 16px;color:rgba(226,232,240,.68)}
+.auth-error{padding:12px 14px;border-radius:16px;background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.28);color:#fecaca;font-weight:900;margin-bottom:14px}
+.role-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.role-box{position:relative}
+.role-box input{position:absolute;opacity:0}
+.role-box span{display:block;padding:14px;border-radius:18px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.60);color:#dbeafe;font-weight:950;text-align:center;cursor:pointer}
+.role-box input:checked + span{border-color:rgba(56,189,248,.72);background:rgba(14,165,233,.20);color:#fff}
+.auth-field{margin-bottom:14px}
+.auth-field label{display:block;margin-bottom:7px;color:#dbeafe;font-weight:950}
+.auth-field input{width:100%;min-height:48px;border-radius:16px;border:1px solid rgba(148,163,184,.24);background:rgba(2,6,23,.70);color:#fff;padding:0 14px;font-weight:800}
+.auth-help{margin-top:6px;color:rgba(226,232,240,.56);font-size:12px;font-weight:800}
+.terms{display:flex;gap:10px;align-items:flex-start;margin:14px 0;color:rgba(226,232,240,.76);font-size:13px;line-height:1.55}
+.terms input{margin-top:3px}
+.auth-submit{width:100%;min-height:50px;border:0;border-radius:17px;background:linear-gradient(135deg,#22c55e,#16a34a);color:#fff;font-weight:950;font-size:16px;cursor:pointer;margin-top:6px}
+.auth-switch{margin-top:16px;text-align:center;color:rgba(226,232,240,.70)}
+.auth-switch a{color:#7dd3fc;font-weight:950}
+.hidden-role{display:none}
+@media(max-width:900px){.auth-page{grid-template-columns:1fr}.auth-card{order:-1}.role-grid{grid-template-columns:1fr}}
 </style>
 
-<div class="register-page">
-    <section class="register-card">
+<section class="auth-page">
+  <div class="auth-hero">
+    <div class="auth-badge">Safe Registration</div>
+    <h1>สมัครใช้งานอย่างปลอดภัย</h1>
+    <p>เลือกประเภทบัญชีให้ถูกต้อง เพื่อให้ระบบจัดหน้า Dashboard และ Trust Score ได้เหมาะสม</p>
 
-        <h1>สมัครสมาชิก</h1>
-        <p>ใช้เบอร์โทรศัพท์สมัครบัญชี JobBoard</p>
+    <div class="auth-list">
+      <div>ผู้หางาน: สมัครงาน โพสต์หางาน และใช้ OpenChat</div>
+      <div>นายจ้าง: ลงประกาศงานและจัดการผู้สมัคร</div>
+      <div>ระบบตรวจคำเสี่ยง ป้องกันงานหลอกและเนื้อหาไม่เหมาะสม</div>
+    </div>
+  </div>
 
-        {% if error %}
-            <div class="register-alert">{{ error }}</div>
-        {% endif %}
+  <div class="auth-card">
+    <h2>สร้างบัญชี</h2>
+    <p>กรอกข้อมูลพื้นฐาน ใช้ OTP ทดสอบ 123456</p>
 
-        <form method="post">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if error %}
+      <div class="auth-error">{{ error }}</div>
+    {% endif %}
 
-            <label>ประเภทบัญชี</label>
-            <select name="role" required>
-                <option value="JOB_SEEKER">ผู้หางาน</option>
-                <option value="EMPLOYER">นายจ้าง</option>
-            </select>
+    <form method="post" action="{{ url_for('register') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-            <label>เบอร์โทรศัพท์</label>
-            <input type="text" name="phone_number" placeholder="เช่น 0800000000" required>
+      <div class="role-grid">
+        <label class="role-box">
+          <input type="radio" name="role" value="JOB_SEEKER" checked>
+          <span>ผู้หางาน</span>
+        </label>
 
-            <label>ชื่อผู้ใช้งาน</label>
-            <input type="text" name="full_name" placeholder="เช่น สมชาย ใจดี">
+        <label class="role-box">
+          <input type="radio" name="role" value="EMPLOYER">
+          <span>นายจ้าง / บริษัท</span>
+        </label>
+      </div>
 
-            <label>ชื่อบริษัท (ถ้าเป็นนายจ้าง)</label>
-            <input type="text" name="company_name" placeholder="เช่น บริษัท ABC จำกัด">
+      <div class="auth-field role-job-seeker">
+        <label for="full_name">ชื่อผู้หางาน</label>
+        <input id="full_name" name="full_name" type="text" maxlength="80" placeholder="ชื่อ-นามสกุล">
+      </div>
 
-            <label>รหัสผ่าน</label>
-            <input type="password" name="password" required>
+      <div class="auth-field role-employer hidden-role">
+        <label for="company_name">ชื่อบริษัท / ร้านค้า</label>
+        <input id="company_name" name="company_name" type="text" maxlength="120" placeholder="เช่น ABC Company">
+      </div>
 
-            <label>ยืนยันรหัสผ่าน</label>
-            <input type="password" name="confirm_password" required>
+      <div class="auth-field">
+        <label for="phone_number">เบอร์โทรศัพท์</label>
+        <input id="phone_number" name="phone_number" type="tel" inputmode="numeric" autocomplete="tel" placeholder="0800000000" required>
+      </div>
 
-            <label class="checkbox-line">
-                <input type="checkbox" name="accept_terms" required>
-                <span>ฉันยอมรับข้อกำหนดการใช้งานและนโยบายความเป็นส่วนตัว</span>
-            </label>
+      <div class="auth-field">
+        <label for="password">รหัสผ่าน</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" required>
+        <div class="auth-help">อย่างน้อย 8 ตัว มีตัวอักษรและตัวเลข ห้ามใช้เบอร์โทรเป็นรหัสผ่าน</div>
+      </div>
 
-            <button type="submit">สมัครสมาชิก</button>
-        </form>
+      <div class="auth-field">
+        <label for="confirm_password">ยืนยันรหัสผ่าน</label>
+        <input id="confirm_password" name="confirm_password" type="password" autocomplete="new-password" required>
+      </div>
 
-        <div class="register-footer">
-            มีบัญชีแล้ว? <a href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
-        </div>
+      <label class="terms">
+        <input type="checkbox" name="accept_terms" required>
+        <span>ยอมรับนโยบายความปลอดภัย ห้ามโพสต์หลอกลวง การพนัน เนื้อหาลามก ข้อมูลส่วนตัว หรือเนื้อหาผิดกฎหมาย</span>
+      </label>
 
-    </section>
-</div>
+      <button class="auth-submit" type="submit">สมัครใช้งาน</button>
+    </form>
 
+    <div class="auth-switch">
+      มีบัญชีแล้ว? <a href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+    </div>
+  </div>
+</section>
+
+<script>
+(function () {
+  const roleInputs = document.querySelectorAll('input[name="role"]');
+  const seeker = document.querySelector('.role-job-seeker');
+  const employer = document.querySelector('.role-employer');
+
+  function updateRole() {
+    const selected = document.querySelector('input[name="role"]:checked')?.value || 'JOB_SEEKER';
+    if (selected === 'EMPLOYER') {
+      seeker.classList.add('hidden-role');
+      employer.classList.remove('hidden-role');
+    } else {
+      employer.classList.add('hidden-role');
+      seeker.classList.remove('hidden-role');
+    }
+  }
+
+  roleInputs.forEach(input => input.addEventListener('change', updateRole));
+  updateRole();
+})();
+</script>
 {% endblock %}
