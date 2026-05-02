@@ -4869,20 +4869,23 @@ def auto_repair_bad_source_urls_once():
 
 
 # SEED_TEST_ACCOUNTS_AND_REPAIR_DB
+
 def upsert_test_user_account(phone, password, role, display_name):
     conn = get_db()
     current_time = now_str()
-    phone_number = normalize_phone(phone)
-    role = str(role or "").strip().upper()
+    phone = normalize_phone(phone)
     password_hash = hash_password(password)
+    role = str(role or "").strip().upper()
 
     if role not in {"JOB_SEEKER", "EMPLOYER"}:
-        raise ValueError("role must be JOB_SEEKER or EMPLOYER")
+        raise ValueError("Invalid test account role")
 
     existing = conn.execute(
         "SELECT id FROM users WHERE phone_number = ? LIMIT 1",
-        (phone_number,)
+        (phone,)
     ).fetchone()
+
+    trust_score = 80 if role == "JOB_SEEKER" else 85
 
     if existing:
         user_id = existing["id"]
@@ -4893,14 +4896,11 @@ def upsert_test_user_account(phone, password, role, display_name):
                 role = ?,
                 is_verified = 1,
                 is_banned = 0,
-                trust_score = CASE
-                    WHEN ? = 'EMPLOYER' THEN max(trust_score, 75)
-                    ELSE max(trust_score, 60)
-                END,
+                trust_score = ?,
                 updated_at = ?
             WHERE id = ?
             """,
-            (password_hash, role, role, current_time, user_id)
+            (password_hash, role, trust_score, current_time, user_id)
         )
     else:
         cur = conn.execute(
@@ -4911,34 +4911,9 @@ def upsert_test_user_account(phone, password, role, display_name):
             )
             VALUES (?, ?, ?, 1, 0, ?, ?, ?)
             """,
-            (
-                phone_number,
-                password_hash,
-                role,
-                75 if role == "EMPLOYER" else 60,
-                current_time,
-                current_time,
-            )
+            (phone, password_hash, role, trust_score, current_time, current_time)
         )
         user_id = cur.lastrowid
-
-    try:
-        ensure_notification_schema()
-        conn.execute(
-            """
-            UPDATE users
-            SET email = CASE
-                    WHEN email IS NULL OR email = '' THEN ?
-                    ELSE email
-                END,
-                wants_web_alerts = 1,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (f"test{user_id}@example.com", current_time, user_id)
-        )
-    except Exception:
-        pass
 
     if role == "JOB_SEEKER":
         row = conn.execute(
@@ -4986,12 +4961,12 @@ def upsert_test_user_account(phone, password, role, display_name):
             )
 
     if role == "EMPLOYER":
+        tax_id = f"TEST-EMPLOYER-{user_id:06d}"
+
         row = conn.execute(
             "SELECT id FROM employer_profiles WHERE user_id = ? LIMIT 1",
             (user_id,)
         ).fetchone()
-
-        tax_id = f"TEST-EMPLOYER-{user_id}"
 
         if row:
             conn.execute(
@@ -5001,14 +4976,15 @@ def upsert_test_user_account(phone, password, role, display_name):
                     tax_id = ?,
                     is_company_verified = 1,
                     address = ?,
-                    website = '',
+                    website = ?,
                     updated_at = ?
                 WHERE user_id = ?
                 """,
                 (
                     display_name,
                     tax_id,
-                    "บัญชีทดสอบระบบนายจ้าง",
+                    "บัญชีทดสอบระบบงานใกล้บ้าน",
+                    "",
                     current_time,
                     user_id,
                 )
@@ -5020,13 +4996,14 @@ def upsert_test_user_account(phone, password, role, display_name):
                     user_id, company_name, tax_id, is_company_verified,
                     address, website, created_at, updated_at
                 )
-                VALUES (?, ?, ?, 1, ?, '', ?, ?)
+                VALUES (?, ?, ?, 1, ?, ?, ?, ?)
                 """,
                 (
                     user_id,
                     display_name,
                     tax_id,
-                    "บัญชีทดสอบระบบนายจ้าง",
+                    "บัญชีทดสอบระบบงานใกล้บ้าน",
+                    "",
                     current_time,
                     current_time,
                 )
@@ -5060,7 +5037,7 @@ def upsert_test_user_account(phone, password, role, display_name):
                 WHERE id = ?
                 """,
                 (
-                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ รายละเอียดครบถ้วนและพร้อมเริ่มงาน",
+                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ",
                     "15,000 - 18,000 บาท",
                     "พิจิตร",
                     "ประกาศทดสอบจากนายจ้างที่ยืนยันแล้ว",
@@ -5081,7 +5058,7 @@ def upsert_test_user_account(phone, password, role, display_name):
                 (
                     user_id,
                     "ด่วน รับพนักงานประสานงานใกล้บ้าน",
-                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ รายละเอียดครบถ้วนและพร้อมเริ่มงาน",
+                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ",
                     "15,000 - 18,000 บาท",
                     "พิจิตร",
                     "ประกาศทดสอบจากนายจ้างที่ยืนยันแล้ว",
@@ -5092,7 +5069,6 @@ def upsert_test_user_account(phone, password, role, display_name):
 
     conn.commit()
     return user_id
-
 
 def force_repair_demo_and_bad_sources():
     conn = get_db()
