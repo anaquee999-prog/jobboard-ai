@@ -2,6 +2,13 @@
 {% block title %}Employer Dashboard | JobBoard{% endblock %}
 
 {% block content %}
+
+<div class="notify-cta-box" style="margin:16px 0;padding:18px;border-radius:22px;background:rgba(14,165,233,.12);border:1px solid rgba(56,189,248,.28);">
+  <h3 style="margin:0 0 8px;color:#fff;">🔔 รับการแจ้งเตือน</h3>
+  <p style="margin:0 0 12px;color:#cbd5e1;font-weight:800;">เปิดแจ้งเตือนงานใหม่ งานด่วน ข่าวกรมแรงงาน และข้อความสำคัญ</p>
+  <a href="{{ url_for('notification_settings') }}" style="display:inline-flex;border-radius:14px;padding:10px 14px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;text-decoration:none;">ตั้งค่าการแจ้งเตือน</a>
+</div>
+
 <section class="card">
     <h1>Employer Dashboard</h1>
     <p class="muted">บริษัท: {{ profile.company_name if profile else "-" }}</p>

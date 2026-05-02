@@ -281,6 +281,54 @@
 
             .footer-inner { grid-template-columns: 1fr; }
         }
+    
+        .notify-bell {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            border: 1px solid rgba(56,189,248,.34);
+            background: rgba(14,165,233,.12);
+            color: #e0f2fe;
+            border-radius: 999px;
+            padding: 9px 12px;
+            font-weight: 950;
+            text-decoration: none;
+        }
+
+        .notify-badge {
+            min-width: 20px;
+            height: 20px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #ef4444;
+            color: white;
+            font-size: 12px;
+            font-weight: 950;
+            padding: 0 6px;
+        }
+
+        .notify-panel {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            width: min(380px, calc(100% - 36px));
+            z-index: 9999;
+            display: none;
+            padding: 14px;
+            border-radius: 22px;
+            background: rgba(15,23,42,.96);
+            border: 1px solid rgba(56,189,248,.28);
+            box-shadow: 0 24px 70px rgba(0,0,0,.42);
+        }
+
+        .notify-panel.show { display: block; }
+        .notify-panel strong { color: #fff; display:block; margin-bottom:4px; }
+        .notify-panel p { margin:0; color:#cbd5e1; font-weight:800; }
+        .notify-panel a { color:#7dd3fc; font-weight:950; }
+
     </style>
 
     {% block extra_head %}{% endblock %}
@@ -306,6 +354,11 @@
 {% if current_user %}
                     <a class="nav-openchat" href="{{ url_for('openchat') }}">OpenChat</a>
                     <a href="{{ url_for('dashboard') }}">Dashboard</a>
+                    <a class="notify-bell" id="notificationBell" href="{{ url_for('notifications_page') }}">
+                        🔔 แจ้งเตือน
+                        {% set ncount = unread_notifications_count(current_user.id) if current_user else 0 %}
+                        <span class="notify-badge" id="notificationBadge" {% if ncount <= 0 %}style="display:none"{% endif %}>{{ ncount }}</span>
+                    </a>
                     <a class="nav-message-link" href="{{ url_for('inbox') }}">
                         ข้อความ
                         <span id="messageBadge" class="message-badge">0</span>
@@ -429,6 +482,73 @@
 
     refreshUnreadCount();
     setInterval(refreshUnreadCount, 10000);
+})();
+</script>
+{% endif %}
+
+
+{% if current_user %}
+<div class="notify-panel" id="notificationLivePanel">
+  <strong id="notificationLiveTitle">แจ้งเตือนใหม่</strong>
+  <p id="notificationLiveMessage"></p>
+  <p style="margin-top:10px;"><a href="{{ url_for('notifications_page') }}">เปิดการแจ้งเตือนทั้งหมด</a></p>
+</div>
+
+<script>
+(function(){
+  const badge = document.getElementById("notificationBadge");
+  const panel = document.getElementById("notificationLivePanel");
+  const titleEl = document.getElementById("notificationLiveTitle");
+  const msgEl = document.getElementById("notificationLiveMessage");
+  let lastTopId = null;
+
+  function showBrowserNotification(title, message) {
+    try {
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(title || "งานใกล้บ้าน", { body: message || "มีแจ้งเตือนใหม่" });
+      }
+    } catch (err) {}
+  }
+
+  function showPanel(title, message) {
+    if (!panel || !titleEl || !msgEl) return;
+    titleEl.textContent = title || "แจ้งเตือนใหม่";
+    msgEl.textContent = message || "";
+    panel.classList.add("show");
+    setTimeout(() => panel.classList.remove("show"), 6500);
+  }
+
+  async function refreshNotifications() {
+    try {
+      const res = await fetch("{{ url_for('api_notifications') }}", {
+        headers: { "Accept": "application/json" },
+        credentials: "same-origin"
+      });
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const unread = Number(data.unread || 0);
+
+      if (badge) {
+        badge.textContent = unread;
+        badge.style.display = unread > 0 ? "inline-flex" : "none";
+      }
+
+      const top = data.items && data.items.length ? data.items[0] : null;
+      if (top && !top.is_read) {
+        if (lastTopId === null) {
+          lastTopId = top.id;
+        } else if (top.id !== lastTopId) {
+          lastTopId = top.id;
+          showPanel(top.title, top.message);
+          showBrowserNotification(top.title, top.message);
+        }
+      }
+    } catch (err) {}
+  }
+
+  refreshNotifications();
+  setInterval(refreshNotifications, 30000);
 })();
 </script>
 {% endif %}

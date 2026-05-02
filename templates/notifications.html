@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}การแจ้งเตือน | งานใกล้บ้าน{% endblock %}
+
+{% block content %}
+<section class="notify-page">
+  <div class="notify-head">
+    <div>
+      <div class="eyebrow">Notification Center</div>
+      <h1>การแจ้งเตือน</h1>
+      <p>รวมแจ้งเตือนงานใหม่ ข้อความสำคัญ งานด่วน และสถานะบัญชีของคุณ</p>
+    </div>
+    <a class="notify-setting-btn" href="{{ url_for('notification_settings') }}">ตั้งค่าการแจ้งเตือน</a>
+  </div>
+
+  <div class="notify-list">
+    {% if notifications %}
+      {% for item in notifications %}
+      <article class="notify-card {% if not item.is_read %}unread{% endif %}">
+        <div>
+          <strong>{{ item.title }}</strong>
+          <p>{{ item.message }}</p>
+          <small>{{ item.category }} · {{ item.created_at }}</small>
+        </div>
+        <div class="notify-actions">
+          {% if item.link_url %}
+            <a href="{{ item.link_url }}">เปิดดู</a>
+          {% endif %}
+          {% if not item.is_read %}
+            <form method="post" action="{{ url_for('api_notifications_mark_read') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="notification_id" value="{{ item.id }}">
+              <button type="submit">อ่านแล้ว</button>
+            </form>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+    {% else %}
+      <div class="empty-notify">
+        <h2>ยังไม่มีการแจ้งเตือน</h2>
+        <p>เมื่อมีงานใหม่ ข้อความ หรือสถานะสำคัญ ระบบจะแสดงที่นี่</p>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+<style>
+.notify-page{width:min(1120px,calc(100% - 28px));margin:30px auto 60px}
+.notify-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:18px}
+.notify-head h1{margin:4px 0;color:#fff;font-size:clamp(32px,5vw,58px)}
+.notify-head p{margin:0;color:#cbd5e1;font-weight:800}
+.eyebrow{color:#38bdf8;font-weight:950;letter-spacing:.08em;text-transform:uppercase}
+.notify-setting-btn,.notify-actions a,.notify-actions button{border:0;border-radius:14px;padding:10px 14px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;text-decoration:none;cursor:pointer}
+.notify-list{display:grid;gap:12px}
+.notify-card{display:flex;justify-content:space-between;gap:14px;padding:16px;border-radius:22px;background:rgba(15,23,42,.70);border:1px solid rgba(148,163,184,.20)}
+.notify-card.unread{border-color:rgba(56,189,248,.65);box-shadow:0 0 0 1px rgba(56,189,248,.18)}
+.notify-card strong{color:#fff;font-size:18px}
+.notify-card p{color:#cbd5e1;margin:7px 0;font-weight:750}
+.notify-card small{color:#94a3b8}
+.notify-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.empty-notify{padding:30px;border-radius:24px;background:rgba(15,23,42,.65);border:1px solid rgba(148,163,184,.20);text-align:center}
+.empty-notify h2{color:#fff}
+.empty-notify p{color:#cbd5e1}
+@media(max-width:720px){.notify-head,.notify-card{flex-direction:column}.notify-actions{justify-content:flex-start}}
+</style>
+{% endblock %}

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}ตั้งค่าการแจ้งเตือน | งานใกล้บ้าน{% endblock %}
+
+{% block content %}
+<section class="notify-settings">
+  <div class="settings-card">
+    <div class="eyebrow">Alert Preferences</div>
+    <h1>รับการแจ้งเตือน</h1>
+    <p>กรอกอีเมลและเปิดแจ้งเตือน เพื่อไม่พลาดงานด่วน งานใหม่ใกล้บ้าน ข่าวกรมแรงงาน และข้อความสำคัญ</p>
+
+    {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+    {% if success %}<div class="alert success">{{ success }}</div>{% endif %}
+
+    <button type="button" class="browser-btn" id="enableBrowserNotify">🔔 รับการแจ้งเตือนบนเครื่องนี้</button>
+    <div id="browserNotifyStatus" class="browser-status"></div>
+
+    <form method="post" action="{{ url_for('notification_settings') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <label>อีเมลสำหรับรับแจ้งเตือน</label>
+      <input type="email" name="email" value="{{ user.email or '' }}" placeholder="you@example.com">
+
+      <label class="check-row">
+        <input type="checkbox" name="wants_web_alerts" value="1" {% if user.wants_web_alerts %}checked{% endif %}>
+        <span>รับแจ้งเตือนในเว็บ</span>
+      </label>
+
+      <label class="check-row">
+        <input type="checkbox" name="wants_email_alerts" value="1" {% if user.wants_email_alerts %}checked{% endif %}>
+        <span>รับแจ้งเตือนทางอีเมล เมื่อระบบเชื่อมต่อ SMTP แล้ว</span>
+      </label>
+
+      <label class="check-row">
+        <input type="checkbox" name="browser_notifications_enabled" value="1" {% if user.browser_notifications_enabled %}checked{% endif %}>
+        <span>เปิด Browser Notification บนอุปกรณ์นี้</span>
+      </label>
+
+      <button type="submit" class="save-btn">บันทึกการแจ้งเตือน</button>
+    </form>
+  </div>
+</section>
+
+<style>
+.notify-settings{width:min(860px,calc(100% - 28px));margin:34px auto 70px}
+.settings-card{padding:24px;border-radius:28px;background:rgba(15,23,42,.76);border:1px solid rgba(148,163,184,.22);box-shadow:0 24px 70px rgba(0,0,0,.28)}
+.eyebrow{color:#38bdf8;font-weight:950;letter-spacing:.08em;text-transform:uppercase}
+.settings-card h1{margin:5px 0;color:#fff;font-size:clamp(32px,5vw,58px)}
+.settings-card p{color:#cbd5e1;font-weight:800}
+.settings-card label{display:block;color:#dbeafe;font-weight:950;margin:14px 0 8px}
+.settings-card input[type=email]{width:100%;min-height:50px;border-radius:16px;border:1px solid rgba(148,163,184,.28);background:rgba(2,6,23,.72);color:#fff;padding:0 14px;font-weight:850}
+.check-row{display:flex!important;gap:10px;align-items:flex-start;padding:12px;border-radius:16px;background:rgba(2,6,23,.45);border:1px solid rgba(148,163,184,.16)}
+.check-row input{margin-top:4px}
+.browser-btn,.save-btn{width:100%;border:0;border-radius:18px;padding:13px 16px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;font-size:16px;cursor:pointer;margin:12px 0}
+.save-btn{background:linear-gradient(135deg,#22c55e,#86efac)}
+.browser-status{color:#fde68a;font-weight:850;margin:8px 0}
+.alert{padding:12px 14px;border-radius:16px;font-weight:900;margin:12px 0}
+.alert.error{background:rgba(239,68,68,.16);color:#fecaca;border:1px solid rgba(239,68,68,.28)}
+.alert.success{background:rgba(34,197,94,.16);color:#bbf7d0;border:1px solid rgba(34,197,94,.28)}
+</style>
+
+<script>
+(function(){
+  const btn = document.getElementById("enableBrowserNotify");
+  const status = document.getElementById("browserNotifyStatus");
+
+  if (!btn) return;
+
+  if (!("Notification" in window)) {
+    status.textContent = "Browser นี้ยังไม่รองรับการแจ้งเตือน";
+    btn.disabled = true;
+    return;
+  }
+
+  btn.addEventListener("click", async function(){
+    try {
+      const permission = await Notification.requestPermission();
+
+      if (permission === "granted") {
+        status.textContent = "เปิดแจ้งเตือนบนอุปกรณ์นี้แล้ว";
+        new Notification("งานใกล้บ้าน", {
+          body: "คุณเปิดรับการแจ้งเตือนเรียบร้อยแล้ว"
+        });
+
+        const form = new FormData();
+        form.append("csrf_token", "{{ csrf_token() }}");
+
+        await fetch("{{ url_for('api_notifications_browser_enabled') }}", {
+          method: "POST",
+          body: form,
+          credentials: "same-origin"
+        });
+      } else {
+        status.textContent = "ยังไม่ได้อนุญาตแจ้งเตือน หากต้องการใช้งานให้กด Allow";
+      }
+    } catch (err) {
+      status.textContent = "เปิดแจ้งเตือนไม่สำเร็จ";
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -9,3 +9,4 @@ backup_before_final_fix_*/
 _local_route_test.py
 _patch_*.py
 instance/jobboard.db
+backup_before_notifications_*/

@@ -237,6 +237,8 @@ def inject_common_values():
         "official_source_url": get_official_doe_source_for_location,
         "is_bad_source_url": is_bad_or_placeholder_source_url,
         "safe_source_url": safe_source_url,
+        "unread_notifications_count": get_unread_notifications_count,
+        "recent_notifications": get_recent_notifications,
     }
 
 
@@ -653,6 +655,122 @@ def get_current_user():
 
     return dict(row) if row else None
 
+
+
+# NOTIFICATION_SCHEMA_V1
+def ensure_notification_schema():
+    conn = get_db()
+
+    ensure_column(conn, "users", "email", "TEXT DEFAULT ''")
+    ensure_column(conn, "users", "wants_email_alerts", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "users", "wants_web_alerts", "INTEGER NOT NULL DEFAULT 1")
+    ensure_column(conn, "users", "browser_notifications_enabled", "INTEGER NOT NULL DEFAULT 0")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            link_url TEXT DEFAULT '',
+            category TEXT DEFAULT 'GENERAL',
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            read_at TEXT,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+    """)
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);")
+
+    conn.commit()
+
+
+def create_notification(user_id, title, message, link_url="", category="GENERAL"):
+    try:
+        if not user_id:
+            return None
+
+        ensure_notification_schema()
+        conn = get_db()
+        current_time = now_str()
+
+        cur = conn.execute(
+            """
+            INSERT INTO notifications (
+                user_id, title, message, link_url, category, is_read, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, 0, ?)
+            """,
+            (
+                user_id,
+                str(title or "แจ้งเตือน")[:180],
+                str(message or "")[:1000],
+                str(link_url or "")[:500],
+                str(category or "GENERAL")[:60],
+                current_time,
+            )
+        )
+        conn.commit()
+        return cur.lastrowid
+    except Exception:
+        return None
+
+
+def create_notifications_for_role(role, title, message, link_url="", category="GENERAL"):
+    try:
+        ensure_notification_schema()
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT id
+            FROM users
+            WHERE role = ?
+              AND status = 'ACTIVE'
+              AND COALESCE(wants_web_alerts, 1) = 1
+            """,
+            (role,)
+        ).fetchall()
+
+        count = 0
+        for row in rows:
+            if create_notification(row["id"], title, message, link_url, category):
+                count += 1
+        return count
+    except Exception:
+        return 0
+
+
+def get_unread_notifications_count(user_id):
+    try:
+        ensure_notification_schema()
+        conn = get_db()
+        row = conn.execute(
+            "SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0",
+            (user_id,)
+        ).fetchone()
+        return int(row["count"] or 0)
+    except Exception:
+        return 0
+
+
+def get_recent_notifications(user_id, limit=8):
+    try:
+        ensure_notification_schema()
+        conn = get_db()
+        return conn.execute(
+            """
+            SELECT *
+            FROM notifications
+            WHERE user_id = ?
+            ORDER BY is_read ASC, datetime(created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, int(limit or 8))
+        ).fetchall()
+    except Exception:
+        return []
 
 def login_required(view_func):
     @wraps(view_func)
@@ -4992,6 +5110,185 @@ def internal_seed_test_accounts_and_repair():
         },
         "fixed_sources": fixed_sources,
     }
+
+
+
+# NOTIFICATION_AUTO_SCHEMA_V1
+_NOTIFICATION_SCHEMA_READY = False
+
+@app.before_request
+def auto_ensure_notification_schema():
+    global _NOTIFICATION_SCHEMA_READY
+
+    if _NOTIFICATION_SCHEMA_READY:
+        return None
+
+    try:
+        endpoint = request.endpoint or ""
+        if endpoint.startswith("static"):
+            return None
+
+        ensure_notification_schema()
+        _NOTIFICATION_SCHEMA_READY = True
+    except Exception:
+        return None
+
+    return None
+
+
+
+# NOTIFICATION_ROUTES_V1
+@app.route("/notifications")
+@login_required
+def notifications_page():
+    user = get_current_user()
+    ensure_notification_schema()
+    conn = get_db()
+
+    items = conn.execute(
+        """
+        SELECT *
+        FROM notifications
+        WHERE user_id = ?
+        ORDER BY is_read ASC, datetime(created_at) DESC, id DESC
+        LIMIT 50
+        """,
+        (user["id"],)
+    ).fetchall()
+
+    return render_template("notifications.html", notifications=items, user=user)
+
+
+@app.route("/notifications/settings", methods=["GET", "POST"])
+@login_required
+def notification_settings():
+    user = get_current_user()
+    ensure_notification_schema()
+    error = ""
+    success = ""
+
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        wants_email = 1 if request.form.get("wants_email_alerts") else 0
+        wants_web = 1 if request.form.get("wants_web_alerts") else 0
+        browser_enabled = 1 if request.form.get("browser_notifications_enabled") else 0
+
+        if email and ("@" not in email or "." not in email.split("@")[-1]):
+            error = "รูปแบบอีเมลไม่ถูกต้อง"
+        else:
+            conn = get_db()
+            conn.execute(
+                """
+                UPDATE users
+                SET email = ?,
+                    wants_email_alerts = ?,
+                    wants_web_alerts = ?,
+                    browser_notifications_enabled = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (email, wants_email, wants_web, browser_enabled, now_str(), user["id"])
+            )
+            conn.commit()
+
+            create_notification(
+                user["id"],
+                "ตั้งค่าการแจ้งเตือนแล้ว",
+                "ระบบบันทึกการตั้งค่าการแจ้งเตือนของคุณเรียบร้อย",
+                url_for("notifications_page"),
+                "SETTINGS",
+            )
+            success = "บันทึกการตั้งค่าเรียบร้อย"
+            user = get_current_user()
+
+    return render_template("notification_settings.html", user=user, error=error, success=success)
+
+
+@app.route("/api/notifications")
+@login_required
+def api_notifications():
+    user = get_current_user()
+    items = get_recent_notifications(user["id"], 10)
+    unread = get_unread_notifications_count(user["id"])
+
+    return {
+        "ok": True,
+        "unread": unread,
+        "items": [
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "message": row["message"],
+                "link_url": row["link_url"],
+                "category": row["category"],
+                "is_read": bool(row["is_read"]),
+                "created_at": row["created_at"],
+            }
+            for row in items
+        ],
+    }
+
+
+@app.route("/api/notifications/mark-read", methods=["POST"])
+@login_required
+def api_notifications_mark_read():
+    user = get_current_user()
+    ensure_notification_schema()
+    conn = get_db()
+    current_time = now_str()
+
+    notification_id = request.form.get("notification_id", "").strip()
+
+    if notification_id:
+        conn.execute(
+            """
+            UPDATE notifications
+            SET is_read = 1, read_at = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (current_time, notification_id, user["id"])
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE notifications
+            SET is_read = 1, read_at = ?
+            WHERE user_id = ? AND is_read = 0
+            """,
+            (current_time, user["id"])
+        )
+
+    conn.commit()
+    return {"ok": True, "unread": get_unread_notifications_count(user["id"])}
+
+
+@app.route("/api/notifications/browser-enabled", methods=["POST"])
+@login_required
+def api_notifications_browser_enabled():
+    user = get_current_user()
+    ensure_notification_schema()
+    conn = get_db()
+    conn.execute(
+        """
+        UPDATE users
+        SET browser_notifications_enabled = 1,
+            wants_web_alerts = 1,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (now_str(), user["id"])
+    )
+    conn.commit()
+
+    create_notification(
+        user["id"],
+        "เปิดแจ้งเตือนบนอุปกรณ์แล้ว",
+        "คุณจะเห็นแจ้งเตือนในเว็บ และ Browser Notification เมื่อเปิดเว็บนี้ไว้",
+        url_for("notifications_page"),
+        "SETTINGS",
+    )
+
+    return {"ok": True}
 
 
 if __name__ == "__main__":
