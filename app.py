@@ -727,7 +727,7 @@ def create_notifications_for_role(role, title, message, link_url="", category="G
             SELECT id
             FROM users
             WHERE role = ?
-              AND status = 'ACTIVE'
+              AND is_banned = 0
               AND COALESCE(wants_web_alerts, 1) = 1
             """,
             (role,)
@@ -865,6 +865,26 @@ def send_job_risk_discord_alert(job_id, user, title, description, salary_range, 
     )
 
     return send_discord_alert(message, username="JobBoard Scam Alert Bot")
+
+
+def send_job_report_discord_alert(job, user, reason, report_count, new_status):
+    try:
+        job_id = job["id"] if job else "-"
+        title = job["title"] if job else "-"
+        user_phone = user.get("phone_number", "-") if isinstance(user, dict) else "-"
+        message = (
+            "🚩 มีรายงานประกาศงานน่าสงสัย\n"
+            f"Job ID: {job_id}\n"
+            f"ตำแหน่ง: {title}\n"
+            f"ผู้รายงาน: {user_phone}\n"
+            f"เหตุผล: {str(reason or '-')[:500]}\n"
+            f"จำนวนรายงาน: {report_count}\n"
+            f"สถานะใหม่: {new_status}\n"
+            f"เวลา: {now_str()}"
+        )
+        return send_discord_alert(message, username="JobBoard Report Alert Bot")
+    except Exception:
+        return False
 
 
 @app.errorhandler(400)
@@ -2765,6 +2785,7 @@ def employer_create_job():
                     reason,
                     current_time,
                     current_time,
+                    is_urgent,
                 )
             )
             job_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
@@ -4851,11 +4872,16 @@ def auto_repair_bad_source_urls_once():
 def upsert_test_user_account(phone, password, role, display_name):
     conn = get_db()
     current_time = now_str()
+    phone_number = normalize_phone(phone)
+    role = str(role or "").strip().upper()
     password_hash = hash_password(password)
 
+    if role not in {"JOB_SEEKER", "EMPLOYER"}:
+        raise ValueError("role must be JOB_SEEKER or EMPLOYER")
+
     existing = conn.execute(
-        "SELECT id FROM users WHERE phone = ? LIMIT 1",
-        (phone,)
+        "SELECT id FROM users WHERE phone_number = ? LIMIT 1",
+        (phone_number,)
     ).fetchone()
 
     if existing:
@@ -4863,22 +4889,56 @@ def upsert_test_user_account(phone, password, role, display_name):
         conn.execute(
             """
             UPDATE users
-            SET password_hash = ?, role = ?, is_phone_verified = 1, status = 'ACTIVE', updated_at = ?
+            SET password_hash = ?,
+                role = ?,
+                is_verified = 1,
+                is_banned = 0,
+                trust_score = CASE
+                    WHEN ? = 'EMPLOYER' THEN max(trust_score, 75)
+                    ELSE max(trust_score, 60)
+                END,
+                updated_at = ?
             WHERE id = ?
             """,
-            (password_hash, role, current_time, user_id)
+            (password_hash, role, role, current_time, user_id)
         )
     else:
         cur = conn.execute(
             """
             INSERT INTO users (
-                phone, password_hash, role, is_phone_verified, status, created_at, updated_at
+                phone_number, password_hash, role, is_verified, is_banned,
+                trust_score, created_at, updated_at
             )
-            VALUES (?, ?, ?, 1, 'ACTIVE', ?, ?)
+            VALUES (?, ?, ?, 1, 0, ?, ?, ?)
             """,
-            (phone, password_hash, role, current_time, current_time)
+            (
+                phone_number,
+                password_hash,
+                role,
+                75 if role == "EMPLOYER" else 60,
+                current_time,
+                current_time,
+            )
         )
         user_id = cur.lastrowid
+
+    try:
+        ensure_notification_schema()
+        conn.execute(
+            """
+            UPDATE users
+            SET email = CASE
+                    WHEN email IS NULL OR email = '' THEN ?
+                    ELSE email
+                END,
+                wants_web_alerts = 1,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (f"test{user_id}@example.com", current_time, user_id)
+        )
+    except Exception:
+        pass
 
     if role == "JOB_SEEKER":
         row = conn.execute(
@@ -4890,7 +4950,12 @@ def upsert_test_user_account(phone, password, role, display_name):
             conn.execute(
                 """
                 UPDATE job_seeker_profiles
-                SET full_name = ?, headline = ?, resume_url = ?, is_public = 1, is_urgent = 1, updated_at = ?
+                SET full_name = ?,
+                    headline = ?,
+                    resume_url = ?,
+                    is_public = 1,
+                    is_urgent = 1,
+                    updated_at = ?
                 WHERE user_id = ?
                 """,
                 (
@@ -4905,7 +4970,8 @@ def upsert_test_user_account(phone, password, role, display_name):
             conn.execute(
                 """
                 INSERT INTO job_seeker_profiles (
-                    user_id, full_name, headline, resume_url, is_public, is_urgent, created_at, updated_at
+                    user_id, full_name, headline, resume_url,
+                    is_public, is_urgent, created_at, updated_at
                 )
                 VALUES (?, ?, ?, ?, 1, 1, ?, ?)
                 """,
@@ -4925,61 +4991,76 @@ def upsert_test_user_account(phone, password, role, display_name):
             (user_id,)
         ).fetchone()
 
+        tax_id = f"TEST-EMPLOYER-{user_id}"
+
         if row:
-            employer_id = row["id"]
             conn.execute(
                 """
                 UPDATE employer_profiles
-                SET company_name = ?, tax_id = ?, company_description = ?, is_company_verified = 1, updated_at = ?
+                SET company_name = ?,
+                    tax_id = ?,
+                    is_company_verified = 1,
+                    address = ?,
+                    website = '',
+                    updated_at = ?
                 WHERE user_id = ?
                 """,
                 (
                     display_name,
-                    "TEST-EMPLOYER-0002",
-                    "บริษัททดสอบสำหรับตรวจระบบนายจ้าง งานใกล้บ้าน",
+                    tax_id,
+                    "บัญชีทดสอบระบบนายจ้าง",
                     current_time,
                     user_id,
                 )
             )
         else:
-            cur = conn.execute(
+            conn.execute(
                 """
                 INSERT INTO employer_profiles (
-                    user_id, company_name, tax_id, company_description, is_company_verified, created_at, updated_at
+                    user_id, company_name, tax_id, is_company_verified,
+                    address, website, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, 1, ?, ?)
+                VALUES (?, ?, ?, 1, ?, '', ?, ?)
                 """,
                 (
                     user_id,
                     display_name,
-                    "TEST-EMPLOYER-0002",
-                    "บริษัททดสอบสำหรับตรวจระบบนายจ้าง งานใกล้บ้าน",
+                    tax_id,
+                    "บัญชีทดสอบระบบนายจ้าง",
                     current_time,
                     current_time,
                 )
             )
-            employer_id = cur.lastrowid
 
         existing_job = conn.execute(
             """
-            SELECT id FROM job_posts
-            WHERE employer_id = ? AND title = ?
+            SELECT id
+            FROM job_posts
+            WHERE employer_id = ?
+              AND title = ?
             LIMIT 1
             """,
-            (employer_id, "ด่วน รับพนักงานประสานงานใกล้บ้าน")
+            (user_id, "ด่วน รับพนักงานประสานงานใกล้บ้าน")
         ).fetchone()
 
         if existing_job:
             conn.execute(
                 """
                 UPDATE job_posts
-                SET description = ?, salary_range = ?, location = ?, is_government_news = 0,
-                    source_url = '', status = 'ACTIVE', ai_risk_score = 5,
-                    ai_risk_reason = ?, is_urgent = 1, updated_at = ?
+                SET description = ?,
+                    salary_range = ?,
+                    location = ?,
+                    is_government_news = 0,
+                    source_url = '',
+                    status = 'ACTIVE',
+                    ai_risk_score = 5,
+                    ai_risk_reason = ?,
+                    is_urgent = 1,
+                    updated_at = ?
                 WHERE id = ?
                 """,
                 (
-                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ",
+                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ รายละเอียดครบถ้วนและพร้อมเริ่มงาน",
                     "15,000 - 18,000 บาท",
                     "พิจิตร",
                     "ประกาศทดสอบจากนายจ้างที่ยืนยันแล้ว",
@@ -4998,9 +5079,9 @@ def upsert_test_user_account(phone, password, role, display_name):
                 VALUES (?, ?, ?, ?, ?, 0, '', 'ACTIVE', 5, ?, 0, ?, ?, 1)
                 """,
                 (
-                    employer_id,
+                    user_id,
                     "ด่วน รับพนักงานประสานงานใกล้บ้าน",
-                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ",
+                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ รายละเอียดครบถ้วนและพร้อมเริ่มงาน",
                     "15,000 - 18,000 บาท",
                     "พิจิตร",
                     "ประกาศทดสอบจากนายจ้างที่ยืนยันแล้ว",
