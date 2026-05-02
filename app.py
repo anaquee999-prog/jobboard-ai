@@ -795,6 +795,8 @@ def home():
           AND job_posts.is_government_news = 1
         ORDER BY
             CASE WHEN job_posts.source_url LIKE '%doe.go.th%' THEN 0 ELSE 1 END,
+            CASE WHEN job_posts.source_url LIKE '%google.com%' THEN 9 ELSE 0 END,
+            CASE WHEN job_posts.source_url LIKE '%example.com%' THEN 9 ELSE 0 END,
             datetime(job_posts.updated_at) DESC,
             datetime(job_posts.created_at) DESC,
             job_posts.id DESC
@@ -3226,6 +3228,112 @@ def get_upper_central_job_import_data():
 
 
 
+
+def get_official_doe_source_for_location(location):
+    location = str(location or "").strip()
+
+    mapping = {
+        "พิจิตร": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label",
+        "พิษณุโลก": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label",
+        "กำแพงเพชร": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label",
+        "นครสวรรค์": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label",
+    }
+
+    for province, url in mapping.items():
+        if province in location:
+            return url
+
+    return "https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label"
+
+
+def is_bad_or_placeholder_source_url(source_url):
+    source_url = str(source_url or "").strip().lower()
+
+    if not source_url:
+        return True
+
+    bad_patterns = [
+        "google.com",
+        "example.com",
+        "facebook.com",
+        "localhost",
+        "127.0.0.1",
+        "#",
+    ]
+
+    return any(pattern in source_url for pattern in bad_patterns)
+
+
+def repair_job_source_urls_to_official():
+    conn = get_db()
+    current_time = now_str()
+
+    rows = conn.execute(
+        """
+        SELECT id, title, location, source_url, is_government_news
+        FROM job_posts
+        WHERE source_url = ''
+           OR lower(source_url) LIKE '%google.com%'
+           OR lower(source_url) LIKE '%example.com%'
+           OR lower(source_url) LIKE '%localhost%'
+           OR lower(source_url) LIKE '%127.0.0.1%'
+           OR source_url = '#'
+        ORDER BY id ASC
+        """
+    ).fetchall()
+
+    fixed = 0
+
+    for row in rows:
+        title = str(row["title"] or "")
+        location = str(row["location"] or "")
+        is_gov = int(row["is_government_news"] or 0)
+
+        should_repair = False
+
+        if is_gov == 1:
+            should_repair = True
+
+        if any(word in title for word in ["กรม", "แรงงาน", "จัดหางาน", "รับสมัคร", "ตำแหน่งงานว่าง", "ราชการ", "ลูกจ้าง"]):
+            should_repair = True
+
+        if any(province in location for province in ["พิจิตร", "พิษณุโลก", "กำแพงเพชร", "นครสวรรค์"]):
+            should_repair = True
+
+        if not should_repair:
+            continue
+
+        official_url = get_official_doe_source_for_location(location)
+
+        conn.execute(
+            """
+            UPDATE job_posts
+            SET source_url = ?,
+                is_government_news = CASE
+                    WHEN title LIKE '%ราชการ%'
+                      OR title LIKE '%กรม%'
+                      OR title LIKE '%แรงงาน%'
+                      OR title LIKE '%จัดหางาน%'
+                      OR title LIKE '%รับสมัคร%'
+                      OR title LIKE '%ลูกจ้าง%'
+                    THEN 1
+                    ELSE is_government_news
+                END,
+                ai_risk_score = COALESCE(ai_risk_score, 0),
+                ai_risk_reason = CASE
+                    WHEN ai_risk_reason = '' OR ai_risk_reason IS NULL THEN 'official DOE source repaired'
+                    ELSE ai_risk_reason || ' | official DOE source repaired'
+                END,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (official_url, current_time, row["id"])
+        )
+        fixed += 1
+
+    return fixed
+
+
 def clean_doe_title(value):
     value = unescape(str(value or ""))
     value = re.sub(r"<[^>]+>", " ", value)
@@ -3625,6 +3733,7 @@ def cron_import_upper_central_jobs():
 
     static_inserted, static_updated = import_upper_central_jobs_to_db()
     doe_result = import_latest_doe_news_to_db()
+    source_fixed = repair_job_source_urls_to_official()
 
     inserted = int(static_inserted or 0) + int(doe_result.get("inserted", 0))
     updated = int(static_updated or 0) + int(doe_result.get("updated", 0))
@@ -3634,7 +3743,7 @@ def cron_import_upper_central_jobs():
         "CRON_IMPORT_UPPER_CENTRAL_AND_DOE_NEWS",
         "job_posts",
         None,
-        f"inserted={inserted}, updated={updated}, doe_scanned={doe_result.get('scanned', 0)}, errors={len(doe_result.get('errors', []))}",
+        f"inserted={inserted}, updated={updated}, doe_scanned={doe_result.get('scanned', 0)}, source_fixed={source_fixed}, errors={len(doe_result.get('errors', []))}",
     )
     get_db().commit()
 
@@ -3643,6 +3752,7 @@ def cron_import_upper_central_jobs():
         f"Inserted: {inserted}\n"
         f"Updated: {updated}\n"
         f"DOE Scanned: {doe_result.get('scanned', 0)}\n"
+        f"Source Links Fixed: {source_fixed}\n"
         "พื้นที่: พิจิตร / พิษณุโลก / กำแพงเพชร / นครสวรรค์ / กรมการจัดหางาน\n"
         f"เวลา: {now_str()}",
         username="JobBoard Auto Import Bot",
@@ -3660,18 +3770,51 @@ def cron_import_upper_central_jobs():
 
 
 
+
+@app.route("/admin/doe-news/repair-sources")
+@role_required("ADMIN")
+def admin_repair_doe_source_links():
+    admin = get_current_user()
+    fixed = repair_job_source_urls_to_official()
+
+    add_activity_log(
+        admin["id"],
+        "ADMIN_REPAIR_DOE_SOURCE_LINKS",
+        "job_posts",
+        None,
+        f"fixed_sources={fixed}",
+    )
+    get_db().commit()
+
+    send_discord_alert(
+        "✅ ซ่อมลิงก์ต้นทางข่าวกรมแรงงานสำเร็จ\n"
+        f"Fixed Sources: {fixed}\n"
+        f"เวลา: {now_str()}",
+        username="JobBoard DOE Import Bot",
+    )
+
+    return (
+        "OK: repaired DOE source links<br>"
+        f"Fixed Sources: {fixed}<br>"
+        '<a href="/admin">Back to Admin</a> | '
+        '<a href="/">Home</a> | '
+        '<a href="/jobs">Jobs</a>'
+    )
+
+
 @app.route("/admin/doe-news/import-latest")
 @role_required("ADMIN")
 def admin_import_latest_doe_news():
     admin = get_current_user()
     result = import_latest_doe_news_to_db()
+    fixed_sources = repair_job_source_urls_to_official()
 
     add_activity_log(
         admin["id"],
         "ADMIN_IMPORT_LATEST_DOE_NEWS",
         "job_posts",
         None,
-        f"inserted={result['inserted']}, updated={result['updated']}, scanned={result['scanned']}, errors={len(result['errors'])}",
+        f"inserted={result['inserted']}, updated={result['updated']}, scanned={result['scanned']}, fixed_sources={fixed_sources}, errors={len(result['errors'])}",
     )
     get_db().commit()
 
@@ -3680,6 +3823,7 @@ def admin_import_latest_doe_news():
         f"Inserted: {result['inserted']}\\n"
         f"Updated: {result['updated']}\\n"
         f"Scanned: {result['scanned']}\\n"
+        f"Fixed Sources: {fixed_sources}\n"
         f"Errors: {len(result['errors'])}",
         username="JobBoard DOE Import Bot",
     )
@@ -3689,6 +3833,7 @@ def admin_import_latest_doe_news():
         f"Inserted: {result['inserted']}<br>"
         f"Updated: {result['updated']}<br>"
         f"Scanned: {result['scanned']}<br>"
+        f"Fixed Sources: {fixed_sources}<br>"
         f"Errors: {len(result['errors'])}<br>"
         '<a href="/admin">Back to Admin</a> | '
         '<a href="/jobs">View Jobs</a> | '
