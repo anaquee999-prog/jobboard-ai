@@ -44,6 +44,11 @@ app.config["SESSION_COOKIE_SECURE"] = os.environ.get("JOBBOARD_SESSION_COOKIE_SE
 ADMIN_PHONE = os.environ.get("JOBBOARD_ADMIN_PHONE", "").strip()
 ADMIN_PASSWORD = os.environ.get("JOBBOARD_ADMIN_PASSWORD", "").strip()
 DISCORD_SCAM_ALERT_WEBHOOK_URL = os.environ.get("DISCORD_SCAM_ALERT_WEBHOOK_URL", "").strip()
+OPENCHAT_UPLOAD_DIR = BASE_DIR / "instance" / "uploads" / "openchat"
+OPENCHAT_ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
+OPENCHAT_ALLOWED_VIDEO_EXTENSIONS = {"mp4", "webm"}
+OPENCHAT_MAX_IMAGE_UPLOAD_BYTES = 5 * 1024 * 1024
+OPENCHAT_MAX_VIDEO_UPLOAD_BYTES = 50 * 1024 * 1024
 JOBBOARD_CRON_TOKEN = os.environ.get("JOBBOARD_CRON_TOKEN", "").strip()
 
 ROLES = {"JOB_SEEKER", "EMPLOYER", "ADMIN"}
@@ -363,6 +368,31 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_post_media_post ON post_media(post_id);
         CREATE INDEX IF NOT EXISTS idx_post_media_status ON post_media(status);
+
+    """)
+
+    conn.executescript("""
+
+        CREATE TABLE IF NOT EXISTS openchat_media (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            file_name TEXT NOT NULL UNIQUE,
+            original_name TEXT DEFAULT '',
+            file_type TEXT NOT NULL,
+            mime_type TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
+            review_note TEXT DEFAULT '',
+            reviewed_by INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (message_id) REFERENCES openchat_messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_openchat_media_message ON openchat_media(message_id);
+        CREATE INDEX IF NOT EXISTS idx_openchat_media_status ON openchat_media(status);
 
     """)
 
@@ -1749,6 +1779,137 @@ def admin_update_community_post(post_id, action):
 
 
 
+
+def mask_phone_for_display(phone):
+    phone = str(phone or "")
+    if len(phone) >= 7:
+        return phone[:3] + "****" + phone[-3:]
+    return "สมาชิก"
+
+
+def get_openchat_media_kind(ext):
+    ext = str(ext or "").lower().strip(".")
+    if ext in OPENCHAT_ALLOWED_IMAGE_EXTENSIONS:
+        return "IMAGE"
+    if ext in OPENCHAT_ALLOWED_VIDEO_EXTENSIONS:
+        return "VIDEO"
+    return ""
+
+
+def validate_and_prepare_openchat_media(file_storage):
+    if not file_storage or not file_storage.filename:
+        return True, None
+
+    original_name = secure_filename(file_storage.filename or "")
+    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
+    file_type = get_openchat_media_kind(ext)
+
+    if not file_type:
+        return False, "รองรับเฉพาะรูปภาพ jpg, jpeg, png, webp และวิดีโอ mp4, webm เท่านั้น"
+
+    data = file_storage.read()
+    file_storage.seek(0)
+
+    if not data:
+        return False, "ไฟล์ว่างเปล่า"
+
+    if file_type == "IMAGE" and len(data) > OPENCHAT_MAX_IMAGE_UPLOAD_BYTES:
+        return False, "รูปภาพต้องไม่เกิน 5 MB"
+
+    if file_type == "VIDEO" and len(data) > OPENCHAT_MAX_VIDEO_UPLOAD_BYTES:
+        return False, "วิดีโอต้องไม่เกิน 50 MB"
+
+    header = data[:64]
+
+    if ext in {"jpg", "jpeg"} and not header.startswith(b"\xff\xd8\xff"):
+        return False, "ไฟล์ jpg/jpeg ไม่ถูกต้อง"
+
+    if ext == "png" and not header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return False, "ไฟล์ png ไม่ถูกต้อง"
+
+    if ext == "webp" and not (header.startswith(b"RIFF") and b"WEBP" in header[:16]):
+        return False, "ไฟล์ webp ไม่ถูกต้อง"
+
+    if ext == "mp4" and b"ftyp" not in header:
+        return False, "ไฟล์ mp4 ไม่ถูกต้อง"
+
+    if ext == "webm" and not header.startswith(b"\x1a\x45\xdf\xa3"):
+        return False, "ไฟล์ webm ไม่ถูกต้อง"
+
+    file_name = f"{secrets.token_hex(20)}.{ext}"
+
+    return True, {
+        "file_name": file_name,
+        "original_name": original_name,
+        "file_type": file_type,
+        "mime_type": file_storage.mimetype or "",
+        "data": data,
+    }
+
+
+def save_prepared_openchat_media(prepared_media):
+    OPENCHAT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    file_path = OPENCHAT_UPLOAD_DIR / prepared_media["file_name"]
+    file_path.write_bytes(prepared_media["data"])
+    return file_path
+
+
+def build_openchat_media_by_message(conn, messages, current_user=None):
+    media_by_message = {}
+    message_ids = [message["id"] for message in messages]
+    if not message_ids:
+        return media_by_message
+
+    placeholders = ",".join(["?"] * len(message_ids))
+
+    if current_user and current_user.get("role") == "ADMIN":
+        where_status = ""
+    else:
+        where_status = "AND status = 'APPROVED'"
+
+    rows = conn.execute(
+        f"""
+        SELECT *
+        FROM openchat_media
+        WHERE message_id IN ({placeholders})
+        {where_status}
+        ORDER BY datetime(created_at) ASC, id ASC
+        """,
+        tuple(message_ids)
+    ).fetchall()
+
+    for row in rows:
+        media_by_message.setdefault(row["message_id"], []).append(row)
+
+    return media_by_message
+
+
+@app.route("/media/openchat/<path:filename>")
+def uploaded_openchat_media(filename):
+    safe_name = secure_filename(filename)
+    if not safe_name:
+        abort(404)
+
+    conn = get_db()
+    media = conn.execute(
+        "SELECT * FROM openchat_media WHERE file_name = ?",
+        (safe_name,)
+    ).fetchone()
+
+    if not media:
+        abort(404)
+
+    current = get_current_user()
+
+    if media["status"] != "APPROVED":
+        if not current:
+            abort(404)
+        if current["role"] != "ADMIN" and current["id"] != media["user_id"]:
+            abort(404)
+
+    return send_from_directory(str(OPENCHAT_UPLOAD_DIR), safe_name)
+
+
 @app.route("/openchat")
 @login_required
 def openchat():
@@ -1778,10 +1939,14 @@ def openchat():
         """
     ).fetchall()
 
+    media_by_message = build_openchat_media_by_message(conn, messages, user)
+
     return render_template(
         "openchat.html",
         messages=messages,
         current_user=user,
+        media_by_message=media_by_message,
+        mask_phone_for_display=mask_phone_for_display,
     )
 
 
@@ -1794,9 +1959,21 @@ def openchat_send():
 
     user = get_current_user()
     message = normalize_user_text_for_safety(request.form.get("message", ""), 500)
+    media_file = request.files.get("media")
+    has_media = bool(media_file and media_file.filename)
 
-    if not message:
+    if not message and not has_media:
         return redirect(url_for("openchat"))
+
+    prepared_media = None
+    if has_media:
+        ok, result = validate_and_prepare_openchat_media(media_file)
+        if not ok:
+            return result, 400
+        prepared_media = result
+
+    if not message and prepared_media:
+        message = "ส่งรูปภาพ/วิดีโอ"
 
     score, reason, status = analyze_safety_text(message, context="OPENCHAT")
 
@@ -1822,6 +1999,7 @@ def openchat_send():
         except Exception:
             pass
         return reject_unsafe_text_response(score, reason)
+
     current_time = now_str()
     conn = get_db()
 
@@ -1837,7 +2015,57 @@ def openchat_send():
     )
 
     message_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-    add_activity_log(user["id"], "CREATE_OPENCHAT_MESSAGE", "openchat_messages", message_id, f"status={status}, score={score}")
+
+    if prepared_media:
+        save_prepared_openchat_media(prepared_media)
+
+        conn.execute(
+            """
+            INSERT INTO openchat_media (
+                message_id, user_id, file_name, original_name, file_type,
+                mime_type, status, review_note, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, 'PENDING_REVIEW', '', ?, ?)
+            """,
+            (
+                message_id,
+                user["id"],
+                prepared_media["file_name"],
+                prepared_media["original_name"],
+                prepared_media["file_type"],
+                prepared_media["mime_type"],
+                current_time,
+                current_time,
+            )
+        )
+
+        media_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+
+        add_activity_log(
+            user["id"],
+            "CREATE_OPENCHAT_MEDIA",
+            "openchat_media",
+            media_id,
+            f"message_id={message_id}, type={prepared_media['file_type']}",
+        )
+
+        safe_send_moderation_alert(
+            "OPENCHAT_MEDIA_PENDING_REVIEW",
+            media_id,
+            user,
+            message,
+            "PENDING_REVIEW",
+            score,
+            "มีรูปภาพ/วิดีโอใหม่ใน OpenChat รอ Admin ตรวจ",
+        )
+
+    add_activity_log(
+        user["id"],
+        "CREATE_OPENCHAT_MESSAGE",
+        "openchat_messages",
+        message_id,
+        f"status={status}, score={score}",
+    )
 
     if status in {"PENDING_REVIEW", "BLOCKED"} or int(score or 0) >= 35:
         alert_sent = safe_send_moderation_alert(
@@ -3038,6 +3266,114 @@ def admin_system_health():
     }
 
     return render_template("admin_system_health.html", health=health)
+
+
+
+@app.route("/admin/openchat-media-review")
+@role_required("ADMIN")
+def admin_openchat_media_review():
+    conn = get_db()
+    status_filter = request.args.get("status", "PENDING_REVIEW").strip().upper()
+
+    where = "WHERE 1=1"
+    params = []
+
+    if status_filter in {"PENDING_REVIEW", "APPROVED", "REJECTED"}:
+        where += " AND openchat_media.status = ?"
+        params.append(status_filter)
+
+    media_items = conn.execute(
+        f"""
+        SELECT
+            openchat_media.*,
+            openchat_messages.message,
+            openchat_messages.status AS message_status,
+            openchat_messages.moderation_score,
+            openchat_messages.moderation_reason,
+            users.phone_number,
+            users.role,
+            COALESCE(job_seeker_profiles.full_name, employer_profiles.company_name, '') AS author_name
+        FROM openchat_media
+        JOIN openchat_messages ON openchat_messages.id = openchat_media.message_id
+        JOIN users ON users.id = openchat_media.user_id
+        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = users.id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = users.id
+        {where}
+        ORDER BY datetime(openchat_media.created_at) DESC, openchat_media.id DESC
+        LIMIT 200
+        """,
+        tuple(params)
+    ).fetchall()
+
+    stats = {
+        "pending": conn.execute("SELECT COUNT(*) AS count FROM openchat_media WHERE status = 'PENDING_REVIEW'").fetchone()["count"],
+        "approved": conn.execute("SELECT COUNT(*) AS count FROM openchat_media WHERE status = 'APPROVED'").fetchone()["count"],
+        "rejected": conn.execute("SELECT COUNT(*) AS count FROM openchat_media WHERE status = 'REJECTED'").fetchone()["count"],
+    }
+
+    return render_template(
+        "admin_openchat_media_review.html",
+        media_items=media_items,
+        stats=stats,
+        status_filter=status_filter,
+        mask_phone_for_display=mask_phone_for_display,
+    )
+
+
+@app.route("/admin/openchat-media-review/<int:media_id>/<action>", methods=["POST"])
+@role_required("ADMIN")
+def admin_update_openchat_media_review(media_id, action):
+    admin = get_current_user()
+    conn = get_db()
+
+    media = conn.execute("SELECT * FROM openchat_media WHERE id = ?", (media_id,)).fetchone()
+    if not media:
+        abort(404)
+
+    current_time = now_str()
+
+    if action == "approve":
+        conn.execute(
+            """
+            UPDATE openchat_media
+            SET status = 'APPROVED',
+                reviewed_by = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (admin["id"], current_time, media_id)
+        )
+        add_activity_log(admin["id"], "ADMIN_APPROVE_OPENCHAT_MEDIA", "openchat_media", media_id, f"message_id={media['message_id']}")
+
+    elif action == "reject":
+        conn.execute(
+            """
+            UPDATE openchat_media
+            SET status = 'REJECTED',
+                reviewed_by = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (admin["id"], current_time, media_id)
+        )
+        add_activity_log(admin["id"], "ADMIN_REJECT_OPENCHAT_MEDIA", "openchat_media", media_id, f"message_id={media['message_id']}")
+
+    elif action == "delete":
+        file_path = OPENCHAT_UPLOAD_DIR / media["file_name"]
+        try:
+            if file_path.exists():
+                file_path.unlink()
+        except Exception:
+            pass
+
+        conn.execute("DELETE FROM openchat_media WHERE id = ?", (media_id,))
+        add_activity_log(admin["id"], "ADMIN_DELETE_OPENCHAT_MEDIA", "openchat_media", media_id, f"message_id={media['message_id']}")
+
+    else:
+        abort(404)
+
+    conn.commit()
+    return redirect(url_for("admin_openchat_media_review"))
 
 
 @app.route("/admin")
