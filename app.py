@@ -233,6 +233,9 @@ def inject_common_values():
         "current_user": get_current_user(),
         "job_slug": job_slug,
         "scam_risk_label": scam_risk_label,
+        "page_view_stats": get_page_view_stats,
+        "official_source_url": get_official_doe_source_for_location,
+        "is_bad_source_url": is_bad_or_placeholder_source_url,
     }
 
 
@@ -443,6 +446,19 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_community_posts_created ON community_posts(created_at);
         CREATE INDEX IF NOT EXISTS idx_community_reports_post ON community_reports(post_id);
 
+        CREATE TABLE IF NOT EXISTS page_views (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            page_path TEXT NOT NULL UNIQUE,
+            page_title TEXT DEFAULT '',
+            view_count INTEGER NOT NULL DEFAULT 0,
+            last_viewed_at TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_page_views_count ON page_views(view_count);
+        CREATE INDEX IF NOT EXISTS idx_page_views_last ON page_views(last_viewed_at);
+
+
         CREATE TABLE IF NOT EXISTS openchat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -509,6 +525,10 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_openchat_media_status ON openchat_media(status);
 
     """)
+
+    ensure_column(conn, "job_posts", "is_urgent", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "job_seeker_profiles", "is_urgent", "INTEGER NOT NULL DEFAULT 0")
+
 
     seed_admin(conn)
     seed_demo_jobs(conn)
@@ -865,6 +885,74 @@ def home():
     )
 
 
+
+@app.route("/urgent")
+def urgent_jobs():
+    conn = get_db()
+
+    employer_jobs = conn.execute(
+        """
+        SELECT
+            job_posts.*,
+            employer_profiles.company_name,
+            employer_profiles.is_company_verified,
+            users.trust_score
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        LEFT JOIN users ON users.id = job_posts.employer_id
+        WHERE job_posts.status = 'ACTIVE'
+          AND (
+                COALESCE(job_posts.is_urgent, 0) = 1
+                OR job_posts.title LIKE '%ด่วน%'
+                OR job_posts.description LIKE '%ด่วน%'
+              )
+        ORDER BY
+            COALESCE(job_posts.is_urgent, 0) DESC,
+            employer_profiles.is_company_verified DESC,
+            datetime(job_posts.created_at) DESC,
+            job_posts.id DESC
+        LIMIT 80
+        """
+    ).fetchall()
+
+    seeker_posts = conn.execute(
+        """
+        SELECT
+            job_seeker_profiles.*,
+            users.phone_number,
+            users.trust_score,
+            users.created_at AS user_created_at
+        FROM job_seeker_profiles
+        JOIN users ON users.id = job_seeker_profiles.user_id
+        WHERE users.is_banned = 0
+          AND job_seeker_profiles.is_public = 1
+          AND (
+                COALESCE(job_seeker_profiles.is_urgent, 0) = 1
+                OR job_seeker_profiles.headline LIKE '%ด่วน%'
+                OR job_seeker_profiles.resume_url LIKE '%ด่วน%'
+              )
+        ORDER BY
+            COALESCE(job_seeker_profiles.is_urgent, 0) DESC,
+            datetime(job_seeker_profiles.updated_at) DESC,
+            job_seeker_profiles.id DESC
+        LIMIT 80
+        """
+    ).fetchall()
+
+    stats = {
+        "employer_jobs": len(employer_jobs),
+        "seeker_posts": len(seeker_posts),
+        "total": len(employer_jobs) + len(seeker_posts),
+    }
+
+    return render_template(
+        "urgent_jobs.html",
+        employer_jobs=employer_jobs,
+        seeker_posts=seeker_posts,
+        stats=stats,
+    )
+
+
 @app.route("/jobs")
 def jobs_public():
     q = request.args.get("q", "").strip().lower()
@@ -1119,6 +1207,7 @@ def verify_otp():
                     pending["role"],
                     current_time,
                     current_time,
+                    is_urgent,
                 )
             )
             user_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
@@ -2509,6 +2598,7 @@ def employer_create_job():
         description = request.form.get("description", "").strip()
         salary_range = request.form.get("salary_range", "").strip()
         location = request.form.get("location", "").strip()
+        is_urgent = 1 if request.form.get("is_urgent") else 0
 
         if not title:
             error = "กรุณากรอกชื่อตำแหน่งงาน"
@@ -2532,9 +2622,9 @@ def employer_create_job():
                 INSERT INTO job_posts (
                     employer_id, title, description, salary_range, location,
                     is_government_news, source_url, status, ai_risk_score,
-                    ai_risk_reason, report_count, created_at, updated_at
+                    ai_risk_reason, report_count, created_at, updated_at, is_urgent
                 )
-                VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?)
                 """,
                 (
                     user["id"],
@@ -4178,6 +4268,7 @@ def job_seeker_post():
         preferred_location = request.form.get("preferred_location", "").strip()
         bio = request.form.get("bio", "").strip()
         is_public = 1 if request.form.get("is_public") else 0
+        is_urgent = 1 if request.form.get("is_urgent") else 0
 
         if not full_name:
             error = "กรุณากรอกชื่อ-นามสกุล"
@@ -4191,20 +4282,20 @@ def job_seeker_post():
                 conn.execute(
                     """
                     UPDATE job_seeker_profiles
-                    SET full_name = ?, headline = ?, resume_url = ?, is_public = ?, updated_at = ?
+                    SET full_name = ?, headline = ?, resume_url = ?, is_public = ?, is_urgent = ?, updated_at = ?
                     WHERE user_id = ?
                     """,
-                    (full_name, headline, combined_bio, is_public, current_time, user["id"])
+                    (full_name, headline, combined_bio, is_public, is_urgent, current_time, user["id"])
                 )
             else:
                 conn.execute(
                     """
                     INSERT INTO job_seeker_profiles (
-                        user_id, full_name, headline, resume_url, is_public, created_at, updated_at
+                        user_id, full_name, headline, resume_url, is_public, is_urgent, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (user["id"], full_name, headline, combined_bio, is_public, current_time, current_time)
+                    (user["id"], full_name, headline, combined_bio, is_public, is_urgent, current_time, current_time)
                 )
 
             conn.commit()
@@ -4435,6 +4526,117 @@ def employer_update_application(application_id, action):
     conn.commit()
 
     return redirect(url_for("employer_applications"))
+
+
+def normalize_page_path_for_stats(path):
+    path = str(path or "/").split("?")[0].strip()
+    if not path:
+        path = "/"
+
+    if path != "/" and path.endswith("/"):
+        path = path[:-1]
+
+    return path[:240]
+
+
+def should_track_page_view():
+    if request.method != "GET":
+        return False
+
+    if request.endpoint == "static":
+        return False
+
+    path = request.path or "/"
+
+    ignored_prefixes = (
+        "/static/",
+        "/api/",
+        "/media/",
+        "/favicon.ico",
+        "/robots.txt",
+        "/sitemap.xml",
+        "/internal/",
+    )
+
+    return not path.startswith(ignored_prefixes)
+
+
+def get_page_title_for_stats(path):
+    path = normalize_page_path_for_stats(path)
+
+    titles = {
+        "/": "หน้าแรก",
+        "/jobs": "งานใกล้ฉัน",
+        "/urgent": "งานด่วน",
+        "/openchat": "OpenChat",
+        "/login": "เข้าสู่ระบบ",
+        "/register": "สมัครใช้งาน",
+        "/admin": "Admin Dashboard",
+    }
+
+    if path.startswith("/jobs/"):
+        return "รายละเอียดงาน"
+    if path.startswith("/admin"):
+        return "Admin"
+    if path.startswith("/dashboard"):
+        return "Dashboard"
+    if path.startswith("/messages"):
+        return "ข้อความ"
+
+    return titles.get(path, path)
+
+
+def get_page_view_stats(path=None):
+    try:
+        conn = get_db()
+        page_path = normalize_page_path_for_stats(path or request.path)
+
+        row = conn.execute(
+            "SELECT view_count FROM page_views WHERE page_path = ?",
+            (page_path,)
+        ).fetchone()
+
+        total = conn.execute(
+            "SELECT COALESCE(SUM(view_count), 0) AS total FROM page_views"
+        ).fetchone()["total"]
+
+        return {
+            "path": page_path,
+            "current": int(row["view_count"]) if row else 0,
+            "total": int(total or 0),
+        }
+    except Exception:
+        return {"path": path or "/", "current": 0, "total": 0}
+
+
+@app.after_request
+def track_page_view_response(response):
+    try:
+        if response.status_code == 200 and should_track_page_view():
+            content_type = response.headers.get("Content-Type", "")
+            if "text/html" in content_type:
+                conn = get_db()
+                page_path = normalize_page_path_for_stats(request.path)
+                page_title = get_page_title_for_stats(page_path)
+                current_time = now_str()
+
+                conn.execute(
+                    """
+                    INSERT INTO page_views (page_path, page_title, view_count, last_viewed_at, created_at)
+                    VALUES (?, ?, 1, ?, ?)
+                    ON CONFLICT(page_path) DO UPDATE SET
+                        page_title = excluded.page_title,
+                        view_count = page_views.view_count + 1,
+                        last_viewed_at = excluded.last_viewed_at
+                    """,
+                    (page_path, page_title, current_time, current_time)
+                )
+                conn.commit()
+    except Exception:
+        pass
+
+    return response
+
 
 @app.cli.command("init-db")
 def init_db_command():

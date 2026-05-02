@@ -27,6 +27,12 @@
         <input type="text" name="location" value="{{ preview.location if preview else '' }}" placeholder="เช่น Bangkok">
 
         <button type="submit">บันทึกและให้ AI ตรวจ</button>
+
+<label class="form-check urgent-check" style="display:flex;gap:10px;align-items:flex-start;margin:12px 0;color:#dbeafe;font-weight:900;">
+  <input type="checkbox" name="is_urgent" value="1" style="margin-top:4px;">
+  <span>ทำเครื่องหมายเป็นงานด่วน เพื่อแสดงในหน้า “งานด่วน”</span>
+</label>
+
     </form>
     {% endif %}
 

@@ -302,6 +302,7 @@
             <nav class="nav-links">
                 <a class="active-link" href="{{ url_for('home') }}">หน้าแรก</a>
                 <a href="{{ url_for('jobs_public') }}">งานใกล้ฉัน</a>
+                <a href="{{ url_for('urgent_jobs') }}">งานด่วน</a>
 {% if current_user %}
                     <a class="nav-openchat" href="{{ url_for('openchat') }}">OpenChat</a>
                     <a href="{{ url_for('dashboard') }}">Dashboard</a>
@@ -373,7 +374,27 @@
         <div class="footer-bottom">
             © {{ current_year }} JobBoard Anti-Scam — หางานง่ายขึ้น ปลอดภัยขึ้น และดูเป็นมืออาชีพขึ้น
         </div>
-    </footer>
+    
+<div class="page-view-mini">
+  {% set pv = page_view_stats() %}
+  เข้าชมหน้านี้ {{ pv.current }} ครั้ง · เข้าชมรวม {{ pv.total }} ครั้ง
+</div>
+<style>
+.page-view-mini{
+  margin:18px auto 0;
+  width:min(1180px,calc(100% - 28px));
+  padding:10px 14px;
+  border-radius:16px;
+  border:1px solid rgba(56,189,248,.16);
+  background:rgba(15,23,42,.72);
+  color:rgba(226,232,240,.68);
+  font-size:12px;
+  font-weight:800;
+  text-align:center;
+}
+</style>
+
+</footer>
 
 </div>
 

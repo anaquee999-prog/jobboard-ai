@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}งานด่วน | JobBoard{% endblock %}
+
+{% block content %}
+<style>
+.urgent-page{width:min(1180px,calc(100% - 30px));margin:0 auto;padding:30px 0 54px}
+.urgent-hero{padding:34px;border-radius:34px;border:1px solid rgba(239,68,68,.24);background:radial-gradient(circle at 16% 10%,rgba(239,68,68,.20),transparent 34%),radial-gradient(circle at 90% 16%,rgba(14,165,233,.18),transparent 32%),linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));box-shadow:0 30px 90px rgba(0,0,0,.34)}
+.urgent-badge{display:inline-flex;padding:8px 14px;border-radius:999px;background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.26);color:#fecaca;font-weight:950;font-size:13px}
+.urgent-hero h1{margin:14px 0 10px;color:#fff;font-size:clamp(42px,7vw,72px);line-height:1}
+.urgent-hero p{max-width:760px;color:rgba(226,232,240,.76);font-size:18px;line-height:1.7}
+.urgent-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:20px 0}
+.urgent-stat{padding:20px;border-radius:24px;background:rgba(15,23,42,.78);border:1px solid rgba(56,189,248,.16)}
+.urgent-stat span{display:block;color:rgba(226,232,240,.66);font-weight:900}
+.urgent-stat strong{display:block;margin-top:8px;color:#fff;font-size:36px}
+.section-head{display:flex;justify-content:space-between;gap:14px;align-items:end;margin:28px 0 14px}
+.section-head h2{margin:0;color:#fff;font-size:clamp(28px,4vw,42px)}
+.section-head p{margin:6px 0 0;color:rgba(226,232,240,.62)}
+.urgent-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.urgent-card{padding:18px;border-radius:24px;background:rgba(15,23,42,.80);border:1px solid rgba(148,163,184,.14);box-shadow:0 20px 54px rgba(0,0,0,.22)}
+.urgent-card h3{margin:0 0 8px;color:#fff;font-size:21px;line-height:1.35}
+.urgent-card p{margin:0;color:rgba(226,232,240,.70);line-height:1.6}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.meta span{padding:6px 10px;border-radius:999px;background:rgba(56,189,248,.12);color:#bae6fd;font-size:12px;font-weight:900}
+.meta .hot{background:rgba(239,68,68,.14);color:#fecaca}
+.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.actions a{min-height:38px;display:inline-flex;align-items:center;padding:0 13px;border-radius:13px;text-decoration:none!important;font-weight:950;font-size:13px}
+.actions .primary{background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f!important}
+.actions .secondary{background:rgba(15,23,42,.80);border:1px solid rgba(56,189,248,.20);color:#dbeafe!important}
+.empty{padding:24px;border-radius:24px;background:rgba(15,23,42,.72);color:rgba(226,232,240,.70);text-align:center}
+@media(max-width:840px){.urgent-grid,.urgent-stats{grid-template-columns:1fr}.section-head{display:block}}
+</style>
+
+<section class="urgent-page">
+  <div class="urgent-hero">
+    <div class="urgent-badge">Urgent Jobs & Urgent Candidates</div>
+    <h1>งานด่วน</h1>
+    <p>รวมงานที่นายจ้างต้องการคนด่วน และผู้หางานที่ประกาศพร้อมเริ่มงาน เพื่อช่วยให้จับคู่กันเร็วขึ้นและปลอดภัยขึ้น</p>
+  </div>
+
+  <div class="urgent-stats">
+    <div class="urgent-stat"><span>ทั้งหมด</span><strong>{{ stats.total }}</strong></div>
+    <div class="urgent-stat"><span>งานจากนายจ้าง</span><strong>{{ stats.employer_jobs }}</strong></div>
+    <div class="urgent-stat"><span>ผู้หางานโพสต์</span><strong>{{ stats.seeker_posts }}</strong></div>
+  </div>
+
+  <div class="section-head">
+    <div>
+      <h2>งานด่วนจากนายจ้าง</h2>
+      <p>ประกาศงาน Active ที่ถูกทำเครื่องหมายเป็นงานด่วนหรือมีคำว่า “ด่วน”</p>
+    </div>
+  </div>
+
+  <div class="urgent-grid">
+    {% for job in employer_jobs %}
+      <article class="urgent-card">
+        <h3>{{ job.title }}</h3>
+        <div class="meta">
+          <span class="hot">ด่วน</span>
+          <span>{{ job.location or 'ไม่ระบุพื้นที่' }}</span>
+          <span>{{ job.company_name or 'นายจ้าง' }}</span>
+          {% if job.is_company_verified %}<span>Verified</span>{% endif %}
+        </div>
+        <p>{{ job.description[:180] }}{% if job.description|length > 180 %}...{% endif %}</p>
+        <div class="actions">
+          <a class="primary" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูรายละเอียดและสมัคร</a>
+          {% if job.source_url %}
+            {% set source_link = job.source_url %}
+            {% if is_bad_source_url(source_link) %}
+              {% set source_link = official_source_url(job.location) %}
+            {% endif %}
+            <a class="secondary" href="{{ source_link }}" target="_blank" rel="noopener noreferrer">แหล่งทางการ</a>
+          {% endif %}
+        </div>
+      </article>
+    {% else %}
+      <div class="empty">ยังไม่มีงานด่วนจากนายจ้าง</div>
+    {% endfor %}
+  </div>
+
+  <div class="section-head">
+    <div>
+      <h2>ผู้หางานพร้อมเริ่มงาน</h2>
+      <p>ผู้หางานที่เปิดโปรไฟล์สาธารณะและทำเครื่องหมายว่าต้องการงานด่วน</p>
+    </div>
+  </div>
+
+  <div class="urgent-grid">
+    {% for seeker in seeker_posts %}
+      <article class="urgent-card">
+        <h3>{{ seeker.full_name }}</h3>
+        <div class="meta">
+          <span class="hot">พร้อมเริ่มงาน</span>
+          <span>Trust {{ seeker.trust_score }}</span>
+          <span>{{ seeker.updated_at }}</span>
+        </div>
+        <p><strong>{{ seeker.headline or 'กำลังมองหางาน' }}</strong></p>
+        <p>{{ seeker.resume_url[:220] }}{% if seeker.resume_url|length > 220 %}...{% endif %}</p>
+      </article>
+    {% else %}
+      <div class="empty">ยังไม่มีผู้หางานโพสต์งานด่วน</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}
