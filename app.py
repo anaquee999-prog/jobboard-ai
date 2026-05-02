@@ -40,6 +40,7 @@ app.permanent_session_lifetime = timedelta(hours=12)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.environ.get("JOBBOARD_SESSION_COOKIE_SECURE", "0") == "1"
+app.config["MAX_CONTENT_LENGTH"] = 55 * 1024 * 1024
 
 ADMIN_PHONE = os.environ.get("JOBBOARD_ADMIN_PHONE", "").strip()
 ADMIN_PASSWORD = os.environ.get("JOBBOARD_ADMIN_PASSWORD", "").strip()
@@ -676,6 +677,37 @@ def send_job_risk_discord_alert(job_id, user, title, description, salary_range, 
     )
 
     return send_discord_alert(message, username="JobBoard Scam Alert Bot")
+
+
+@app.errorhandler(400)
+def handle_400(error):
+    return render_template("error.html", code=400, title="คำขอไม่ถูกต้อง", message="กรุณาตรวจสอบข้อมูลแล้วลองใหม่อีกครั้ง"), 400
+
+
+@app.errorhandler(403)
+def handle_403(error):
+    return render_template("error.html", code=403, title="ไม่มีสิทธิ์เข้าถึง", message="บัญชีของคุณไม่มีสิทธิ์ใช้งานหน้านี้"), 403
+
+
+@app.errorhandler(404)
+def handle_404(error):
+    return render_template("error.html", code=404, title="ไม่พบหน้าที่ต้องการ", message="ลิงก์นี้อาจถูกย้าย ลบ หรือพิมพ์ผิด"), 404
+
+
+@app.errorhandler(413)
+def handle_413(error):
+    return render_template("error.html", code=413, title="ไฟล์ใหญ่เกินไป", message="กรุณาอัปโหลดรูปภาพไม่เกิน 5 MB หรือวิดีโอไม่เกิน 50 MB"), 413
+
+
+@app.errorhandler(500)
+def handle_500(error):
+    try:
+        add_activity_log(session.get("user_id"), "SERVER_ERROR_500", "request", None, f"path={request.path}")
+        get_db().commit()
+    except Exception:
+        pass
+    return render_template("error.html", code=500, title="ระบบขัดข้องชั่วคราว", message="ระบบพบข้อผิดพลาด กรุณาลองใหม่อีกครั้ง หรือแจ้งผู้ดูแลระบบ"), 500
+
 
 @app.route("/")
 def home():
@@ -1924,23 +1956,27 @@ def build_openchat_media_by_message(conn, messages, current_user=None):
     if not message_ids:
         return media_by_message
 
+    try:
+        ensure_openchat_media_tables(conn)
+    except Exception:
+        return media_by_message
+
     placeholders = ",".join(["?"] * len(message_ids))
+    where_status = "" if current_user and current_user.get("role") == "ADMIN" else "AND status = 'APPROVED'"
 
-    if current_user and current_user.get("role") == "ADMIN":
-        where_status = ""
-    else:
-        where_status = "AND status = 'APPROVED'"
-
-    rows = conn.execute(
-        f"""
-        SELECT *
-        FROM openchat_media
-        WHERE message_id IN ({placeholders})
-        {where_status}
-        ORDER BY datetime(created_at) ASC, id ASC
-        """,
-        tuple(message_ids)
-    ).fetchall()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM openchat_media
+            WHERE message_id IN ({placeholders})
+            {where_status}
+            ORDER BY datetime(created_at) ASC, id ASC
+            """,
+            tuple(message_ids)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return media_by_message
 
     for row in rows:
         media_by_message.setdefault(row["message_id"], []).append(row)
@@ -1974,11 +2010,43 @@ def uploaded_openchat_media(filename):
     return send_from_directory(str(OPENCHAT_UPLOAD_DIR), safe_name)
 
 
+
+def ensure_openchat_media_tables(conn):
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS openchat_media (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            file_name TEXT NOT NULL UNIQUE,
+            original_name TEXT DEFAULT '',
+            file_type TEXT NOT NULL,
+            mime_type TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
+            review_note TEXT DEFAULT '',
+            reviewed_by INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (message_id) REFERENCES openchat_messages(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_openchat_media_message ON openchat_media(message_id);
+        CREATE INDEX IF NOT EXISTS idx_openchat_media_status ON openchat_media(status);
+        """
+    )
+
+
 @app.route("/openchat")
 @login_required
 def openchat():
     user = get_current_user()
     conn = get_db()
+    try:
+        ensure_openchat_media_tables(conn)
+    except Exception:
+        pass
 
     messages = conn.execute(
         """
@@ -2066,6 +2134,10 @@ def openchat_send():
 
     current_time = now_str()
     conn = get_db()
+    try:
+        ensure_openchat_media_tables(conn)
+    except Exception:
+        pass
 
     conn.execute(
         """
@@ -3337,6 +3409,11 @@ def admin_system_health():
 @role_required("ADMIN")
 def admin_openchat_media_review():
     conn = get_db()
+    try:
+        ensure_openchat_media_tables(conn)
+    except Exception:
+        pass
+
     status_filter = request.args.get("status", "PENDING_REVIEW").strip().upper()
 
     where = "WHERE 1=1"

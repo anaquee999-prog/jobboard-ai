@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}{{ code }} | JobBoard{% endblock %}
+
+{% block content %}
+<style>
+.error-page{width:min(760px,calc(100% - 28px));margin:46px auto 70px;padding:34px;border-radius:32px;border:1px solid rgba(56,189,248,.22);background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));box-shadow:0 28px 90px rgba(0,0,0,.34);text-align:center}
+.error-code{display:inline-flex;min-width:92px;height:52px;align-items:center;justify-content:center;border-radius:999px;background:rgba(239,68,68,.14);border:1px solid rgba(239,68,68,.26);color:#fecaca;font-weight:950;font-size:22px}
+.error-page h1{margin:18px 0 10px;color:#fff;font-size:clamp(30px,5vw,48px)}
+.error-page p{margin:0 auto 22px;max-width:560px;color:rgba(226,232,240,.72);font-size:17px;line-height:1.7}
+.error-actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+.error-actions a{min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:0 16px;border-radius:15px;text-decoration:none!important;font-weight:950;color:#00111f!important;background:linear-gradient(135deg,#0ea5e9,#38bdf8)}
+.error-actions a.secondary{color:#e0f2fe!important;background:rgba(15,23,42,.78);border:1px solid rgba(56,189,248,.22)}
+</style>
+
+<section class="error-page">
+  <div class="error-code">{{ code }}</div>
+  <h1>{{ title }}</h1>
+  <p>{{ message }}</p>
+  <div class="error-actions">
+    <a href="{{ url_for('home') }}">กลับหน้าแรก</a>
+    <a class="secondary" href="javascript:history.back()">ย้อนกลับ</a>
+  </div>
+</section>
+{% endblock %}
