@@ -46,11 +46,12 @@
 
   <div class="auth-card">
     <h2>สร้างบัญชี</h2>
-    <p>กรอกข้อมูลพื้นฐาน ใช้ OTP ทดสอบ 123456</p>
 
     {% if error %}
       <div class="auth-error">{{ error }}</div>
     {% endif %}
+
+    <p style="color:#bbf7d0;font-weight:900;margin:0 0 14px;">สมัครแล้วเข้าใช้งานได้ทันที ระบบจะมีแจ้งเตือนในเว็บและอีเมลตามที่ตั้งค่าไว้</p>
 
     <form method="post" action="{{ url_for('register') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

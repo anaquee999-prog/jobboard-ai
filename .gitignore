@@ -10,3 +10,4 @@ _local_route_test.py
 _patch_*.py
 instance/jobboard.db
 backup_before_notifications_*/
+backup_before_remove_otp_*/

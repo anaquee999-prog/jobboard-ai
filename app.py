@@ -604,7 +604,7 @@ def seed_demo_jobs(conn):
                 user_id, company_name, tax_id, is_company_verified,
                 address, website, created_at, updated_at
             )
-            VALUES (?, ?, ?, 0, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?)
             """,
             (employer_id, "Demo Company Co., Ltd.", f"DEMO-TAX-{employer_id}", "Bangkok", "https://example.com", current_time, current_time)
         )
@@ -1288,86 +1288,11 @@ def register():
                     "otp": otp,
                     "created_at": now_str(),
                 }
-                return redirect(url_for("verify_otp"))
+                session["user_id"] = user_id
+                return redirect(url_for("dashboard"))
 
     return render_template("register.html", error=error)
 
-
-@app.route("/verify-otp", methods=["GET", "POST"])
-def verify_otp():
-    pending = session.get("pending_register")
-    if not pending:
-        return redirect(url_for("register"))
-
-    error = ""
-    if request.method == "POST":
-        blocked = enforce_security("otp")
-        if blocked:
-            return blocked
-
-        otp = request.form.get("otp", "").strip()
-        if otp != pending.get("otp"):
-            error = "OTP ไม่ถูกต้อง สำหรับระบบทดสอบให้ใช้ 123456"
-        else:
-            conn = get_db()
-            current_time = now_str()
-
-            conn.execute(
-                """
-                INSERT INTO users (
-                    phone_number, password_hash, role, is_verified, is_banned,
-                    trust_score, created_at, updated_at
-                )
-                VALUES (?, ?, ?, 1, 0, 50, ?, ?)
-                """,
-                (
-                    pending["phone_number"],
-                    pending["password_hash"],
-                    pending["role"],
-                    current_time,
-                    current_time,
-                    is_urgent,
-                )
-            )
-            user_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-
-            if pending["role"] == "JOB_SEEKER":
-                conn.execute(
-                    """
-                    INSERT INTO job_seeker_profiles (
-                        user_id, full_name, headline, resume_url, is_public, created_at, updated_at
-                    )
-                    VALUES (?, ?, '', '', 0, ?, ?)
-                    """,
-                    (user_id, pending["full_name"], current_time, current_time)
-                )
-            elif pending["role"] == "EMPLOYER":
-                conn.execute(
-                    """
-                    INSERT INTO employer_profiles (
-                        user_id, company_name, tax_id, is_company_verified,
-                        address, website, created_at, updated_at
-                    )
-                    VALUES (?, ?, ?, 0, '', '', ?, ?)
-                    """,
-                    (
-                        user_id,
-                        pending["company_name"],
-                        f"EMP-{user_id}-{pending['phone_number']}",
-                        current_time,
-                        current_time,
-                    )
-                )
-
-            conn.commit()
-            session.pop("pending_register", None)
-            session.clear()
-            session.permanent = True
-            session["user_id"] = user_id
-            session["role"] = pending["role"]
-            return redirect(url_for("dashboard"))
-
-    return render_template("verify_otp.html", error=error, pending=pending)
 
 
 @app.route("/login", methods=["GET", "POST"])
