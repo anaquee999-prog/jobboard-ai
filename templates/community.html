@@ -1,18 +1,17 @@
 {% extends "base.html" %}
 
-{% block title %}Open Community | JobBoard{% endblock %}
+{% block title %}Community | JobBoard{% endblock %}
 
 {% block content %}
 <style>
-.community-page{width:min(1100px,calc(100% - 28px));margin:0 auto;padding:28px 0 42px}
-.community-hero{padding:30px;border-radius:30px;border:1px solid rgba(56,189,248,.22);background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));box-shadow:0 24px 70px rgba(0,0,0,.30)}
+.community-page{width:min(1050px,calc(100% - 28px));margin:0 auto;padding:28px 0 42px}
+.community-hero{padding:30px;border-radius:28px;border:1px solid rgba(56,189,248,.22);background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));box-shadow:0 24px 70px rgba(0,0,0,.30)}
 .community-hero h1{margin:0 0 8px;color:#fff;font-size:clamp(34px,5vw,52px)}
 .community-hero p{margin:0;color:rgba(226,232,240,.72);font-size:17px}
-.community-grid{display:grid;grid-template-columns:360px 1fr;gap:18px;margin-top:20px}
+.community-grid{display:grid;grid-template-columns:340px 1fr;gap:18px;margin-top:20px}
 .community-card{padding:20px;border-radius:24px;border:1px solid rgba(56,189,248,.16);background:rgba(15,23,42,.76);box-shadow:0 18px 52px rgba(0,0,0,.22)}
 .community-card h2{margin:0 0 12px;color:#fff}
 .community-card textarea{width:100%;min-height:140px;border-radius:18px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.72);color:#fff;padding:14px;resize:vertical}
-.community-card input[type=file]{width:100%;margin:12px 0;color:#dbeafe}
 .community-note{padding:12px;border-radius:16px;background:rgba(251,191,36,.10);color:#fde68a;font-size:13px;line-height:1.55}
 .community-btn{width:100%;min-height:46px;border:0;border-radius:16px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;cursor:pointer;margin-top:12px}
 .community-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
@@ -24,9 +23,6 @@
 .community-author strong{color:#fff}
 .community-author span{color:#7dd3fc;font-size:13px;font-weight:900}
 .community-body{white-space:pre-wrap;color:rgba(226,232,240,.82);line-height:1.65}
-.community-media{margin-top:14px}
-.community-media img{max-width:100%;border-radius:18px;border:1px solid rgba(148,163,184,.18)}
-.community-media video{width:100%;max-height:420px;border-radius:18px;border:1px solid rgba(148,163,184,.18);background:#000}
 .community-status{display:inline-flex;margin-top:12px;padding:6px 10px;border-radius:999px;background:rgba(251,191,36,.14);color:#fde68a;font-size:12px;font-weight:900}
 .community-empty{padding:30px;text-align:center;color:rgba(226,232,240,.72)}
 @media(max-width:900px){.community-grid{grid-template-columns:1fr}.community-stats{grid-template-columns:1fr}}
@@ -34,8 +30,8 @@
 
 <section class="community-page">
   <div class="community-hero">
-    <h1>กระดานโพสต์ชุมชน</h1>
-    <p>โพสต์ข้อความ รูปภาพ หรือวิดีโอได้อย่างปลอดภัย โดยสื่อทุกไฟล์ต้องรอ Admin ตรวจอนุมัติก่อนแสดงสาธารณะ</p>
+    <h1>กระดานพูดคุย</h1>
+    <p>พื้นที่โพสต์ข้อความสำหรับชุมชน ระบบจะตรวจคำไม่เหมาะสมและข้อความเสี่ยงโดยอัตโนมัติ</p>
   </div>
 
   <div class="community-grid">
@@ -44,14 +40,12 @@
         <h2>สร้างโพสต์</h2>
 
         {% if current_user %}
-          <form method="post" action="{{ url_for('create_community_post') }}" enctype="multipart/form-data">
+          <form method="post" action="{{ url_for('create_community_post') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <textarea name="body" placeholder="เขียนข้อความของคุณ..."></textarea>
-            <input type="file" name="media" accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,image/jpeg,image/png,image/webp,video/mp4,video/webm">
 
             <div class="community-note">
-              ห้ามโพสต์ภาพโป๊ อนาจาร การพนัน หลอกลวง ข้อมูลส่วนตัว หรือเนื้อหาผิดกฎหมาย<br>
-              รูปภาพไม่เกิน 5 MB / วิดีโอไม่เกิน 50 MB และต้องรอ Admin อนุมัติ
+              ห้ามโพสต์คำหยาบ ลามก การพนัน หลอกลวง ข้อมูลส่วนตัว หรือเนื้อหาผิดกฎหมาย
             </div>
 
             <button class="community-btn" type="submit">โพสต์</button>
@@ -73,27 +67,13 @@
       {% for post in posts %}
         <article class="community-post">
           <div class="community-author">
-            <strong>{{ get_display_name_for_user_row(post) }}</strong>
+            <strong>
+              {{ post.company_name or post.full_name or post.phone_number[:3] ~ '****' ~ post.phone_number[-3:] }}
+            </strong>
             <span>{{ post.created_at }}</span>
           </div>
 
           <div class="community-body">{{ post.body }}</div>
-
-          {% for media in media_by_post.get(post.id, []) %}
-            <div class="community-media">
-              {% if media.file_type == 'IMAGE' %}
-                <img src="{{ url_for('uploaded_community_media', filename=media.file_name) }}" alt="community image">
-              {% elif media.file_type == 'VIDEO' %}
-                <video controls preload="metadata">
-                  <source src="{{ url_for('uploaded_community_media', filename=media.file_name) }}">
-                </video>
-              {% endif %}
-
-              {% if current_user and current_user.role == 'ADMIN' and media.status != 'APPROVED' %}
-                <div class="community-status">{{ media.status }}</div>
-              {% endif %}
-            </div>
-          {% endfor %}
 
           {% if current_user and current_user.role == 'ADMIN' and post.status != 'ACTIVE' %}
             <div class="community-status">POST: {{ post.status }} / SCORE {{ post.moderation_score }}</div>
