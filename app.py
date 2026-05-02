@@ -236,6 +236,7 @@ def inject_common_values():
         "page_view_stats": get_page_view_stats,
         "official_source_url": get_official_doe_source_for_location,
         "is_bad_source_url": is_bad_or_placeholder_source_url,
+        "safe_source_url": safe_source_url,
     }
 
 
@@ -3354,6 +3355,24 @@ def is_bad_or_placeholder_source_url(source_url):
     return any(pattern in source_url for pattern in bad_patterns)
 
 
+
+# SAFE_SOURCE_URL_HELPER
+def safe_source_url(source_url="", location="", title=""):
+    raw = str(source_url or "").strip()
+
+    if raw and not is_bad_or_placeholder_source_url(raw):
+        return raw
+
+    lookup_text = " ".join([
+        str(location or "").strip(),
+        str(title or "").strip(),
+    ]).strip()
+
+    try:
+        return get_official_doe_source_for_location(lookup_text)
+    except Exception:
+        return "https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label"
+
 def repair_job_source_urls_to_official():
     conn = get_db()
     current_time = now_str()
@@ -4657,6 +4676,8 @@ def ensure_database_ready():
 
 
 
+
+
 # AUTO_FIX_BAD_SOURCE_URLS_ONCE
 _AUTO_SOURCE_REPAIR_DONE = False
 
@@ -4672,8 +4693,25 @@ def auto_repair_bad_source_urls_once():
         if endpoint.startswith("static"):
             return None
 
-        repair_job_source_urls_to_official()
         _AUTO_SOURCE_REPAIR_DONE = True
+
+        conn = get_db()
+        bad = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM job_posts
+            WHERE source_url = ''
+               OR source_url IS NULL
+               OR lower(source_url) LIKE '%google.com%'
+               OR lower(source_url) LIKE '%example.com%'
+               OR lower(source_url) LIKE '%localhost%'
+               OR lower(source_url) LIKE '%127.0.0.1%'
+               OR source_url = '#'
+            """
+        ).fetchone()["count"]
+
+        if int(bad or 0) > 0:
+            repair_job_source_urls_to_official()
     except Exception:
         return None
 

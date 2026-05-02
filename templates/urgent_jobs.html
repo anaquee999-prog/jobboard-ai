@@ -64,7 +64,7 @@
         <p>{{ job.description[:180] }}{% if job.description|length > 180 %}...{% endif %}</p>
         <div class="actions">
           <a class="primary" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูรายละเอียดและสมัคร</a>
-          {% if job.source_url and not is_bad_source_url(job.source_url) %}
+          {% if safe_source_url(job.source_url, job.location if job.location is defined else '', job.title if job.title is defined else '') %}
             {% set source_link = job.source_url %}
             {% if is_bad_source_url(source_link) %}
               {% set source_link = official_source_url(job.location) %}
