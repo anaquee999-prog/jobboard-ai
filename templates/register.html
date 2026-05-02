@@ -1,63 +1,238 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>สมัครสมาชิก</title>
-  
-  <!-- เชื่อมโยงกับไฟล์ CSS -->
-  <link rel="stylesheet" href="static/css/style.css">
-</head>
-<body>
-  <form method="post" class="auth-form">
-    <!-- เบอร์โทรศัพท์ -->
-    <div class="auth-field">
-      <label for="phone_number">เบอร์โทรศัพท์</label>
-      <input id="phone_number" name="phone_number" type="tel" inputmode="numeric" autocomplete="tel" placeholder="0800000000" required pattern="\d{10}">
-      <div class="auth-help">กรุณากรอกเบอร์โทรศัพท์ให้ถูกต้อง</div>
-    </div>
+{% extends "base.html" %}
 
-    <!-- อีเมล -->
-    <div class="auth-field">
-      <label for="email">อีเมล</label>
-      <input type="email" name="email" placeholder="you@example.com" required autocomplete="email">
-      <div class="auth-help">จำเป็นต้องกรอก เพื่อรับการแจ้งเตือนในเว็บและทางอีเมล</div>
-    </div>
+{% block title %}สมัครสมาชิก | JobBoard{% endblock %}
 
-    <!-- รหัสผ่าน -->
-    <div class="auth-field">
-      <label for="password">รหัสผ่าน</label>
-      <input type="password" name="password" required placeholder="******" autocomplete="new-password">
-      <div class="auth-help">อย่างน้อย 8 ตัว มีตัวอักษรและตัวเลข</div>
-    </div>
+{% block content %}
+<style>
+.register-page{
+  width:min(1080px,calc(100% - 28px));
+  margin:30px auto 54px;
+  display:grid;
+  grid-template-columns:1fr 460px;
+  gap:22px;
+}
+.register-hero,.register-card{
+  border-radius:30px;
+  border:1px solid rgba(56,189,248,.20);
+  background:rgba(15,23,42,.84);
+  box-shadow:0 24px 72px rgba(0,0,0,.30);
+}
+.register-hero{
+  padding:34px;
+  background:
+    radial-gradient(circle at 15% 10%,rgba(14,165,233,.28),transparent 34%),
+    radial-gradient(circle at 90% 18%,rgba(249,115,22,.16),transparent 30%),
+    linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));
+}
+.register-badge{
+  display:inline-flex;
+  padding:8px 13px;
+  border-radius:999px;
+  border:1px solid rgba(56,189,248,.26);
+  background:rgba(14,165,233,.14);
+  color:#7dd3fc;
+  font-weight:950;
+  font-size:13px;
+}
+.register-hero h1{
+  margin:12px 0;
+  color:#fff;
+  font-size:clamp(38px,6vw,62px);
+  line-height:1;
+}
+.register-hero p{
+  color:rgba(226,232,240,.78);
+  font-size:18px;
+  line-height:1.7;
+}
+.register-list{display:grid;gap:10px;margin-top:22px}
+.register-list div{
+  padding:13px;
+  border-radius:18px;
+  background:rgba(2,6,23,.54);
+  border:1px solid rgba(148,163,184,.14);
+  color:#e0f2fe;
+  font-weight:850;
+}
+.register-card{padding:26px}
+.register-card h2{margin:0 0 6px;color:#fff;font-size:30px}
+.register-card p{margin:0 0 16px;color:rgba(226,232,240,.68)}
+.auth-error{
+  padding:12px 14px;
+  border-radius:16px;
+  background:rgba(239,68,68,.14);
+  border:1px solid rgba(239,68,68,.28);
+  color:#fecaca;
+  font-weight:900;
+  margin-bottom:14px;
+}
+.role-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin:14px 0 16px;
+}
+.role-option{
+  border:1px solid rgba(148,163,184,.22);
+  background:rgba(2,6,23,.60);
+  border-radius:18px;
+  padding:13px;
+  color:#e0f2fe;
+  cursor:pointer;
+  font-weight:950;
+}
+.role-option input{width:auto;margin-right:8px}
+.auth-field{margin-bottom:14px}
+.auth-field label{display:block;margin-bottom:7px;color:#dbeafe;font-weight:950}
+.auth-field input{
+  width:100%;
+  min-height:48px;
+  border-radius:16px;
+  border:1px solid rgba(148,163,184,.24);
+  background:rgba(2,6,23,.70);
+  color:#fff;
+  padding:0 14px;
+  font-weight:800;
+}
+.auth-help{margin-top:6px;color:rgba(226,232,240,.55);font-size:12px;font-weight:800}
+.check-row{margin:12px 0;color:rgba(226,232,240,.78);font-weight:800;line-height:1.55}
+.check-row label{display:flex;align-items:flex-start;gap:10px}
+.check-row input{width:auto;margin-top:5px}
+.auth-submit{
+  width:100%;
+  min-height:50px;
+  border:0;
+  border-radius:17px;
+  background:linear-gradient(135deg,#0ea5e9,#38bdf8);
+  color:#00111f;
+  font-weight:950;
+  font-size:16px;
+  cursor:pointer;
+  margin-top:8px;
+}
+.auth-switch{margin-top:16px;text-align:center;color:rgba(226,232,240,.70)}
+.auth-switch a{color:#7dd3fc;font-weight:950}
+@media(max-width:900px){
+  .register-page{grid-template-columns:1fr}
+  .register-card{order:-1}
+  .role-grid{grid-template-columns:1fr}
+}
+</style>
 
-    <!-- ยืนยันรหัสผ่าน -->
-    <div class="auth-field">
-      <label for="password_confirm">ยืนยันรหัสผ่าน</label>
-      <input type="password" name="password_confirm" required placeholder="******" autocomplete="new-password">
-      <div class="auth-help">กรุณากรอกรหัสผ่านให้ตรงกัน</div>
+<section class="register-page">
+  <div class="register-hero">
+    <div class="register-badge">Safe Register</div>
+    <h1>สมัครใช้งาน งานใกล้บ้าน</h1>
+    <p>สมัครง่าย แต่ปลอดภัยขึ้น แยกบัญชีผู้หางานและนายจ้าง พร้อมระบบ Trust Score และ AI Anti-Scam ช่วยตรวจประกาศเสี่ยง</p>
+    <div class="register-list">
+      <div>สมัครด้วยเบอร์โทรศัพท์และอีเมล</div>
+      <div>บังคับยอมรับนโยบายความปลอดภัยก่อนใช้งาน</div>
+      <div>ผู้หางานโพสต์หางานได้ นายจ้างโพสต์รับสมัครได้</div>
     </div>
+  </div>
 
-    <!-- การยินยอมรับเงื่อนไข -->
-    <div class="check-row">
-      <label for="terms">
-        <input type="checkbox" name="terms" id="terms" value="1" required checked>
-        <span>ยินยอมรับนโยบายความปลอดภัย ห้ามโพสต์หลอกลวง การพนัน หรือการเผยแพร่ข้อมูลส่วนตัว</span>
-      </label>
-    </div>
+  <div class="register-card">
+    <h2>สมัครสมาชิก</h2>
+    <p>เลือกประเภทบัญชีและกรอกข้อมูลให้ครบถ้วน</p>
 
-    <!-- การยินยอมรับการแจ้งเตือน -->
-    <div class="check-row">
-      <label for="notify_consent">
-        <input type="checkbox" name="notify_consent" id="notify_consent" value="1" required checked>
-        <span>ยินยอมรับการแจ้งเตือนในเว็บและทางอีเมล</span>
-      </label>
-    </div>
+    {% if error %}
+      <div class="auth-error">{{ error }}</div>
+    {% endif %}
 
-    <!-- ปุ่มสมัครสมาชิก -->
-    <div class="submit-btn-wrapper">
-      <button type="submit" class="submit-btn">สมัครใช้งาน</button>
-    </div>
-  </form>
-</body>
-</html>
+    <form method="post" action="{{ url_for('register') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="role-grid">
+        <label class="role-option">
+          <input type="radio" name="role" value="JOB_SEEKER" checked>
+          ผู้หางาน
+        </label>
+        <label class="role-option">
+          <input type="radio" name="role" value="EMPLOYER">
+          นายจ้าง / บริษัท
+        </label>
+      </div>
+
+      <div class="auth-field js-job-seeker-field">
+        <label for="full_name">ชื่อ-นามสกุลผู้หางาน</label>
+        <input id="full_name" name="full_name" type="text" maxlength="80" placeholder="เช่น สมชาย ใจดี">
+        <div class="auth-help">ใช้สำหรับสร้างโปรไฟล์ผู้หางาน</div>
+      </div>
+
+      <div class="auth-field js-employer-field" style="display:none;">
+        <label for="company_name">ชื่อบริษัท / ร้านค้า</label>
+        <input id="company_name" name="company_name" type="text" maxlength="120" placeholder="เช่น บริษัท งานใกล้บ้าน จำกัด">
+        <div class="auth-help">ใช้สำหรับสร้างโปรไฟล์นายจ้าง</div>
+      </div>
+
+      <div class="auth-field">
+        <label for="phone_number">เบอร์โทรศัพท์</label>
+        <input id="phone_number" name="phone_number" type="tel" inputmode="numeric" autocomplete="tel" placeholder="0800000000" required pattern="\d{10}">
+        <div class="auth-help">กรอกตัวเลข 10 หลัก เช่น 0800000000</div>
+      </div>
+
+      <div class="auth-field">
+        <label for="email">อีเมล</label>
+        <input id="email" type="email" name="email" placeholder="you@example.com" required autocomplete="email">
+        <div class="auth-help">ใช้รับการแจ้งเตือนและข้อมูลสำคัญจากระบบ</div>
+      </div>
+
+      <div class="auth-field">
+        <label for="password">รหัสผ่าน</label>
+        <input id="password" type="password" name="password" required placeholder="อย่างน้อย 8 ตัว มีตัวอักษรและตัวเลข" autocomplete="new-password">
+        <div class="auth-help">ห้ามใช้เบอร์โทรศัพท์เป็นรหัสผ่าน</div>
+      </div>
+
+      <div class="auth-field">
+        <label for="confirm_password">ยืนยันรหัสผ่าน</label>
+        <input id="confirm_password" type="password" name="confirm_password" required placeholder="กรอกรหัสผ่านอีกครั้ง" autocomplete="new-password">
+      </div>
+
+      <div class="check-row">
+        <label>
+          <input type="checkbox" name="accept_terms" value="on" required checked>
+          <span>ยอมรับนโยบายความปลอดภัย ห้ามโพสต์หลอกลวง การพนัน ข้อมูลเท็จ หรือเผยแพร่ข้อมูลส่วนตัวของผู้อื่น</span>
+        </label>
+      </div>
+
+      <div class="check-row">
+        <label>
+          <input type="checkbox" name="notify_consent" value="1" required checked>
+          <span>ยินยอมรับการแจ้งเตือนในเว็บและทางอีเมล</span>
+        </label>
+      </div>
+
+      <button type="submit" class="auth-submit">สมัครใช้งาน</button>
+    </form>
+
+    <div class="auth-switch">มีบัญชีแล้ว? <a href="{{ url_for('login') }}">เข้าสู่ระบบ</a></div>
+  </div>
+</section>
+
+<script>
+(function(){
+  const seekerFields = document.querySelectorAll(".js-job-seeker-field");
+  const employerFields = document.querySelectorAll(".js-employer-field");
+  const fullName = document.getElementById("full_name");
+  const companyName = document.getElementById("company_name");
+
+  function refreshRoleFields(){
+    const checked = document.querySelector("input[name='role']:checked");
+    const role = checked ? checked.value : "JOB_SEEKER";
+    const isEmployer = role === "EMPLOYER";
+
+    seekerFields.forEach(el => el.style.display = isEmployer ? "none" : "block");
+    employerFields.forEach(el => el.style.display = isEmployer ? "block" : "none");
+
+    if (fullName) fullName.required = !isEmployer;
+    if (companyName) companyName.required = isEmployer;
+  }
+
+  document.querySelectorAll("input[name='role']").forEach(input => {
+    input.addEventListener("change", refreshRoleFields);
+  });
+
+  refreshRoleFields();
+})();
+</script>
+{% endblock %}

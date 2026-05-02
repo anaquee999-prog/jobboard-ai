@@ -1249,63 +1249,136 @@ def register():
         if blocked:
             return blocked
 
-        role = request.form.get("role", "JOB_SEEKER").strip()
+        role = request.form.get("role", "JOB_SEEKER").strip().upper()
         phone_number = normalize_phone(request.form.get("phone_number"))
-        password = request.form.get("password", "")
         email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "") or request.form.get("password_confirm", "")
+        accept_terms = request.form.get("accept_terms", "") or request.form.get("terms", "")
         notify_consent = request.form.get("notify_consent") == "1"
-        confirm_password = request.form.get("confirm_password", "")
-        accept_terms = request.form.get("accept_terms", "")
-
         full_name = request.form.get("full_name", "").strip()
         company_name = request.form.get("company_name", "").strip()
+
+        password_ok, password_error = validate_account_password(password, phone_number)
 
         if role not in {"JOB_SEEKER", "EMPLOYER"}:
             error = "ประเภทบัญชีไม่ถูกต้อง"
         elif not is_valid_thai_phone(phone_number):
             error = "กรุณากรอกเบอร์โทรศัพท์ 10 หลัก เช่น 0800000000"
-        elif not validate_account_password(password, phone_number)[0]:
-            error = validate_account_password(password, phone_number)[1]
+        elif not email:
+            error = "กรุณากรอกอีเมล"
+        elif not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            error = "รูปแบบอีเมลไม่ถูกต้อง"
+        elif not password_ok:
+            error = password_error
         elif password != confirm_password:
             error = "รหัสผ่านไม่ตรงกัน"
-        elif accept_terms != "on":
+        elif accept_terms not in {"on", "1", "true", "yes"}:
             error = "กรุณายอมรับนโยบายความเป็นส่วนตัวและข้อกำหนดการใช้งาน"
+        elif not notify_consent:
+            error = "กรุณายอมรับการรับแจ้งเตือน"
         elif role == "JOB_SEEKER" and not validate_profile_name(full_name, "ชื่อผู้หางาน", 80)[0]:
             error = validate_profile_name(full_name, "ชื่อผู้หางาน", 80)[1]
         elif role == "EMPLOYER" and not validate_profile_name(company_name, "ชื่อบริษัท", 120)[0]:
             error = validate_profile_name(company_name, "ชื่อบริษัท", 120)[1]
         else:
-            if not error and not phone:
-                error = "กรุณากรอกเบอร์โทรศัพท์"
-            elif not error and not email:
-                error = "กรุณากรอกอีเมล"
-            elif not error and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email or ""):
-                error = "รูปแบบอีเมลไม่ถูกต้อง"
-            elif not error and not notify_consent:
-                error = "กรุณายอมรับการรับแจ้งเตือน"
-
             conn = get_db()
-            exists = conn.execute("SELECT id FROM users WHERE phone_number = ?", (phone_number,)).fetchone()
+            current_time = now_str()
+
+            try:
+                ensure_notification_schema()
+            except Exception:
+                pass
+
+            exists = conn.execute(
+                "SELECT id FROM users WHERE phone_number = ? LIMIT 1",
+                (phone_number,)
+            ).fetchone()
+
             if exists:
                 error = "เบอร์โทรศัพท์นี้มีบัญชีอยู่แล้ว"
             else:
-                otp = generate_mock_otp()
-                session["pending_register"] = {
-                    "role": role,
-                    "phone_number": phone_number,
-                    "password_hash": hash_password(password),
-                    "full_name": full_name,
-                    "company_name": company_name,
-                    "otp": otp,
-                    "created_at": now_str(),
-                }
+                cur = conn.execute(
+                    """
+                    INSERT INTO users (
+                        phone_number, password_hash, role, is_verified, is_banned,
+                        trust_score, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, 1, 0, ?, ?, ?)
+                    """,
+                    (
+                        phone_number,
+                        hash_password(password),
+                        role,
+                        60 if role == "JOB_SEEKER" else 50,
+                        current_time,
+                        current_time,
+                    )
+                )
+                user_id = cur.lastrowid
+
+                try:
+                    conn.execute(
+                        """
+                        UPDATE users
+                        SET email = ?,
+                            wants_email_alerts = ?,
+                            wants_web_alerts = 1,
+                            browser_notifications_enabled = 0,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (email, 1 if notify_consent else 0, current_time, user_id)
+                    )
+                except Exception:
+                    pass
+
+                if role == "JOB_SEEKER":
+                    conn.execute(
+                        """
+                        INSERT INTO job_seeker_profiles (
+                            user_id, full_name, headline, resume_url,
+                            is_public, is_urgent, created_at, updated_at
+                        )
+                        VALUES (?, ?, '', '', 0, 0, ?, ?)
+                        """,
+                        (user_id, full_name, current_time, current_time)
+                    )
+                else:
+                    tax_id = f"EMP-{user_id}-{secrets.token_hex(4)}"
+                    conn.execute(
+                        """
+                        INSERT INTO employer_profiles (
+                            user_id, company_name, tax_id, is_company_verified,
+                            address, website, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, 0, '', '', ?, ?)
+                        """,
+                        (user_id, company_name, tax_id, current_time, current_time)
+                    )
+
+                add_activity_log(user_id, "REGISTER_ACCOUNT", "users", user_id, f"role={role}")
+                conn.commit()
+
+                session.clear()
+                session.permanent = True
                 session["user_id"] = user_id
+                session["role"] = role
+
+                try:
+                    create_notification(
+                        user_id,
+                        "สมัครสมาชิกสำเร็จ",
+                        "ยินดีต้อนรับสู่ JobBoard งานใกล้บ้าน",
+                        url_for("dashboard"),
+                        "ACCOUNT",
+                    )
+                except Exception:
+                    pass
+
                 return redirect(url_for("dashboard"))
 
     return render_template("register.html", error=error)
-
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     error = ""
