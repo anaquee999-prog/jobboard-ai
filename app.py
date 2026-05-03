@@ -4011,6 +4011,140 @@ def import_upper_central_jobs_to_db():
 
 
 
+# JOB_IMPORT_ENGINE_HARDENED
+def ensure_import_runs_schema():
+    conn = get_db()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS import_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'SUCCESS',
+            inserted_count INTEGER NOT NULL DEFAULT 0,
+            updated_count INTEGER NOT NULL DEFAULT 0,
+            skipped_count INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_import_runs_created ON import_runs(created_at);
+        CREATE INDEX IF NOT EXISTS idx_import_runs_source ON import_runs(source_name);
+        """
+    )
+    return conn
+
+
+def log_import_run(source_name, status, inserted=0, updated=0, skipped=0, error_message=""):
+    conn = ensure_import_runs_schema()
+    conn.execute(
+        """
+        INSERT INTO import_runs (
+            source_name, status, inserted_count, updated_count,
+            skipped_count, error_message, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            str(source_name or "unknown")[:120],
+            str(status or "SUCCESS")[:40],
+            int(inserted or 0),
+            int(updated or 0),
+            int(skipped or 0),
+            str(error_message or "")[:800],
+            now_str(),
+        )
+    )
+
+
+def recent_successful_import_exists(source_name, minutes=30):
+    from datetime import datetime, timedelta
+
+    try:
+        minutes = max(1, int(minutes or 30))
+    except (TypeError, ValueError):
+        minutes = 30
+
+    threshold = (datetime.now() - timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = ensure_import_runs_schema()
+    row = conn.execute(
+        """
+        SELECT id
+        FROM import_runs
+        WHERE source_name = ?
+          AND status = 'SUCCESS'
+          AND created_at >= ?
+        ORDER BY datetime(created_at) DESC, id DESC
+        LIMIT 1
+        """,
+        (source_name, threshold)
+    ).fetchone()
+
+    return row is not None
+
+
+def import_throttle_minutes(default_minutes=30):
+    try:
+        return max(1, int(os.environ.get("JOBBOARD_IMPORT_MIN_INTERVAL_MINUTES", default_minutes)))
+    except (TypeError, ValueError):
+        return int(default_minutes)
+
+
+def admin_import_confirm_page(title, message, action_label="เริ่มดำเนินการ"):
+    return render_template_string(
+        """
+        {% extends "base.html" %}
+        {% block title %}{{ title }} | งานใกล้บ้าน{% endblock %}
+        {% block content %}
+        <section style="width:min(860px,calc(100% - 28px));margin:34px auto 60px;padding:28px;border-radius:28px;border:1px solid rgba(56,189,248,.24);background:rgba(15,23,42,.88);color:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28);">
+          <span style="display:inline-flex;border-radius:999px;padding:8px 12px;background:rgba(14,165,233,.14);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:950;">ระบบดึงงาน</span>
+          <h1 style="font-size:clamp(30px,5vw,48px);margin:14px 0 10px;">{{ title }}</h1>
+          <p style="color:#cbd5e1;font-weight:800;line-height:1.75;">{{ message }}</p>
+          <form method="post" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" style="border:0;border-radius:999px;padding:13px 18px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;cursor:pointer;">{{ action_label }}</button>
+            <a href="{{ url_for('admin_import_runs') }}" style="border-radius:999px;padding:13px 18px;background:rgba(2,6,23,.64);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;font-weight:950;text-decoration:none;">ดูประวัติการดึงงาน</a>
+            <a href="{{ url_for('admin_dashboard') }}" style="border-radius:999px;padding:13px 18px;background:rgba(2,6,23,.64);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;font-weight:950;text-decoration:none;">กลับ Admin</a>
+          </form>
+        </section>
+        {% endblock %}
+        """,
+        title=title,
+        message=message,
+        action_label=action_label,
+    )
+
+
+def admin_import_done_page(title, result):
+    return render_template_string(
+        """
+        {% extends "base.html" %}
+        {% block title %}{{ title }} | งานใกล้บ้าน{% endblock %}
+        {% block content %}
+        <section style="width:min(860px,calc(100% - 28px));margin:34px auto 60px;padding:28px;border-radius:28px;border:1px solid rgba(34,197,94,.24);background:rgba(15,23,42,.88);color:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28);">
+          <span style="display:inline-flex;border-radius:999px;padding:8px 12px;background:rgba(34,197,94,.13);border:1px solid rgba(34,197,94,.24);color:#bbf7d0;font-weight:950;">เสร็จสิ้น</span>
+          <h1 style="font-size:clamp(30px,5vw,48px);margin:14px 0 10px;">{{ title }}</h1>
+          <div style="display:grid;gap:10px;margin-top:16px;">
+            {% for key, value in result.items() %}
+              <div style="display:flex;justify-content:space-between;gap:14px;padding:13px 15px;border-radius:18px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);">
+                <strong>{{ key }}</strong>
+                <span>{{ value }}</span>
+              </div>
+            {% endfor %}
+          </div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:22px;">
+            <a href="{{ url_for('admin_import_runs') }}" style="border-radius:999px;padding:13px 18px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;text-decoration:none;">ดูประวัติการดึงงาน</a>
+            <a href="{{ url_for('jobs_public') }}" style="border-radius:999px;padding:13px 18px;background:rgba(2,6,23,.64);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;font-weight:950;text-decoration:none;">ดูหน้างาน</a>
+            <a href="{{ url_for('admin_dashboard') }}" style="border-radius:999px;padding:13px 18px;background:rgba(2,6,23,.64);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;font-weight:950;text-decoration:none;">กลับ Admin</a>
+          </div>
+        </section>
+        {% endblock %}
+        """,
+        title=title,
+        result=result,
+    )
+
+
 def is_valid_cron_request():
     token = request.headers.get("X-Cron-Token", "").strip()
     if not token:
@@ -4024,154 +4158,261 @@ def cron_import_upper_central_jobs():
     if not is_valid_cron_request():
         abort(403)
 
-    static_inserted, static_updated = import_upper_central_jobs_to_db()
-    doe_result = import_latest_doe_news_to_db()
-    source_fixed = repair_job_source_urls_to_official()
+    source_name = "cron-upper-central-and-doe-news"
+    force = request.args.get("force", "").strip() == "1"
 
-    inserted = int(static_inserted or 0) + int(doe_result.get("inserted", 0))
-    updated = int(static_updated or 0) + int(doe_result.get("updated", 0))
+    if not force and recent_successful_import_exists(source_name, import_throttle_minutes(30)):
+        log_import_run(source_name, "SKIPPED", skipped=1, error_message="Skipped by import throttle")
+        get_db().commit()
+        return jsonify({
+            "ok": True,
+            "skipped": True,
+            "reason": "recent import already completed",
+            "checked_at": now_str(),
+        })
 
-    add_activity_log(
-        None,
-        "CRON_IMPORT_UPPER_CENTRAL_AND_DOE_NEWS",
-        "job_posts",
-        None,
-        f"inserted={inserted}, updated={updated}, doe_scanned={doe_result.get('scanned', 0)}, source_fixed={source_fixed}, errors={len(doe_result.get('errors', []))}",
-    )
-    get_db().commit()
+    try:
+        static_inserted, static_updated = import_upper_central_jobs_to_db()
+        doe_result = import_latest_doe_news_to_db()
+        source_fixed = repair_job_source_urls_to_official()
 
-    send_discord_alert(
-        "✅ Auto Import งาน/ข่าวกรมแรงงานสำเร็จ\n"
-        f"Inserted: {inserted}\n"
-        f"Updated: {updated}\n"
-        f"DOE Scanned: {doe_result.get('scanned', 0)}\n"
-        f"Source Links Fixed: {source_fixed}\n"
-        "พื้นที่: พิจิตร / พิษณุโลก / กำแพงเพชร / นครสวรรค์ / กรมการจัดหางาน\n"
-        f"เวลา: {now_str()}",
-        username="JobBoard Auto Import Bot",
-    )
+        inserted = int(static_inserted or 0) + int(doe_result.get("inserted", 0))
+        updated = int(static_updated or 0) + int(doe_result.get("updated", 0))
+        errors = doe_result.get("errors", [])
 
-    return jsonify({
-        "ok": True,
-        "inserted": inserted,
-        "updated": updated,
-        "doe_scanned": doe_result.get("scanned", 0),
-        "doe_errors": doe_result.get("errors", []),
-        "provinces": ["พิจิตร", "พิษณุโลก", "กำแพงเพชร", "นครสวรรค์"],
-        "checked_at": now_str(),
-    })
+        log_import_run(
+            source_name,
+            "SUCCESS" if not errors else "SUCCESS_WITH_ERRORS",
+            inserted=inserted,
+            updated=updated,
+            skipped=len(errors),
+            error_message=" | ".join(errors[:3]) if errors else "",
+        )
+
+        add_activity_log(
+            None,
+            "CRON_IMPORT_UPPER_CENTRAL_AND_DOE_NEWS",
+            "job_posts",
+            None,
+            f"inserted={inserted}, updated={updated}, doe_scanned={doe_result.get('scanned', 0)}, source_fixed={source_fixed}, errors={len(errors)}",
+        )
+        get_db().commit()
+
+        send_discord_alert(
+            "✅ Auto Import งาน/ข่าวกรมแรงงานสำเร็จ\n"
+            f"Inserted: {inserted}\n"
+            f"Updated: {updated}\n"
+            f"DOE Scanned: {doe_result.get('scanned', 0)}\n"
+            f"Source Links Fixed: {source_fixed}\n"
+            f"Errors: {len(errors)}\n"
+            "พื้นที่: พิจิตร / พิษณุโลก / กำแพงเพชร / นครสวรรค์ / กรมการจัดหางาน\n"
+            f"เวลา: {now_str()}",
+            username="JobBoard Auto Import Bot",
+        )
+
+        return jsonify({
+            "ok": True,
+            "inserted": inserted,
+            "updated": updated,
+            "doe_scanned": doe_result.get("scanned", 0),
+            "doe_errors": errors,
+            "source_fixed": source_fixed,
+            "provinces": ["พิจิตร", "พิษณุโลก", "กำแพงเพชร", "นครสวรรค์"],
+            "checked_at": now_str(),
+        })
+    except Exception as exc:
+        log_import_run(source_name, "ERROR", error_message=str(exc))
+        get_db().commit()
+        raise
 
 
-
-
-@app.route("/admin/doe-news/repair-sources")
+@app.route("/admin/doe-news/repair-sources", methods=["GET", "POST"])
 @role_required("ADMIN")
 def admin_repair_doe_source_links():
+    if request.method == "GET":
+        return admin_import_confirm_page(
+            "ซ่อมลิงก์ต้นทางข่าวงาน",
+            "ระบบจะซ่อมลิงก์ต้นทางที่ว่าง ลิงก์ตัวอย่าง หรือลิงก์ไม่เหมาะสม ให้กลับไปยังแหล่งข้อมูลทางการของกรมการจัดหางาน",
+            "ซ่อมลิงก์ต้นทาง",
+        )
+
     admin = get_current_user()
-    fixed = repair_job_source_urls_to_official()
+    source_name = "repair-doe-source-links"
 
-    add_activity_log(
-        admin["id"],
-        "ADMIN_REPAIR_DOE_SOURCE_LINKS",
-        "job_posts",
-        None,
-        f"fixed_sources={fixed}",
-    )
-    get_db().commit()
+    try:
+        fixed = repair_job_source_urls_to_official()
 
-    send_discord_alert(
-        "✅ ซ่อมลิงก์ต้นทางข่าวกรมแรงงานสำเร็จ\n"
-        f"Fixed Sources: {fixed}\n"
-        f"เวลา: {now_str()}",
-        username="JobBoard DOE Import Bot",
-    )
+        log_import_run(source_name, "SUCCESS", updated=fixed)
+        add_activity_log(
+            admin["id"],
+            "ADMIN_REPAIR_DOE_SOURCE_LINKS",
+            "job_posts",
+            None,
+            f"fixed_sources={fixed}",
+        )
+        get_db().commit()
 
-    return (
-        "OK: repaired DOE source links<br>"
-        f"Fixed Sources: {fixed}<br>"
-        '<a href="/admin">Back to Admin</a> | '
-        '<a href="/">Home</a> | '
-        '<a href="/jobs">Jobs</a>'
-    )
+        send_discord_alert(
+            "✅ ซ่อมลิงก์ต้นทางข่าวกรมแรงงานสำเร็จ\n"
+            f"Fixed Sources: {fixed}\n"
+            f"เวลา: {now_str()}",
+            username="JobBoard DOE Import Bot",
+        )
+
+        return admin_import_done_page(
+            "ซ่อมลิงก์ต้นทางสำเร็จ",
+            {"Fixed Sources": fixed, "เวลา": now_str()},
+        )
+    except Exception as exc:
+        log_import_run(source_name, "ERROR", error_message=str(exc))
+        get_db().commit()
+        raise
 
 
-@app.route("/admin/doe-news/import-latest")
+@app.route("/admin/doe-news/import-latest", methods=["GET", "POST"])
 @role_required("ADMIN")
 def admin_import_latest_doe_news():
+    if request.method == "GET":
+        return admin_import_confirm_page(
+            "ดึงข่าวงานจากกรมการจัดหางาน",
+            "ระบบจะดึงข่าวรับสมัครงานล่าสุดจากแหล่งทางการของกรมการจัดหางานและสำนักงานจัดหางานจังหวัดที่ตั้งค่าไว้",
+            "เริ่มดึงข่าวงาน",
+        )
+
     admin = get_current_user()
-    result = import_latest_doe_news_to_db()
-    fixed_sources = repair_job_source_urls_to_official()
+    source_name = "admin-doe-news-live"
 
-    add_activity_log(
-        admin["id"],
-        "ADMIN_IMPORT_LATEST_DOE_NEWS",
-        "job_posts",
-        None,
-        f"inserted={result['inserted']}, updated={result['updated']}, scanned={result['scanned']}, fixed_sources={fixed_sources}, errors={len(result['errors'])}",
-    )
-    get_db().commit()
+    if recent_successful_import_exists(source_name, 10):
+        log_import_run(source_name, "SKIPPED", skipped=1, error_message="Skipped by 10 minute manual throttle")
+        get_db().commit()
+        return admin_import_done_page(
+            "ข้ามการดึงข่าวงาน",
+            {"สถานะ": "เพิ่งดึงสำเร็จในช่วง 10 นาทีที่ผ่านมา", "Inserted": 0, "Updated": 0},
+        )
 
-    send_discord_alert(
-        "✅ ดึงข่าวกรมแรงงาน/กรมการจัดหางานล่าสุดสำเร็จ\\n"
-        f"Inserted: {result['inserted']}\\n"
-        f"Updated: {result['updated']}\\n"
-        f"Scanned: {result['scanned']}\\n"
-        f"Fixed Sources: {fixed_sources}\n"
-        f"Errors: {len(result['errors'])}",
-        username="JobBoard DOE Import Bot",
-    )
+    try:
+        result = import_latest_doe_news_to_db()
+        fixed_sources = repair_job_source_urls_to_official()
 
-    return (
-        "OK: imported latest DOE news<br>"
-        f"Inserted: {result['inserted']}<br>"
-        f"Updated: {result['updated']}<br>"
-        f"Scanned: {result['scanned']}<br>"
-        f"Fixed Sources: {fixed_sources}<br>"
-        f"Errors: {len(result['errors'])}<br>"
-        '<a href="/admin">Back to Admin</a> | '
-        '<a href="/jobs">View Jobs</a> | '
-        '<a href="/">Home</a>'
-    )
+        log_import_run(
+            source_name,
+            "SUCCESS" if not result.get("errors") else "SUCCESS_WITH_ERRORS",
+            inserted=result.get("inserted", 0),
+            updated=result.get("updated", 0) + fixed_sources,
+            skipped=len(result.get("errors", [])),
+            error_message=" | ".join(result.get("errors", [])[:3]) if result.get("errors") else "",
+        )
+
+        add_activity_log(
+            admin["id"],
+            "ADMIN_IMPORT_LATEST_DOE_NEWS",
+            "job_posts",
+            None,
+            f"inserted={result['inserted']}, updated={result['updated']}, scanned={result['scanned']}, fixed_sources={fixed_sources}, errors={len(result['errors'])}",
+        )
+        get_db().commit()
+
+        send_discord_alert(
+            "✅ ดึงข่าวกรมแรงงาน/กรมการจัดหางานล่าสุดสำเร็จ\n"
+            f"Inserted: {result['inserted']}\n"
+            f"Updated: {result['updated']}\n"
+            f"Scanned: {result['scanned']}\n"
+            f"Fixed Sources: {fixed_sources}\n"
+            f"Errors: {len(result['errors'])}",
+            username="JobBoard DOE Import Bot",
+        )
+
+        return admin_import_done_page(
+            "ดึงข่าวงานสำเร็จ",
+            {
+                "Inserted": result["inserted"],
+                "Updated": result["updated"],
+                "Scanned": result["scanned"],
+                "Fixed Sources": fixed_sources,
+                "Errors": len(result["errors"]),
+            },
+        )
+    except Exception as exc:
+        log_import_run(source_name, "ERROR", error_message=str(exc))
+        get_db().commit()
+        raise
 
 
-@app.route("/admin/local-jobs/import-upper-central")
+@app.route("/admin/local-jobs/import-upper-central", methods=["GET", "POST"])
 @role_required("ADMIN")
 def admin_import_upper_central_jobs():
+    if request.method == "GET":
+        return admin_import_confirm_page(
+            "นำเข้างานท้องถิ่นภาคเหนือตอนล่าง",
+            "ระบบจะนำเข้าข้อมูลงานตั้งต้นของพื้นที่ พิจิตร พิษณุโลก กำแพงเพชร และนครสวรรค์ พร้อมกันซ้ำด้วยชื่อ ตำแหน่ง พื้นที่ และลิงก์ต้นทาง",
+            "เริ่มนำเข้างานท้องถิ่น",
+        )
+
     admin = get_current_user()
-    inserted, updated = import_upper_central_jobs_to_db()
+    source_name = "admin-upper-central-static"
 
-    add_activity_log(
-        admin["id"],
-        "ADMIN_IMPORT_UPPER_CENTRAL_JOBS",
-        "job_posts",
-        None,
-        f"inserted={inserted}, updated={updated}, provinces=phichit,phitsanulok,kamphaengphet,nakhonsawan",
-    )
-    get_db().commit()
+    if recent_successful_import_exists(source_name, 10):
+        log_import_run(source_name, "SKIPPED", skipped=1, error_message="Skipped by 10 minute manual throttle")
+        get_db().commit()
+        return admin_import_done_page(
+            "ข้ามการนำเข้างาน",
+            {"สถานะ": "เพิ่งนำเข้าสำเร็จในช่วง 10 นาทีที่ผ่านมา", "Inserted": 0, "Updated": 0},
+        )
 
-    return (
-        "OK: imported upper central local jobs<br>"
-        f"Inserted: {inserted}<br>"
-        f"Updated: {updated}<br>"
-        '<a href="/admin">Back to Admin</a> | '
-        '<a href="/jobs">View Jobs</a>'
-    )
+    try:
+        inserted, updated = import_upper_central_jobs_to_db()
+
+        log_import_run(source_name, "SUCCESS", inserted=inserted, updated=updated)
+        add_activity_log(
+            admin["id"],
+            "ADMIN_IMPORT_UPPER_CENTRAL_JOBS",
+            "job_posts",
+            None,
+            f"inserted={inserted}, updated={updated}, provinces=phichit,phitsanulok,kamphaengphet,nakhonsawan",
+        )
+        get_db().commit()
+
+        return admin_import_done_page(
+            "นำเข้างานท้องถิ่นสำเร็จ",
+            {"Inserted": inserted, "Updated": updated, "พื้นที่": "พิจิตร / พิษณุโลก / กำแพงเพชร / นครสวรรค์"},
+        )
+    except Exception as exc:
+        log_import_run(source_name, "ERROR", error_message=str(exc))
+        get_db().commit()
+        raise
 
 
 @app.route("/admin/government-news/fetch", methods=["POST"])
 @role_required("ADMIN")
 def admin_fetch_government_news():
     admin = get_current_user()
-    result = run_auto_job_engine_demo()
-    add_activity_log(
-        admin["id"],
-        "ADMIN_RUN_AUTO_JOB_ENGINE",
-        "job_posts",
-        None,
-        f"inserted={result['inserted']}, updated={result['updated']}, skipped={result['skipped']}",
-    )
-    get_db().commit()
-    return redirect(url_for("admin_dashboard"))
+    source_name = "admin-auto-job-engine-demo"
+
+    try:
+        result = run_auto_job_engine_demo()
+
+        log_import_run(
+            source_name,
+            "SUCCESS",
+            inserted=result.get("inserted", 0),
+            updated=result.get("updated", 0),
+            skipped=result.get("skipped", 0),
+        )
+
+        add_activity_log(
+            admin["id"],
+            "ADMIN_RUN_AUTO_JOB_ENGINE",
+            "job_posts",
+            None,
+            f"inserted={result['inserted']}, updated={result['updated']}, skipped={result['skipped']}",
+        )
+        get_db().commit()
+        return redirect(url_for("admin_dashboard"))
+    except Exception as exc:
+        log_import_run(source_name, "ERROR", error_message=str(exc))
+        get_db().commit()
+        raise
+
 
 
 
@@ -4872,44 +5113,10 @@ def ensure_database_ready():
 
 
 # AUTO_FIX_BAD_SOURCE_URLS_ONCE
-_AUTO_SOURCE_REPAIR_DONE = False
-
 @app.before_request
 def auto_repair_bad_source_urls_once():
-    global _AUTO_SOURCE_REPAIR_DONE
-
-    if _AUTO_SOURCE_REPAIR_DONE:
-        return None
-
-    try:
-        endpoint = request.endpoint or ""
-        if endpoint.startswith("static"):
-            return None
-
-        _AUTO_SOURCE_REPAIR_DONE = True
-
-        conn = get_db()
-        bad = conn.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM job_posts
-            WHERE source_url = ''
-               OR source_url IS NULL
-               OR lower(source_url) LIKE '%google.com%'
-               OR lower(source_url) LIKE '%example.com%'
-               OR lower(source_url) LIKE '%localhost%'
-               OR lower(source_url) LIKE '%127.0.0.1%'
-               OR source_url = '#'
-            """
-        ).fetchone()["count"]
-
-        if int(bad or 0) > 0:
-            repair_job_source_urls_to_official()
-    except Exception:
-        return None
-
+    # Disabled for public requests. Run repair from Admin or cron only.
     return None
-
 
 
 

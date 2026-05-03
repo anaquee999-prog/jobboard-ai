@@ -1,30 +1,60 @@
 {% extends "base.html" %}
-{% block title %}Import Runs | งานใกล้บ้าน{% endblock %}
+{% block title %}ประวัติการดึงงาน | งานใกล้บ้าน{% endblock %}
 
 {% block content %}
-<section class="card">
-    <h1>Auto Job Engine Logs</h1>
-    <p class="muted">ประวัติการนำเข้างานอัตโนมัติ</p>
+<style>
+.import-page{width:min(1160px,calc(100% - 28px));margin:30px auto 60px;color:#fff;}
+.import-hero{border:1px solid rgba(56,189,248,.24);border-radius:30px;padding:30px;background:radial-gradient(circle at 12% 10%,rgba(14,165,233,.22),transparent 34%),linear-gradient(135deg,rgba(15,23,42,.96),rgba(2,6,23,.96));box-shadow:0 24px 70px rgba(0,0,0,.28);}
+.import-hero h1{margin:12px 0 8px;font-size:clamp(32px,5vw,54px);}
+.import-hero p{margin:0;color:#cbd5e1;font-weight:800;line-height:1.75;}
+.import-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;}
+.import-actions a,.import-actions form button{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:999px;padding:12px 15px;font-weight:950;text-decoration:none;cursor:pointer;}
+.import-actions a,.import-actions form button{background:rgba(15,23,42,.78);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;}
+.import-actions .primary{background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;border:0;}
+.import-list{display:grid;gap:12px;margin-top:20px;}
+.import-row{display:grid;grid-template-columns:1.4fr .8fr .7fr .7fr .7fr 1fr;gap:10px;align-items:center;padding:16px;border-radius:22px;background:rgba(15,23,42,.78);border:1px solid rgba(148,163,184,.14);}
+.import-row strong{color:#fff;}
+.import-pill{display:inline-flex;width:max-content;border-radius:999px;padding:6px 10px;background:rgba(14,165,233,.13);border:1px solid rgba(56,189,248,.22);color:#bae6fd;font-size:12px;font-weight:950;}
+.import-pill.ok{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.24);color:#bbf7d0;}
+.import-pill.warn{background:rgba(249,115,22,.13);border-color:rgba(249,115,22,.24);color:#fed7aa;}
+.import-pill.err{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.24);color:#fecaca;}
+.import-note{grid-column:1/-1;color:#94a3b8;font-size:13px;font-weight:800;line-height:1.6;}
+.empty-import{margin-top:20px;border:1px dashed rgba(148,163,184,.28);border-radius:24px;padding:28px;text-align:center;background:rgba(15,23,42,.58);color:#dbeafe;font-weight:900;}
+@media(max-width:860px){.import-row{grid-template-columns:1fr}.import-note{grid-column:auto}}
+</style>
 
-    <div class="actions-row">
-        <a class="btn-link-box secondary" href="{{ url_for('admin_dashboard') }}">กลับ Dashboard</a>
-        <a class="btn-link-box secondary" href="{{ url_for('admin_logs') }}">Activity Logs</a>
-    </div>
-</section>
+<section class="import-page">
+  <div class="import-hero">
+    <span class="final-soft-pill green">ระบบดึงงาน</span>
+    <h1>ประวัติการดึงงาน</h1>
+    <p>ใช้ตรวจว่าระบบนำเข้างานจากแหล่งทางการและงานท้องถิ่นทำงานล่าสุดเมื่อใด เพิ่มกี่รายการ อัปเดตกี่รายการ และมีข้อผิดพลาดหรือไม่</p>
 
-<section class="card section-space">
-    <div class="table-list">
-        {% for run in runs %}
-            <div class="table-row wide-row">
-                <strong>{{ run.source_name }}</strong>
-                <span>{{ run.status }}</span>
-                <span>+{{ run.inserted_count }} / update {{ run.updated_count }}</span>
-                <span>skip {{ run.skipped_count }}</span>
-                <span>{{ run.created_at }}</span>
-            </div>
-        {% else %}
-            <p class="muted">ยังไม่มีประวัติการนำเข้า</p>
-        {% endfor %}
+    <div class="import-actions">
+      <a class="primary" href="{{ url_for('admin_import_latest_doe_news') }}">ดึงข่าวงานจากกรมการจัดหางาน</a>
+      <a href="{{ url_for('admin_import_upper_central_jobs') }}">นำเข้างานท้องถิ่น</a>
+      <a href="{{ url_for('admin_repair_doe_source_links') }}">ซ่อมลิงก์ต้นทาง</a>
+      <a href="{{ url_for('admin_dashboard') }}">กลับ Admin</a>
     </div>
+  </div>
+
+  {% if runs %}
+    <div class="import-list">
+      {% for run in runs %}
+        <article class="import-row">
+          <strong>{{ run.source_name }}</strong>
+          <span class="import-pill {% if run.status == 'SUCCESS' %}ok{% elif run.status == 'ERROR' %}err{% else %}warn{% endif %}">{{ run.status }}</span>
+          <span>เพิ่ม {{ run.inserted_count }}</span>
+          <span>อัปเดต {{ run.updated_count }}</span>
+          <span>ข้าม {{ run.skipped_count }}</span>
+          <span>{{ run.created_at }}</span>
+          {% if run.error_message %}
+            <div class="import-note">{{ run.error_message }}</div>
+          {% endif %}
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-import">ยังไม่มีประวัติการดึงงาน เมื่อนำเข้างานครั้งแรก ระบบจะแสดงรายการที่นี่</div>
+  {% endif %}
 </section>
 {% endblock %}

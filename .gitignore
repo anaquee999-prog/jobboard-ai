@@ -30,3 +30,6 @@ backup_before_employer_dashboard_duplicate_*/
 final_ui_inspect.txt
 patch_final_ui_business_polish.py
 backup_before_final_ui_business_polish_*/
+job_import_inspect.txt
+patch_harden_job_import_engine_once.py
+backup_before_harden_job_import_engine_*/
