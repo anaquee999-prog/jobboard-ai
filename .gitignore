@@ -13,3 +13,6 @@ backup_before_notifications_*/
 backup_before_remove_otp_*/
 backup_before_require_email_notify_*/
 _patch_require_email_notify.py
+inspect_full_report_*.txt
+inspect_key_points.txt
+safe_final_upgrade_*.py

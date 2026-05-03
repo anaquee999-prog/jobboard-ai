@@ -1196,6 +1196,9 @@ def sitemap_xml():
     urls = [
         (url_for("home", _external=True), now_str()[:10], "daily", "1.0"),
         (url_for("jobs_public", _external=True), now_str()[:10], "daily", "0.9"),
+        (url_for("urgent_jobs", _external=True), now_str()[:10], "daily", "0.9"),
+        (url_for("community_board", _external=True), now_str()[:10], "daily", "0.7"),
+        (url_for("openchat", _external=True), now_str()[:10], "daily", "0.6"),
     ]
 
     for job in jobs:
@@ -1315,8 +1318,16 @@ def register():
                 (phone_number,)
             ).fetchone()
 
+
+            email_exists = conn.execute(
+                "SELECT id FROM users WHERE lower(COALESCE(email, '')) = ? AND COALESCE(email, '') != '' LIMIT 1",
+                (email.lower(),)
+            ).fetchone()
+
             if exists:
                 error = "เบอร์โทรศัพท์นี้มีบัญชีอยู่แล้ว"
+            elif email_exists:
+                error = "อีเมลนี้มีบัญชีอยู่แล้ว"
             else:
                 cur = conn.execute(
                     """
