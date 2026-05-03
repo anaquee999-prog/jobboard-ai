@@ -23,3 +23,5 @@ test_aiven_*.py
 patch_postgres_percent_fix_*.py
 backup_before_postgres_percent_fix_*/
 patch_postgres_percent_fix_safe.py
+patch_db_ready_once_and_timeout.py
+backup_before_db_ready_once_*/

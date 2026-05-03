@@ -4827,12 +4827,21 @@ def init_db_command():
     print(f"Initialized database at {DB_PATH}")
 
 
+_DATABASE_READY_DONE = False
+
 @app.before_request
 def ensure_database_ready():
+    global _DATABASE_READY_DONE
+
     if request.endpoint == "static":
         return None
+
     validate_runtime_config()
-    init_db()
+
+    if not _DATABASE_READY_DONE:
+        init_db()
+        _DATABASE_READY_DONE = True
+
     return None
 
 

@@ -1,3 +1,4 @@
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -189,7 +190,11 @@ class PostgresConnection:
             ) from exc
 
         self._psycopg = psycopg
-        self._conn = psycopg.connect(database_url, row_factory=dict_row)
+        self._conn = psycopg.connect(
+            database_url,
+            row_factory=dict_row,
+            connect_timeout=int(os.environ.get("PGCONNECT_TIMEOUT", "8")),
+        )
         self._last_insert_id = None
 
     def execute(self, sql, params=None):
