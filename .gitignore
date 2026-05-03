@@ -35,3 +35,5 @@ patch_harden_job_import_engine_once.py
 backup_before_harden_job_import_engine_*/
 patch_production_safety_legal_once.py
 backup_before_production_safety_legal_*/
+patch_fix_legal_pages_500_once.py
+backup_before_fix_legal_pages_500_*/

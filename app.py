@@ -4083,76 +4083,22 @@ def production_safety_limits():
     return None
 
 
+
 @app.route("/privacy")
 def privacy_policy():
-    return render_template_string(
-        """
-        {% extends "base.html" %}
-        {% block title %}นโยบายความเป็นส่วนตัว | งานใกล้บ้าน{% endblock %}
-        {% block meta_description %}นโยบายความเป็นส่วนตัวของงานใกล้บ้าน การเก็บ ใช้ และดูแลข้อมูลผู้หางาน นายจ้าง ใบสมัคร และข้อความในระบบ{% endblock %}
-        {% block content %}
-        <section style="width:min(980px,calc(100% - 28px));margin:34px auto 60px;padding:30px;border-radius:30px;border:1px solid rgba(56,189,248,.22);background:rgba(15,23,42,.88);color:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28);">
-          <span class="final-soft-pill green">ความเป็นส่วนตัว</span>
-          <h1 style="font-size:clamp(32px,5vw,54px);margin:14px 0 10px;">นโยบายความเป็นส่วนตัว</h1>
-          <p style="color:#cbd5e1;font-weight:800;line-height:1.8;">งานใกล้บ้านเก็บข้อมูลเท่าที่จำเป็นเพื่อให้ผู้หางานสมัครงาน นายจ้างลงประกาศ ตรวจสอบงานหลอกลวง และติดต่อกันในระบบได้อย่างปลอดภัย</p>
-          <div style="display:grid;gap:14px;margin-top:20px;">
-            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>ข้อมูลที่อาจเก็บ</h2><p>เบอร์โทร อีเมล ชื่อโปรไฟล์ ข้อมูลบริษัท ประกาศงาน ใบสมัคร ข้อความ รายงานงานต้องสงสัย และบันทึกการใช้งานเพื่อความปลอดภัย</p></div>
-            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>การใช้งานข้อมูล</h2><p>ใช้เพื่อสมัครสมาชิก โพสต์งาน สมัครงาน ติดต่อกัน ตรวจสอบงานเสี่ยง ป้องกันสแปม และปรับปรุงคุณภาพเว็บ</p></div>
-            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>สิทธิของผู้ใช้</h2><p>ผู้ใช้สามารถขอแก้ไข ลบ หรือจำกัดการแสดงข้อมูลของตนได้ โดยติดต่อผู้ดูแลระบบผ่านช่องทางที่เว็บกำหนด</p></div>
-            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>ข้อควรระวัง</h2><p>ห้ามส่งเลขบัตรประชาชน เอกสารสำคัญ หรือข้อมูลการเงินผ่านช่องแชท หากยังไม่ได้ตรวจสอบนายจ้างและช่องทางต้นทางให้ชัดเจน</p></div>
-          </div>
-        </section>
-        {% endblock %}
-        """
-    )
+    return render_template("privacy.html")
 
 
 @app.route("/terms")
 def terms_page():
-    return render_template_string(
-        """
-        {% extends "base.html" %}
-        {% block title %}เงื่อนไขการใช้งาน | งานใกล้บ้าน{% endblock %}
-        {% block meta_description %}เงื่อนไขการใช้งานเว็บงานใกล้บ้าน สำหรับผู้หางาน นายจ้าง และผู้ดูแลระบบ{% endblock %}
-        {% block content %}
-        <section style="width:min(980px,calc(100% - 28px));margin:34px auto 60px;padding:30px;border-radius:30px;border:1px solid rgba(56,189,248,.22);background:rgba(15,23,42,.88);color:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28);">
-          <span class="final-soft-pill orange">ข้อตกลงใช้งาน</span>
-          <h1 style="font-size:clamp(32px,5vw,54px);margin:14px 0 10px;">เงื่อนไขการใช้งาน</h1>
-          <p style="color:#cbd5e1;font-weight:800;line-height:1.8;">ผู้ใช้ต้องให้ข้อมูลจริง ใช้งานอย่างสุจริต และไม่ใช้เว็บเพื่อหลอกลวง เรียกเก็บเงิน หรือเผยแพร่ประกาศที่ผิดกฎหมาย</p>
-          <div style="display:grid;gap:14px;margin-top:20px;">
-            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>สำหรับนายจ้าง</h2><p>ต้องประกาศงานจริง ระบุรายละเอียดชัดเจน ไม่เรียกเก็บค่าสมัคร ไม่ชวนโอนเงิน และยอมรับการตรวจสอบจากระบบหรือผู้ดูแล</p></div>
-            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>สำหรับผู้หางาน</h2><p>ควรตรวจสอบรายละเอียดงาน ช่องทางติดต่อ และแหล่งต้นทางก่อนสมัคร ห้ามโอนเงินก่อนเริ่มงานหรือก่อนตรวจสอบความน่าเชื่อถือ</p></div>
-            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>การระงับบัญชี</h2><p>ระบบอาจซ่อนประกาศ ระงับบัญชี หรือส่งให้ผู้ดูแลตรวจสอบ หากพบพฤติกรรมเสี่ยง สแปม หรือการหลอกลวง</p></div>
-          </div>
-        </section>
-        {% endblock %}
-        """
-    )
+    return render_template("terms.html")
 
 
 @app.route("/pricing")
 def pricing_page():
-    return render_template_string(
-        """
-        {% extends "base.html" %}
-        {% block title %}แพ็กเกจนายจ้างและโปรโมทงาน | งานใกล้บ้าน{% endblock %}
-        {% block meta_description %}แพ็กเกจในอนาคตสำหรับนายจ้าง โปรโมทงานด่วน บริษัทแนะนำ และพื้นที่โฆษณาท้องถิ่น{% endblock %}
-        {% block content %}
-        <section style="width:min(1120px,calc(100% - 28px));margin:34px auto 60px;color:#fff;">
-          <div style="padding:30px;border-radius:30px;border:1px solid rgba(56,189,248,.22);background:rgba(15,23,42,.88);box-shadow:0 24px 70px rgba(0,0,0,.28);">
-            <span class="final-soft-pill green">รองรับรายได้ในอนาคต</span>
-            <h1 style="font-size:clamp(32px,5vw,54px);margin:14px 0 10px;">แพ็กเกจนายจ้างและโปรโมทประกาศ</h1>
-            <p style="color:#cbd5e1;font-weight:800;line-height:1.8;">ช่วงเริ่มต้นยังเน้นใช้งานฟรีเพื่อเพิ่มจำนวนงานและผู้สมัคร ก่อนต่อยอดเป็นบริการโปรโมทงานด่วน บริษัทแนะนำ และโฆษณาท้องถิ่น</p>
-          </div>
-          <div class="final-revenue-grid" style="margin-top:18px;">
-            <div class="final-revenue-card"><strong>เริ่มต้นฟรี</strong><span>ลงประกาศพื้นฐาน ค้นหาผู้สมัคร และรับใบสมัครในระบบ</span></div>
-            <div class="final-revenue-card"><strong>โปรโมทงานด่วน</strong><span>ดันงานให้เด่นในหน้าแรกและหน้างานด่วน เหมาะกับงานที่ต้องการคนเร็ว</span></div>
-            <div class="final-revenue-card"><strong>บริษัทแนะนำ</strong><span>พื้นที่สร้างความน่าเชื่อถือสำหรับนายจ้างที่รับสมัครต่อเนื่อง</span></div>
-          </div>
-        </section>
-        {% endblock %}
-        """
-    )
+    return render_template("pricing.html")
+
+
 
 
 # JOB_IMPORT_ENGINE_HARDENED
