@@ -28,6 +28,58 @@
 .actions .primary{background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f!important}
 .actions .secondary{background:rgba(15,23,42,.80);border:1px solid rgba(56,189,248,.20);color:#dbeafe!important}
 .empty{padding:24px;border-radius:24px;background:rgba(15,23,42,.72);color:rgba(226,232,240,.70);text-align:center}
+
+.urgent-empty-pro{
+  grid-column:1/-1;
+  padding:26px;
+  border-radius:26px;
+  background:linear-gradient(135deg,rgba(15,23,42,.86),rgba(2,6,23,.92));
+  border:1px dashed rgba(56,189,248,.28);
+  color:rgba(226,232,240,.78);
+  text-align:left;
+  display:grid;
+  gap:12px;
+}
+.urgent-empty-pro strong{
+  display:block;
+  color:#fff;
+  font-size:22px;
+}
+.urgent-empty-pro p{
+  margin:0;
+  line-height:1.7;
+}
+.urgent-empty-actions{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:4px;
+}
+.urgent-empty-actions a{
+  display:inline-flex;
+  align-items:center;
+  min-height:40px;
+  padding:0 14px;
+  border-radius:999px;
+  text-decoration:none!important;
+  font-weight:950;
+}
+.urgent-empty-actions .primary{
+  background:linear-gradient(135deg,#0ea5e9,#38bdf8);
+  color:#00111f!important;
+}
+.urgent-empty-actions .secondary{
+  border:1px solid rgba(56,189,248,.24);
+  color:#dbeafe!important;
+  background:rgba(14,165,233,.08);
+}
+@media(max-width:640px){
+  .urgent-page{width:min(100% - 20px,1180px);padding-top:20px}
+  .urgent-hero{padding:24px;border-radius:26px}
+  .urgent-stat{padding:16px}
+  .urgent-empty-pro{padding:20px}
+}
+
 @media(max-width:840px){.urgent-grid,.urgent-stats{grid-template-columns:1fr}.section-head{display:block}}
 </style>
 
@@ -74,7 +126,18 @@
         </div>
       </article>
     {% else %}
-      <div class="empty">ยังไม่มีงานด่วนจากนายจ้าง</div>
+      <div class="urgent-empty-pro">
+        <strong>ยังไม่มีงานด่วนจากนายจ้าง</strong>
+        <p>ตอนนี้ยังไม่มีประกาศที่ถูกตั้งเป็นงานด่วน แต่ผู้สมัครยังสามารถค้นหางานล่าสุดทั้งหมดได้ หรือให้นายจ้างโพสต์งานใหม่และเลือก “งานด่วน” ตอนสร้างประกาศ</p>
+        <div class="urgent-empty-actions">
+          <a class="primary" href="{{ url_for('jobs_public') }}">ดูงานล่าสุดทั้งหมด</a>
+          {% if current_user and current_user.role == "EMPLOYER" %}
+            <a class="secondary" href="{{ url_for('employer_create_job') }}">โพสต์งานด่วน</a>
+          {% else %}
+            <a class="secondary" href="{{ url_for('register') }}">สมัครบัญชีนายจ้าง</a>
+          {% endif %}
+        </div>
+      </div>
     {% endfor %}
   </div>
 
@@ -98,7 +161,18 @@
         <p>{{ seeker.resume_url[:220] }}{% if seeker.resume_url|length > 220 %}...{% endif %}</p>
       </article>
     {% else %}
-      <div class="empty">ยังไม่มีผู้หางานโพสต์งานด่วน</div>
+      <div class="urgent-empty-pro">
+        <strong>ยังไม่มีผู้หางานประกาศพร้อมเริ่มงาน</strong>
+        <p>ผู้หางานสามารถฝากโปรไฟล์และระบุว่าพร้อมเริ่มงาน เพื่อให้นายจ้างติดต่อได้ง่ายขึ้นในอนาคต</p>
+        <div class="urgent-empty-actions">
+          {% if current_user and current_user.role == "JOB_SEEKER" %}
+            <a class="primary" href="{{ url_for('job_seeker_post') }}">ฝากโปรไฟล์หางาน</a>
+          {% else %}
+            <a class="primary" href="{{ url_for('register') }}">สมัครผู้หางาน</a>
+          {% endif %}
+          <a class="secondary" href="{{ url_for('jobs_public') }}">ค้นหางานก่อน</a>
+        </div>
+      </div>
     {% endfor %}
   </div>
 </section>

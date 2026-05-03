@@ -383,6 +383,114 @@
 }
 @media(max-width:760px){.final-revenue-grid{grid-template-columns:1fr}}
 
+
+/* MOBILE_NAV_URGENT_POLISH_V1 */
+@media (max-width: 980px){
+  .premium-navbar{
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+
+  .nav-inner{
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .brand{
+    min-width: 210px;
+  }
+
+  .brand-main{
+    font-size: 20px;
+  }
+
+  .brand-sub{
+    max-width: 180px;
+    line-height: 1.25;
+  }
+
+  .nav-links{
+    width: 100%;
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    padding: 8px 2px 2px;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .nav-links a,
+  .nav-links button{
+    white-space: nowrap;
+    flex: 0 0 auto;
+    min-height: 38px;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+    border-radius: 999px !important;
+  }
+
+  .admin-nav-link{
+    display: none !important;
+  }
+
+  .notify-bell,
+  .nav-message-link{
+    max-width: 118px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .footer{
+    padding-top: 34px;
+  }
+
+  .footer-inner{
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+}
+
+@media (max-width: 640px){
+  .nav-inner{
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .brand-logo{
+    width: 44px;
+    height: 44px;
+  }
+
+  .brand-main{
+    font-size: 18px;
+  }
+
+  .brand-sub{
+    font-size: 11px;
+  }
+
+  .nav-links{
+    gap: 7px;
+  }
+
+  .nav-links a,
+  .nav-links button{
+    min-height: 34px;
+    padding: 7px 10px !important;
+    font-size: 12px !important;
+  }
+
+  .footer-inner{
+    grid-template-columns: 1fr;
+  }
+
+  .footer-bottom,
+  .page-view-mini{
+    text-align: center;
+  }
+}
+
 </style>
 
     {% block extra_head %}{% endblock %}
@@ -428,9 +536,9 @@
                         <a class="nav-cta" href="{{ url_for('employer_create_job') }}">โพสต์งาน</a>
                         <a href="{{ url_for('employer_applications') }}">ใบสมัคร</a>
                     {% elif current_user.role == "ADMIN" %}
-                        <a href="{{ url_for('admin_dashboard') }}">Admin</a>
-                        <a href="{{ url_for('admin_trust_center') }}">Trust</a>
-                        <a href="{{ url_for('admin_scam_center') }}">Scam</a>
+                        <a class="admin-nav-link" href="{{ url_for('admin_dashboard') }}">Admin</a>
+                        <a class="admin-nav-link" href="{{ url_for('admin_trust_center') }}">Trust</a>
+                        <a class="admin-nav-link" href="{{ url_for('admin_scam_center') }}">Scam</a>
                     {% endif %}
 
                     <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
