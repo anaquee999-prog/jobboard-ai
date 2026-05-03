@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import time
 import hmac
 import io
 import sqlite3
@@ -4011,6 +4012,149 @@ def import_upper_central_jobs_to_db():
 
 
 
+# PRODUCTION_SAFETY_LIMITS_AND_LEGAL_PAGES
+_RATE_LIMIT_BUCKETS = {}
+
+
+def _client_ip_for_limit():
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    return forwarded or request.remote_addr or "unknown"
+
+
+def _rate_limit_key(scope):
+    user_id = session.get("user_id", "guest")
+    return f"{scope}:{_client_ip_for_limit()}:{user_id}"
+
+
+def _hit_rate_limit(scope, max_hits, window_seconds):
+    now = time.time()
+    key = _rate_limit_key(scope)
+    items = _RATE_LIMIT_BUCKETS.get(key, [])
+    items = [ts for ts in items if now - ts < window_seconds]
+    allowed = len(items) < max_hits
+    items.append(now)
+    _RATE_LIMIT_BUCKETS[key] = items
+
+    if len(_RATE_LIMIT_BUCKETS) > 5000:
+        stale_before = now - 7200
+        for old_key in list(_RATE_LIMIT_BUCKETS.keys())[:1000]:
+            _RATE_LIMIT_BUCKETS[old_key] = [ts for ts in _RATE_LIMIT_BUCKETS[old_key] if ts >= stale_before]
+            if not _RATE_LIMIT_BUCKETS[old_key]:
+                _RATE_LIMIT_BUCKETS.pop(old_key, None)
+
+    return not allowed
+
+
+@app.before_request
+def production_safety_limits():
+    if request.endpoint == "static":
+        return None
+
+    path = request.path or ""
+    method = request.method.upper()
+
+    if path.startswith("/internal/admin/seed-test-accounts-and-repair"):
+        if os.environ.get("JOBBOARD_ENABLE_INTERNAL_SEED", "0").strip() != "1":
+            abort(404)
+
+        expected = os.environ.get("JOBBOARD_CRON_TOKEN", "").strip()
+        token = request.headers.get("X-Cron-Token", "").strip()
+        if not expected or not token or not hmac.compare_digest(token, expected):
+            abort(403)
+
+    checks = []
+    if method == "POST" and path.startswith("/login"):
+        checks.append(("login", 8, 15 * 60))
+    if method == "POST" and path.startswith("/register"):
+        checks.append(("register", 5, 60 * 60))
+    if method == "POST" and path.startswith("/dashboard/employer/jobs/new"):
+        checks.append(("post_job", 8, 60 * 60))
+    if method == "POST" and ("/report" in path or path.endswith("/report")):
+        checks.append(("report", 12, 60 * 60))
+    if method == "POST" and ("message" in path or "messages" in path):
+        checks.append(("message", 30, 15 * 60))
+    if method == "POST" and ("community" in path or "openchat" in path):
+        checks.append(("community", 25, 15 * 60))
+
+    for scope, max_hits, window_seconds in checks:
+        if _hit_rate_limit(scope, max_hits, window_seconds):
+            return "ใช้งานถี่เกินไป กรุณารอสักครู่แล้วลองใหม่อีกครั้ง", 429
+
+    return None
+
+
+@app.route("/privacy")
+def privacy_policy():
+    return render_template_string(
+        """
+        {% extends "base.html" %}
+        {% block title %}นโยบายความเป็นส่วนตัว | งานใกล้บ้าน{% endblock %}
+        {% block meta_description %}นโยบายความเป็นส่วนตัวของงานใกล้บ้าน การเก็บ ใช้ และดูแลข้อมูลผู้หางาน นายจ้าง ใบสมัคร และข้อความในระบบ{% endblock %}
+        {% block content %}
+        <section style="width:min(980px,calc(100% - 28px));margin:34px auto 60px;padding:30px;border-radius:30px;border:1px solid rgba(56,189,248,.22);background:rgba(15,23,42,.88);color:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28);">
+          <span class="final-soft-pill green">ความเป็นส่วนตัว</span>
+          <h1 style="font-size:clamp(32px,5vw,54px);margin:14px 0 10px;">นโยบายความเป็นส่วนตัว</h1>
+          <p style="color:#cbd5e1;font-weight:800;line-height:1.8;">งานใกล้บ้านเก็บข้อมูลเท่าที่จำเป็นเพื่อให้ผู้หางานสมัครงาน นายจ้างลงประกาศ ตรวจสอบงานหลอกลวง และติดต่อกันในระบบได้อย่างปลอดภัย</p>
+          <div style="display:grid;gap:14px;margin-top:20px;">
+            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>ข้อมูลที่อาจเก็บ</h2><p>เบอร์โทร อีเมล ชื่อโปรไฟล์ ข้อมูลบริษัท ประกาศงาน ใบสมัคร ข้อความ รายงานงานต้องสงสัย และบันทึกการใช้งานเพื่อความปลอดภัย</p></div>
+            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>การใช้งานข้อมูล</h2><p>ใช้เพื่อสมัครสมาชิก โพสต์งาน สมัครงาน ติดต่อกัน ตรวจสอบงานเสี่ยง ป้องกันสแปม และปรับปรุงคุณภาพเว็บ</p></div>
+            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>สิทธิของผู้ใช้</h2><p>ผู้ใช้สามารถขอแก้ไข ลบ หรือจำกัดการแสดงข้อมูลของตนได้ โดยติดต่อผู้ดูแลระบบผ่านช่องทางที่เว็บกำหนด</p></div>
+            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>ข้อควรระวัง</h2><p>ห้ามส่งเลขบัตรประชาชน เอกสารสำคัญ หรือข้อมูลการเงินผ่านช่องแชท หากยังไม่ได้ตรวจสอบนายจ้างและช่องทางต้นทางให้ชัดเจน</p></div>
+          </div>
+        </section>
+        {% endblock %}
+        """
+    )
+
+
+@app.route("/terms")
+def terms_page():
+    return render_template_string(
+        """
+        {% extends "base.html" %}
+        {% block title %}เงื่อนไขการใช้งาน | งานใกล้บ้าน{% endblock %}
+        {% block meta_description %}เงื่อนไขการใช้งานเว็บงานใกล้บ้าน สำหรับผู้หางาน นายจ้าง และผู้ดูแลระบบ{% endblock %}
+        {% block content %}
+        <section style="width:min(980px,calc(100% - 28px));margin:34px auto 60px;padding:30px;border-radius:30px;border:1px solid rgba(56,189,248,.22);background:rgba(15,23,42,.88);color:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28);">
+          <span class="final-soft-pill orange">ข้อตกลงใช้งาน</span>
+          <h1 style="font-size:clamp(32px,5vw,54px);margin:14px 0 10px;">เงื่อนไขการใช้งาน</h1>
+          <p style="color:#cbd5e1;font-weight:800;line-height:1.8;">ผู้ใช้ต้องให้ข้อมูลจริง ใช้งานอย่างสุจริต และไม่ใช้เว็บเพื่อหลอกลวง เรียกเก็บเงิน หรือเผยแพร่ประกาศที่ผิดกฎหมาย</p>
+          <div style="display:grid;gap:14px;margin-top:20px;">
+            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>สำหรับนายจ้าง</h2><p>ต้องประกาศงานจริง ระบุรายละเอียดชัดเจน ไม่เรียกเก็บค่าสมัคร ไม่ชวนโอนเงิน และยอมรับการตรวจสอบจากระบบหรือผู้ดูแล</p></div>
+            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>สำหรับผู้หางาน</h2><p>ควรตรวจสอบรายละเอียดงาน ช่องทางติดต่อ และแหล่งต้นทางก่อนสมัคร ห้ามโอนเงินก่อนเริ่มงานหรือก่อนตรวจสอบความน่าเชื่อถือ</p></div>
+            <div style="padding:18px;border-radius:22px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);"><h2>การระงับบัญชี</h2><p>ระบบอาจซ่อนประกาศ ระงับบัญชี หรือส่งให้ผู้ดูแลตรวจสอบ หากพบพฤติกรรมเสี่ยง สแปม หรือการหลอกลวง</p></div>
+          </div>
+        </section>
+        {% endblock %}
+        """
+    )
+
+
+@app.route("/pricing")
+def pricing_page():
+    return render_template_string(
+        """
+        {% extends "base.html" %}
+        {% block title %}แพ็กเกจนายจ้างและโปรโมทงาน | งานใกล้บ้าน{% endblock %}
+        {% block meta_description %}แพ็กเกจในอนาคตสำหรับนายจ้าง โปรโมทงานด่วน บริษัทแนะนำ และพื้นที่โฆษณาท้องถิ่น{% endblock %}
+        {% block content %}
+        <section style="width:min(1120px,calc(100% - 28px));margin:34px auto 60px;color:#fff;">
+          <div style="padding:30px;border-radius:30px;border:1px solid rgba(56,189,248,.22);background:rgba(15,23,42,.88);box-shadow:0 24px 70px rgba(0,0,0,.28);">
+            <span class="final-soft-pill green">รองรับรายได้ในอนาคต</span>
+            <h1 style="font-size:clamp(32px,5vw,54px);margin:14px 0 10px;">แพ็กเกจนายจ้างและโปรโมทประกาศ</h1>
+            <p style="color:#cbd5e1;font-weight:800;line-height:1.8;">ช่วงเริ่มต้นยังเน้นใช้งานฟรีเพื่อเพิ่มจำนวนงานและผู้สมัคร ก่อนต่อยอดเป็นบริการโปรโมทงานด่วน บริษัทแนะนำ และโฆษณาท้องถิ่น</p>
+          </div>
+          <div class="final-revenue-grid" style="margin-top:18px;">
+            <div class="final-revenue-card"><strong>เริ่มต้นฟรี</strong><span>ลงประกาศพื้นฐาน ค้นหาผู้สมัคร และรับใบสมัครในระบบ</span></div>
+            <div class="final-revenue-card"><strong>โปรโมทงานด่วน</strong><span>ดันงานให้เด่นในหน้าแรกและหน้างานด่วน เหมาะกับงานที่ต้องการคนเร็ว</span></div>
+            <div class="final-revenue-card"><strong>บริษัทแนะนำ</strong><span>พื้นที่สร้างความน่าเชื่อถือสำหรับนายจ้างที่รับสมัครต่อเนื่อง</span></div>
+          </div>
+        </section>
+        {% endblock %}
+        """
+    )
+
+
 # JOB_IMPORT_ENGINE_HARDENED
 def ensure_import_runs_schema():
     conn = get_db()
@@ -4147,9 +4291,6 @@ def admin_import_done_page(title, result):
 
 def is_valid_cron_request():
     token = request.headers.get("X-Cron-Token", "").strip()
-    if not token:
-        token = request.args.get("token", "").strip()
-
     return bool(JOBBOARD_CRON_TOKEN) and bool(token) and hmac.compare_digest(token, JOBBOARD_CRON_TOKEN)
 
 
