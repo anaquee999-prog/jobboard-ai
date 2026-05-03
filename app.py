@@ -31,6 +31,7 @@ from flask import (
     send_from_directory,
 )
 from security_engine import security_guard
+from db_compat import connect_database
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / os.environ.get("JOBBOARD_DATABASE_PATH", "instance/jobboard.db")
@@ -267,11 +268,8 @@ def apply_security_headers(response):
 
 def get_db():
     if "db" not in g:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        g.db = conn
+        database_url = os.environ.get("DATABASE_URL", "").strip()
+        g.db = connect_database(DB_PATH, database_url)
     return g.db
 
 
