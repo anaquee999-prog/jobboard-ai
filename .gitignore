@@ -25,3 +25,5 @@ backup_before_postgres_percent_fix_*/
 patch_postgres_percent_fix_safe.py
 patch_db_ready_once_and_timeout.py
 backup_before_db_ready_once_*/
+patch_employer_dashboard_duplicate_once.py
+backup_before_employer_dashboard_duplicate_*/

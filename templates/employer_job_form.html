@@ -2,42 +2,78 @@
 {% block title %}โพสต์งานใหม่ | JobBoard{% endblock %}
 
 {% block content %}
-<section class="auth-card wide">
+<style>
+.job-form-wrap{max-width:960px;margin:0 auto;padding:34px 16px 58px;}
+.job-form-card{border:1px solid rgba(56,189,248,.25);background:radial-gradient(circle at top left,rgba(14,165,233,.16),rgba(2,6,23,.95) 48%,rgba(0,0,0,.98));border-radius:28px;padding:28px;box-shadow:0 24px 70px rgba(0,0,0,.34);}
+.job-form-card h1{margin:0;color:#fff;font-size:clamp(30px,5vw,48px);line-height:1.05;}
+.job-form-card .lead{color:#cbd5e1;font-weight:850;line-height:1.7;margin:12px 0 22px;}
+.job-alert{border:1px solid rgba(248,113,113,.3);background:rgba(127,29,29,.22);color:#fecaca;border-radius:18px;padding:14px 16px;font-weight:900;margin:16px 0;}
+.job-field{margin:16px 0;}
+.job-field label{display:block;color:#dbeafe;font-weight:950;margin-bottom:8px;}
+.job-field input,.job-field textarea{width:100%;box-sizing:border-box;border:1px solid rgba(148,163,184,.26);background:rgba(15,23,42,.86);color:#fff;border-radius:18px;padding:14px 16px;font-size:16px;outline:none;}
+.job-field textarea{min-height:190px;resize:vertical;line-height:1.7;}
+.job-field input:focus,.job-field textarea:focus{border-color:rgba(56,189,248,.75);box-shadow:0 0 0 4px rgba(56,189,248,.12);}
+.job-help{color:#94a3b8;font-weight:750;font-size:13px;margin-top:7px;}
+.urgent-box{display:flex;gap:12px;align-items:flex-start;border:1px solid rgba(249,115,22,.28);background:rgba(249,115,22,.10);border-radius:18px;padding:14px 16px;color:#fed7aa;font-weight:900;margin:18px 0;}
+.urgent-box input{margin-top:4px;transform:scale(1.15);}
+.form-actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px;}
+.submit-btn,.back-btn{border:0;border-radius:999px;padding:14px 20px;font-weight:950;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;}
+.submit-btn{background:#22b7f0;color:#00121c;box-shadow:0 14px 34px rgba(34,183,240,.22);}
+.back-btn{background:rgba(15,23,42,.8);color:#e0f2fe;border:1px solid rgba(148,163,184,.22);}
+.locked-box{border:1px solid rgba(250,204,21,.3);background:rgba(113,63,18,.25);border-radius:18px;padding:18px;color:#fde68a;font-weight:900;margin-top:18px;}
+</style>
+
+<section class="job-form-wrap">
+  <div class="job-form-card">
     <h1>โพสต์งานใหม่</h1>
-    <p class="muted">ระบบจะใช้ AI Anti-Scam แบบ Rule-based ตรวจคำเสี่ยงก่อนเผยแพร่</p>
+    <p class="lead">ระบบจะใช้ AI Anti-Scam ตรวจข้อความก่อนเผยแพร่ กรุณากรอกข้อมูลจริง ไม่เรียกเก็บค่าสมัคร และหลีกเลี่ยงข้อความชวนโอนเงิน</p>
 
     {% if error %}
-        <div class="alert error">{{ error }}</div>
+      <div class="job-alert">{{ error }}</div>
     {% endif %}
 
-    {% if not locked %}
-    <form method="post">
+    {% if locked %}
+      <div class="locked-box">บัญชีของคุณยังไม่พร้อมโพสต์งาน กรุณาตรวจสอบ Trust Score หรือแจ้งผู้ดูแลระบบ</div>
+      <div class="form-actions">
+        <a class="back-btn" href="{{ url_for('employer_dashboard') }}">กลับ Dashboard</a>
+      </div>
+    {% else %}
+      <form method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-        <label>ชื่อตำแหน่งงาน</label>
-        <input type="text" name="title" value="{{ preview.title if preview else '' }}" required>
+        <div class="job-field">
+          <label>ชื่อตำแหน่งงาน</label>
+          <input type="text" name="title" value="{{ preview.title if preview else '' }}" required maxlength="160" placeholder="เช่น พนักงานขายประจำร้าน">
+          <div class="job-help">ใช้ชื่อตำแหน่งให้ชัดเจน ไม่ใส่เบอร์โทรหรือข้อความชวนเชื่อเกินจริง</div>
+        </div>
 
-        <label>รายละเอียดงาน</label>
-        <textarea name="description" required placeholder="อธิบายหน้าที่ คุณสมบัติ เวลาทำงาน สวัสดิการ และช่องทางติดต่อ">{{ preview.description if preview else '' }}</textarea>
+        <div class="job-field">
+          <label>รายละเอียดงาน</label>
+          <textarea name="description" required placeholder="อธิบายหน้าที่ คุณสมบัติ เวลาทำงาน สวัสดิการ และเงื่อนไขสำคัญ">{{ preview.description if preview else '' }}</textarea>
+          <div class="job-help">อย่างน้อย 40 ตัวอักษร ยิ่งชัดเจนยิ่งช่วยให้ผู้สมัครตัดสินใจง่าย</div>
+        </div>
 
-        <label>เงินเดือน</label>
-        <input type="text" name="salary_range" value="{{ preview.salary_range if preview else '' }}" placeholder="เช่น 18,000 - 25,000 บาท">
+        <div class="job-field">
+          <label>เงินเดือน</label>
+          <input type="text" name="salary_range" value="{{ preview.salary_range if preview else '' }}" placeholder="เช่น 12,000 - 15,000 บาท">
+        </div>
 
-        <label>สถานที่ทำงาน</label>
-        <input type="text" name="location" value="{{ preview.location if preview else '' }}" placeholder="เช่น Bangkok">
+        <div class="job-field">
+          <label>สถานที่ทำงาน</label>
+          <input type="text" name="location" value="{{ preview.location if preview else '' }}" placeholder="เช่น นครสวรรค์">
+        </div>
 
-        <button type="submit">บันทึกและให้ AI ตรวจ</button>
+        <label class="urgent-box">
+          <input type="checkbox" name="is_urgent" value="1" {% if preview and preview.is_urgent %}checked{% endif %}>
+          <span>ทำเครื่องหมายเป็นงานด่วน เพื่อแสดงในหน้า “งานด่วน” หากผ่านการตรวจสอบ</span>
+        </label>
 
-<label class="form-check urgent-check" style="display:flex;gap:10px;align-items:flex-start;margin:12px 0;color:#dbeafe;font-weight:900;">
-  <input type="checkbox" name="is_urgent" value="1" style="margin-top:4px;">
-  <span>ทำเครื่องหมายเป็นงานด่วน เพื่อแสดงในหน้า “งานด่วน”</span>
-</label>
-
-    </form>
+        <div class="form-actions">
+          <button class="submit-btn" type="submit">บันทึกและให้ AI ตรวจ</button>
+          <a class="back-btn" href="{{ url_for('employer_dashboard') }}">กลับ Dashboard</a>
+        </div>
+      </form>
     {% endif %}
-
-    <div class="hint-box">
-        ถ้า AI Risk ต่ำ งานจะเป็น ACTIVE ทันที ถ้าคะแนนกลางจะรอตรวจ ถ้าสูงมากจะ REJECTED
-    </div>
+  </div>
 </section>
 {% endblock %}

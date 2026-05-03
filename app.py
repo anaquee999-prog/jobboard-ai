@@ -2736,6 +2736,7 @@ def employer_dashboard():
         "dashboard_employer.html",
         profile=profile,
         jobs=jobs,
+        user=user,
         trust_level=get_trust_level(user["trust_score"]),
     )
 
@@ -2767,77 +2768,98 @@ def employer_create_job():
         elif len(description) < 40:
             error = "กรุณากรอกรายละเอียดงานอย่างน้อย 40 ตัวอักษร"
         else:
-            score, reason, status = analyze_job_text(title, description)
-
-            trust_score = int(user.get("trust_score", 50))
-            if trust_score < 40 and status == "ACTIVE":
-                status = "PENDING_AI_REVIEW"
-                reason = reason + " | Trust Score ต่ำกว่า 40 จึงส่งให้ Admin ตรวจเพิ่ม"
-            if trust_score < 25:
-                status = "REJECTED"
-                reason = reason + " | Trust Score ต่ำกว่า 25 ระบบไม่อนุญาตให้โพสต์งาน"
-
-            current_time = now_str()
             conn = get_db()
-            conn.execute(
+
+            duplicate_job = conn.execute(
                 """
-                INSERT INTO job_posts (
-                    employer_id, title, description, salary_range, location,
-                    is_government_news, source_url, status, ai_risk_score,
-                    ai_risk_reason, report_count, created_at, updated_at, is_urgent
-                )
-                VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?)
+                SELECT id, title, status, created_at
+                FROM job_posts
+                WHERE employer_id = ?
+                  AND lower(trim(title)) = lower(trim(?))
+                  AND lower(trim(COALESCE(location, ''))) = lower(trim(?))
+                  AND lower(trim(COALESCE(salary_range, ''))) = lower(trim(?))
+                  AND status NOT IN ('REJECTED', 'CLOSED')
+                ORDER BY datetime(created_at) DESC, id DESC
+                LIMIT 1
                 """,
-                (
-                    user["id"],
-                    title,
-                    description,
-                    salary_range,
-                    location,
-                    status,
-                    score,
-                    reason,
-                    current_time,
-                    current_time,
-                    is_urgent,
-                )
-            )
-            job_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-            add_ai_decision_log(job_id, title, score, reason, status)
-            add_activity_log(user["id"], "CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
-            if status == "ACTIVE":
-                adjust_trust_score(user["id"], 2)
-            elif status == "REJECTED":
-                adjust_trust_score(user["id"], -20)
+                (user["id"], title, location, salary_range)
+            ).fetchone()
 
-            if status in {"PENDING_AI_REVIEW", "REJECTED"} or scam_risk_label(score) == "HIGH":
-                alert_sent = send_job_risk_discord_alert(
-                    job_id,
-                    user,
-                    title,
-                    description,
-                    salary_range,
-                    location,
-                    status,
-                    score,
-                    reason,
-                )
-                add_activity_log(
-                    user["id"],
-                    "DISCORD_JOB_RISK_ALERT_SENT" if alert_sent else "DISCORD_JOB_RISK_ALERT_FAILED",
-                    "job_posts",
-                    job_id,
-                    f"status={status}, risk={score}",
-                )
+            if duplicate_job:
+                error = "พบประกาศงานนี้อยู่แล้วในระบบ จึงไม่สร้างซ้ำ กรุณาตรวจรายการงานที่คุณโพสต์ด้านล่าง"
+            else:
+                score, reason, status = analyze_job_text(title, description)
 
-            conn.commit()
-            return redirect(url_for("employer_dashboard"))
+                trust_score = int(user.get("trust_score", 50))
+                if trust_score < 40 and status == "ACTIVE":
+                    status = "PENDING_AI_REVIEW"
+                    reason = reason + " | Trust Score ต่ำกว่า 40 จึงส่งให้ Admin ตรวจเพิ่ม"
+                if trust_score < 25:
+                    status = "REJECTED"
+                    reason = reason + " | Trust Score ต่ำกว่า 25 ระบบไม่อนุญาตให้โพสต์งาน"
+
+                current_time = now_str()
+                conn.execute(
+                    """
+                    INSERT INTO job_posts (
+                        employer_id, title, description, salary_range, location,
+                        is_government_news, source_url, status, ai_risk_score,
+                        ai_risk_reason, report_count, created_at, updated_at, is_urgent
+                    )
+                    VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?)
+                    """,
+                    (
+                        user["id"],
+                        title,
+                        description,
+                        salary_range,
+                        location,
+                        status,
+                        score,
+                        reason,
+                        current_time,
+                        current_time,
+                        is_urgent,
+                    )
+                )
+                job_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+                add_ai_decision_log(job_id, title, score, reason, status)
+                add_activity_log(user["id"], "CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
+
+                if status == "ACTIVE":
+                    adjust_trust_score(user["id"], 2)
+                elif status == "REJECTED":
+                    adjust_trust_score(user["id"], -20)
+
+                if status in {"PENDING_AI_REVIEW", "REJECTED"} or scam_risk_label(score) == "HIGH":
+                    alert_sent = send_job_risk_discord_alert(
+                        job_id,
+                        user,
+                        title,
+                        description,
+                        salary_range,
+                        location,
+                        status,
+                        score,
+                        reason,
+                    )
+                    add_activity_log(
+                        user["id"],
+                        "DISCORD_JOB_RISK_ALERT_SENT" if alert_sent else "DISCORD_JOB_RISK_ALERT_FAILED",
+                        "job_posts",
+                        job_id,
+                        f"status={status}, risk={score}",
+                    )
+
+                conn.commit()
+                return redirect(url_for("employer_dashboard"))
 
         preview = {
             "title": title,
             "description": description,
             "salary_range": salary_range,
             "location": location,
+            "is_urgent": is_urgent,
         }
 
     return render_template("employer_job_form.html", error=error, preview=preview)
