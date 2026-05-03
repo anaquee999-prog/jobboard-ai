@@ -19,3 +19,7 @@ safe_final_upgrade_*.py
 postgres_migration_check.txt
 patch_postgres_phase1_*.py
 backup_before_postgres_phase1_*/
+test_aiven_*.py
+patch_postgres_percent_fix_*.py
+backup_before_postgres_percent_fix_*/
+patch_postgres_percent_fix_safe.py

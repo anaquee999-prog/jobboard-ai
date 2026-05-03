@@ -43,6 +43,35 @@ def _replace_sqlite_placeholders(sql):
     return "".join(result)
 
 
+
+def _escape_percent_for_psycopg(sql):
+    sql = str(sql or "")
+    result = []
+    i = 0
+
+    while i < len(sql):
+        ch = sql[i]
+        nxt = sql[i + 1] if i + 1 < len(sql) else ""
+
+        if ch == "%":
+            if nxt in {"s", "b", "t"}:
+                result.append("%" + nxt)
+                i += 2
+                continue
+            if nxt == "%":
+                result.append("%%")
+                i += 2
+                continue
+            result.append("%%")
+            i += 1
+            continue
+
+        result.append(ch)
+        i += 1
+
+    return "".join(result)
+
+
 def _adapt_sql_for_postgres(sql):
     sql = str(sql or "").strip()
 
@@ -66,6 +95,8 @@ def _adapt_sql_for_postgres(sql):
         "max(0, min(100, trust_score + %s))",
         "GREATEST(0, LEAST(100, trust_score + %s))",
     )
+
+    sql = _escape_percent_for_psycopg(sql)
 
     return sql
 

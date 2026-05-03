@@ -991,7 +991,12 @@ def home():
         JOIN users ON users.id = employer_profiles.user_id
         LEFT JOIN job_posts ON job_posts.employer_id = employer_profiles.user_id
                           AND job_posts.status = 'ACTIVE'
-        GROUP BY employer_profiles.user_id
+        GROUP BY
+            employer_profiles.user_id,
+            employer_profiles.company_name,
+            employer_profiles.website,
+            employer_profiles.is_company_verified,
+            users.trust_score
         ORDER BY employer_profiles.is_company_verified DESC,
                  users.trust_score DESC,
                  job_count DESC
