@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Dashboard ผู้หางาน | JobBoard{% endblock %}
+{% block title %}แดชบอร์ดผู้หางาน | JobBoard{% endblock %}
 
 {% block content %}
 
@@ -132,7 +132,7 @@
     <div class="dashboard-wrap">
 
         <div class="dashboard-header">
-            <h1>Dashboard ผู้หางาน</h1>
+            <h1>แดชบอร์ดผู้หางาน</h1>
             <p>สวัสดี {{ profile.full_name if profile else "ผู้ใช้งาน" }} — ดูใบสมัครและข้อความจากนายจ้างได้ที่นี่</p>
         </div>
 
@@ -140,7 +140,7 @@
             <div class="stat-card">
                 <div class="stat-label">สถานะโปรไฟล์</div>
                 <div class="stat-value">
-                    {{ "Public" if profile and profile.is_public else "Private" }}
+                    {{ "เปิดโปรไฟล์" if profile and profile.is_public else "ส่วนตัว" }}
                 </div>
             </div>
 

@@ -27,3 +27,6 @@ patch_db_ready_once_and_timeout.py
 backup_before_db_ready_once_*/
 patch_employer_dashboard_duplicate_once.py
 backup_before_employer_dashboard_duplicate_*/
+final_ui_inspect.txt
+patch_final_ui_business_polish.py
+backup_before_final_ui_business_polish_*/

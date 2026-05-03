@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}ค้นหางานใกล้บ้าน | JobBoard Anti-Scam{% endblock %}
+{% block title %}ค้นหางานใกล้บ้าน | งานใกล้บ้าน{% endblock %}
 {% block meta_description %}ค้นหางานล่าสุดใกล้บ้าน พร้อมสถานะ AI ตรวจสอบ นายจ้าง และปุ่มดูรายละเอียดก่อนสมัคร{% endblock %}
 
 {% block content %}
@@ -56,9 +56,9 @@
             {% for job in jobs %}
             <article class="job-clean">
                 <div class="job-badges">
-                    <span class="badge">{{ "งานราชการ" if job.is_government_news else "งานเอกชน" }}</span>
-                    {% if job.is_company_verified %}<span class="badge ok">Verified Employer</span>{% else %}<span class="badge warn">รอตรวจนายจ้าง</span>{% endif %}
-                    <span class="badge ok">AI ตรวจแล้ว</span>
+                    <span class="badge">{{ "แหล่งงานทางการ" if job.is_government_news else "ประกาศจากนายจ้าง" }}</span>
+                    {% if job.is_company_verified %}<span class="badge ok">นายจ้างยืนยันแล้ว</span>{% else %}<span class="badge warn">นายจ้างรอยืนยัน</span>{% endif %}
+                    <span class="badge ok">ผ่านการคัดกรอง</span>
                 </div>
                 <h3>{{ job.title }}</h3>
                 <p>{{ job.company_name or "หน่วยงาน / นายจ้าง" }}</p>
@@ -66,11 +66,11 @@
                 <div class="job-info">
                     {% if job.salary_range %}<span>{{ job.salary_range }}</span>{% endif %}
                     {% if job.location %}<span>📍 {{ job.location }}</span>{% endif %}
-                    <span>Report {{ job.report_count }}</span>
+                    <span>แจ้งตรวจ {{ job.report_count }} ครั้ง</span>
                 </div>
                 <div class="job-actions">
-                    <span class="safe-note">อ่านก่อนสมัคร · ไม่โอนเงินก่อนเริ่มงาน</span>
-                    <a class="detail" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูรายละเอียดและสมัคร →</a>
+                    <span class="safe-note">อ่านรายละเอียดให้ครบ และอย่าโอนเงินก่อนเริ่มงาน</span>
+                    <a class="detail" href="{{ url_for('job_detail', slug=job_slug(job)) }}">ดูรายละเอียด / สมัครงาน →</a>
                 </div>
             </article>
             {% else %}

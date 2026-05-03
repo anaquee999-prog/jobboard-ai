@@ -51,11 +51,11 @@
     <div class="hero-main">
       <div class="hero-badge">งานใกล้บ้าน</div>
       <h1>งานใกล้บ้าน</h1>
-      <p>รวมงานทั่วไป งานท้องถิ่น และข่าวประกาศจากกรมการจัดหางาน/สำนักงานจัดหางานจังหวัด พร้อมระบบตรวจความเสี่ยงและ Trust Score เพื่อช่วยให้ผู้หางานสมัครได้มั่นใจขึ้น</p>
+      <p>รวมงานทั่วไป งานท้องถิ่น และข่าวประกาศจากกรมการจัดหางาน/สำนักงานจัดหางานจังหวัด พร้อมระบบตรวจความเสี่ยงและ คะแนนความน่าเชื่อถือ เพื่อช่วยให้ผู้หางานสมัครได้มั่นใจขึ้น</p>
 
       <div class="hero-actions">
         <a class="primary" href="{{ url_for('jobs_public') }}">ค้นหางานทั้งหมด</a>
-        <a class="secondary" href="{{ url_for('openchat') }}">ถามงานใน OpenChat</a>
+        <a class="secondary" href="{{ url_for('openchat') }}">ถามงานใน ห้องคุยเรื่องงาน</a>
       </div>
     </div>
 
@@ -70,10 +70,10 @@
   </div>
 
   <div class="stats-grid">
-    <div class="stat-card"><span>งาน Active</span><strong>{{ stats.active_jobs }}</strong></div>
-    <div class="stat-card"><span>บล็อกงานเสี่ยง</span><strong>{{ stats.blocked_jobs }}</strong></div>
-    <div class="stat-card"><span>Reports</span><strong>{{ stats.reports }}</strong></div>
-    <div class="stat-card"><span>นายจ้างยืนยัน</span><strong>{{ stats.verified_employers }}</strong></div>
+    <div class="stat-card"><span>งานเปิดรับ</span><strong>{{ stats.active_jobs }}</strong></div>
+    <div class="stat-card"><span>คัดกรองงานเสี่ยง</span><strong>{{ stats.blocked_jobs }}</strong></div>
+    <div class="stat-card"><span>แจ้งตรวจ</span><strong>{{ stats.reports }}</strong></div>
+    <div class="stat-card"><span>นายจ้างตรวจแล้ว</span><strong>{{ stats.verified_employers }}</strong></div>
   </div>
 
   <section class="doe-feature">
@@ -93,7 +93,7 @@
             <span>{{ job.location or 'ทั่วประเทศ' }}</span>
             <span>{{ job.company_name or 'กรมการจัดหางาน' }}</span>
             {% if job.source_url and 'doe.go.th' in job.source_url %}
-              <span>Official DOE</span>
+              <span>แหล่งทางการ</span>
             {% endif %}
           </div>
           <p>{{ job.description[:180] }}{% if job.description|length > 180 %}...{% endif %}</p>
@@ -126,7 +126,7 @@
         <div class="job-meta">
           <span>{{ job.location or 'ไม่ระบุพื้นที่' }}</span>
           <span>{{ job.salary_range or 'เงินเดือนตามตกลง' }}</span>
-          {% if job.is_company_verified %}<span>Verified</span>{% endif %}
+          {% if job.is_company_verified %}<span>นายจ้างตรวจแล้วแล้ว</span>{% endif %}
         </div>
         <p>{{ job.description[:140] }}{% if job.description|length > 140 %}...{% endif %}</p>
         <div class="job-links">
@@ -155,5 +155,26 @@
       <span class="empty-box">ยังไม่มีข้อมูลจังหวัด</span>
     {% endfor %}
   </div>
+
+  <section class="final-business-band">
+    <span class="final-soft-pill green">เตรียมรองรับรายได้ในอนาคต</span>
+    <h2>สำหรับนายจ้างและธุรกิจท้องถิ่น</h2>
+    <p>เริ่มต้นโพสต์งานได้ง่ายก่อน และในอนาคตสามารถต่อยอดเป็นบริการโปรโมทประกาศ งานด่วน พื้นที่แนะนำบริษัท และโฆษณาท้องถิ่น โดยยังคงให้ผู้หางานใช้งานง่ายและอ่านประกาศได้ชัดเจน</p>
+    <div class="final-revenue-grid">
+      <div class="final-revenue-card">
+        <strong>โปรโมทงานด่วน</strong>
+        <span>ดันประกาศที่ต้องการคนเร็วให้เด่นขึ้นในหน้าแรกและหน้างานด่วน</span>
+      </div>
+      <div class="final-revenue-card">
+        <strong>บริษัทแนะนำ</strong>
+        <span>พื้นที่สำหรับนายจ้างที่ต้องการสร้างความน่าเชื่อถือและรับสมัครต่อเนื่อง</span>
+      </div>
+      <div class="final-revenue-card">
+        <strong>พื้นที่โฆษณาท้องถิ่น</strong>
+        <span>รองรับร้านค้า บริการอบรมอาชีพ หรือพันธมิตรที่เกี่ยวข้องกับการทำงาน</span>
+      </div>
+    </div>
+  </section>
+
 </section>
 {% endblock %}

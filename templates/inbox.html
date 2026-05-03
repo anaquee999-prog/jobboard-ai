@@ -292,7 +292,7 @@
         <aside class="chat-sidebar">
             <div class="chat-sidebar-head">
                 <h1>ข้อความ</h1>
-                <p>เลือกคู่สนทนาเพื่อดูแชท · Live refresh</p>
+                <p>เลือกคู่สนทนาเพื่อดูแชท · อัปเดตอัตโนมัติ</p>
             </div>
 
             <div class="conversation-list" id="conversationList">
@@ -335,7 +335,7 @@
                         {% if messages %}
                             {{ messages[0].sender_full_name or messages[0].sender_company_name or messages[0].sender_phone }}
                         {% else %}
-                            JobBoard Chat
+                            ข้อความงานใกล้บ้าน
                         {% endif %}
                     </h2>
                     <span id="chatSubTitle">
@@ -346,7 +346,7 @@
                         {% endif %}
                     </span>
                 </div>
-                <div class="status-pill" id="liveStatus">Live</div>
+                <div class="status-pill" id="liveStatus">ออนไลน์</div>
             </header>
 
             <div class="chat-messages" id="chatMessages">
@@ -407,7 +407,7 @@
             items.forEach(el => el.classList.remove("active"));
             item.classList.add("active");
 
-            if (chatTitle) chatTitle.textContent = item.dataset.name || "JobBoard Chat";
+            if (chatTitle) chatTitle.textContent = item.dataset.name || "ข้อความงานใกล้บ้าน";
             if (chatSubTitle) chatSubTitle.textContent = item.dataset.job || "ข้อความทั่วไป";
             if (receiverInput) receiverInput.value = item.dataset.receiver || "";
             if (applicationInput) applicationInput.value = item.dataset.application || "";
@@ -440,7 +440,7 @@
         const oldMessages = document.getElementById("chatMessages");
 
         try {
-            if (liveStatus) liveStatus.textContent = "Syncing...";
+            if (liveStatus) liveStatus.textContent = "กำลังอัปเดต...";
 
             const response = await fetch(window.location.href, {
                 headers: { "X-Requested-With": "XMLHttpRequest" },
@@ -460,9 +460,9 @@
 
             bindChat();
 
-            if (liveStatus) liveStatus.textContent = "Live";
+            if (liveStatus) liveStatus.textContent = "ออนไลน์";
         } catch (error) {
-            if (liveStatus) liveStatus.textContent = "Offline";
+            if (liveStatus) liveStatus.textContent = "เชื่อมต่อช้า";
         }
     }
 

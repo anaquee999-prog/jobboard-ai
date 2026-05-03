@@ -347,17 +347,17 @@
                 <span class="job-badge">{{ "ข่าวราชการ" if job.is_government_news else "ประกาศงาน" }}</span>
 
                 {% if job.is_company_verified %}
-                    <span class="job-badge safe">Verified Employer</span>
+                    <span class="job-badge safe">นายจ้างยืนยันแล้ว</span>
                 {% else %}
                     <span class="job-badge warning">รอตรวจสอบนายจ้าง</span>
                 {% endif %}
 
                 {% if risk_level == "HIGH" %}
-                    <span class="job-badge danger">AI Risk สูง</span>
+                    <span class="job-badge danger">ควรระวังสูง</span>
                 {% elif risk_level == "MEDIUM" %}
-                    <span class="job-badge warning">AI Risk ปานกลาง</span>
+                    <span class="job-badge warning">ควรตรวจสอบเพิ่ม</span>
                 {% else %}
-                    <span class="job-badge safe">AI ตรวจแล้ว</span>
+                    <span class="job-badge safe">ผ่านการคัดกรอง</span>
                 {% endif %}
             </div>
 
@@ -375,8 +375,8 @@
                     <span>📍 {{ job.location }}</span>
                 {% endif %}
 
-                <span>🚩 Report {{ job.report_count }}</span>
-                <span>🧠 Risk Score {{ risk_score }}</span>
+                <span>🚩 แจ้งตรวจ {{ job.report_count }} ครั้ง</span>
+                <span>🧠 คะแนนตรวจประกาศ {{ risk_score }}/100</span>
             </div>
 
             <div class="safety-box {% if risk_level == 'HIGH' %}danger{% elif risk_level == 'MEDIUM' %}warning{% else %}safe{% endif %}">
@@ -403,7 +403,7 @@
 
                 {% if job.ai_risk_reason %}
                     <div class="risk-reason">
-                        <strong>เหตุผลจากระบบ:</strong>
+                        <strong>หมายเหตุการคัดกรอง:</strong>
                         <span>{{ job.ai_risk_reason }}</span>
                     </div>
                 {% endif %}
@@ -461,7 +461,7 @@
 
             {% if current_user %}
                 <div class="report-box">
-                    <h3>Report งานต้องสงสัย</h3>
+                    <h3>แจ้งตรวจประกาศนี้</h3>
                     <p>ใช้เมื่อพบการเรียกเก็บเงินก่อนสมัคร หลอกให้โอนเงิน หรือประกาศน่าสงสัย</p>
 
                     <form class="report-form" method="post" action="{{ url_for('report_job', job_id=job.id) }}">
@@ -469,7 +469,7 @@
                             <label>เหตุผลที่ต้องการ Report</label>
                             <input type="text" name="reason" placeholder="เช่น เรียกเก็บเงินก่อน / หลอกลวง / สแปม">
                         </div>
-                        <button type="submit">ส่ง Report</button>
+                        <button type="submit">ส่งแจ้งตรวจ</button>
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     </form>
                 </div>

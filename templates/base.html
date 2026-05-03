@@ -329,7 +329,61 @@
         .notify-panel p { margin:0; color:#cbd5e1; font-weight:800; }
         .notify-panel a { color:#7dd3fc; font-weight:950; }
 
-    </style>
+    
+/* FINAL BUSINESS POLISH */
+.final-business-band{
+  margin:26px auto 0;
+  width:min(1180px,calc(100% - 30px));
+  border:1px solid rgba(56,189,248,.20);
+  border-radius:30px;
+  padding:24px;
+  background:
+    radial-gradient(circle at top left,rgba(14,165,233,.16),transparent 34%),
+    linear-gradient(135deg,rgba(15,23,42,.88),rgba(2,6,23,.94));
+  box-shadow:0 24px 70px rgba(0,0,0,.26);
+}
+.final-business-band h2{margin:0;color:#fff;font-size:clamp(26px,4vw,42px);}
+.final-business-band p{color:#cbd5e1;line-height:1.75;font-weight:800;}
+.final-revenue-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:16px;}
+.final-revenue-card{
+  border:1px solid rgba(148,163,184,.16);
+  border-radius:24px;
+  padding:18px;
+  background:rgba(2,6,23,.58);
+}
+.final-revenue-card strong{display:block;color:#fff;font-size:19px;margin-bottom:7px;}
+.final-revenue-card span{display:block;color:#94a3b8;font-weight:800;line-height:1.65;}
+.final-soft-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:7px;
+  padding:7px 11px;
+  border-radius:999px;
+  background:rgba(14,165,233,.13);
+  border:1px solid rgba(56,189,248,.24);
+  color:#bae6fd;
+  font-size:12px;
+  font-weight:950;
+}
+.final-soft-pill.green{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.25);color:#bbf7d0;}
+.final-soft-pill.orange{background:rgba(249,115,22,.13);border-color:rgba(249,115,22,.25);color:#fed7aa;}
+.footer-mini-cta{
+  display:inline-flex;
+  margin-top:12px;
+  border-radius:999px;
+  padding:10px 14px;
+  background:linear-gradient(135deg,#0ea5e9,#38bdf8);
+  color:#00111f!important;
+  font-weight:950;
+}
+.nav-cta-outline{
+  border:1px solid rgba(56,189,248,.28)!important;
+  background:rgba(14,165,233,.10)!important;
+  color:#dbeafe!important;
+}
+@media(max-width:760px){.final-revenue-grid{grid-template-columns:1fr}}
+
+</style>
 
     {% block extra_head %}{% endblock %}
 </head>
@@ -342,36 +396,41 @@
             <a class="brand" href="{{ url_for('home') }}">
                 <span class="brand-logo"></span>
                 <span>
-                    <span class="brand-main">Job<span>Board</span></span>
-                    <small class="brand-sub">งานใกล้บ้าน.com</small>
+                    <span class="brand-main">งาน<span>ใกล้บ้าน</span></span>
+                    <small class="brand-sub">หางานและจ้างงานในพื้นที่คุณ</small>
                 </span>
             </a>
 
             <nav class="nav-links">
                 <a class="active-link" href="{{ url_for('home') }}">หน้าแรก</a>
-                <a href="{{ url_for('jobs_public') }}">งานใกล้ฉัน</a>
+                <a href="{{ url_for('jobs_public') }}">ค้นหางาน</a>
                 <a href="{{ url_for('urgent_jobs') }}">งานด่วน</a>
-{% if current_user %}
-                    <a class="nav-openchat" href="{{ url_for('openchat') }}">OpenChat</a>
-                    <a href="{{ url_for('dashboard') }}">Dashboard</a>
+                <a href="{{ url_for('community_board') }}">ชุมชน</a>
+
+                {% if current_user %}
+                    <a class="nav-openchat" href="{{ url_for('openchat') }}">ห้องคุยเรื่องงาน</a>
+                    <a href="{{ url_for('dashboard') }}">แดชบอร์ด</a>
+
                     <a class="notify-bell" id="notificationBell" href="{{ url_for('notifications_page') }}">
                         🔔 แจ้งเตือน
                         {% set ncount = unread_notifications_count(current_user.id) if current_user else 0 %}
                         <span class="notify-badge" id="notificationBadge" {% if ncount <= 0 %}style="display:none"{% endif %}>{{ ncount }}</span>
                     </a>
+
                     <a class="nav-message-link" href="{{ url_for('inbox') }}">
                         ข้อความ
                         <span id="messageBadge" class="message-badge">0</span>
                     </a>
 
                     {% if current_user.role == "JOB_SEEKER" %}
-                        <a class="nav-cta" href="{{ url_for('job_seeker_post') }}">โพสต์หางาน</a>
+                        <a class="nav-cta" href="{{ url_for('job_seeker_post') }}">ฝากโปรไฟล์หางาน</a>
                     {% elif current_user.role == "EMPLOYER" %}
                         <a class="nav-cta" href="{{ url_for('employer_create_job') }}">โพสต์งาน</a>
                         <a href="{{ url_for('employer_applications') }}">ใบสมัคร</a>
                     {% elif current_user.role == "ADMIN" %}
-                        <a href="{{ url_for('admin_trust_center') }}">Trust Center</a>
-                        <a href="{{ url_for('admin_scam_center') }}">Scam Center</a>
+                        <a href="{{ url_for('admin_dashboard') }}">Admin</a>
+                        <a href="{{ url_for('admin_trust_center') }}">Trust</a>
+                        <a href="{{ url_for('admin_scam_center') }}">Scam</a>
                     {% endif %}
 
                     <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
@@ -379,6 +438,7 @@
                         <button type="submit">ออกจากระบบ</button>
                     </form>
                 {% else %}
+                    <a class="nav-cta-outline" href="{{ url_for('register') }}">สำหรับนายจ้าง</a>
                     <a class="nav-login" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
                     <a class="nav-cta" href="{{ url_for('register') }}">สมัครใช้งาน</a>
                 {% endif %}
@@ -393,60 +453,60 @@
     <footer class="footer">
         <div class="footer-inner">
             <div>
-                <h3>Job<span style="color:#38bdf8;">Board</span></h3>
-                <p>แพลตฟอร์มหางานใกล้บ้านที่ช่วยให้สมัครงานได้มั่นใจขึ้น ด้วยระบบตรวจประกาศและ Trust Score</p>
+                <h3>งาน<span style="color:#38bdf8;">ใกล้บ้าน</span></h3>
+                <p>แพลตฟอร์มหางานและจ้างงานในพื้นที่ ช่วยให้ผู้หางานสมัครง่ายขึ้น นายจ้างรับสมัครเป็นระบบขึ้น และมีการคัดกรองประกาศที่น่าสงสัย</p>
+                <a class="footer-mini-cta" href="{{ url_for('register') }}">เริ่มใช้งานฟรี</a>
             </div>
 
             <div>
                 <h4>สำหรับผู้หางาน</h4>
-                <p><a href="{{ url_for('jobs_public') }}">งานใกล้ฉัน</a>
-</p>
-                {% if current_user %}
-                    <p><a href="{{ url_for('openchat') }}">OpenChat</a></p>
-                {% endif %}
-                <p><a href="{{ url_for('job_seeker_post') if current_user and current_user.role == 'JOB_SEEKER' else url_for('register') }}">โพสต์หางาน</a></p>
+                <p><a href="{{ url_for('jobs_public') }}">ค้นหางานใกล้บ้าน</a></p>
+                <p><a href="{{ url_for('urgent_jobs') }}">งานด่วน</a></p>
+                <p><a href="{{ url_for('register') }}">สมัครและฝากโปรไฟล์</a></p>
             </div>
 
             <div>
-                <h4>สำหรับบริษัท</h4>
+                <h4>สำหรับนายจ้าง</h4>
                 <p><a href="{{ url_for('register') }}">สมัครบัญชีนายจ้าง</a></p>
                 {% if current_user and current_user.role == "EMPLOYER" %}
-                    <p><a href="{{ url_for('employer_create_job') }}">โพสต์งาน</a></p>
+                    <p><a href="{{ url_for('employer_create_job') }}">โพสต์งานใหม่</a></p>
                     <p><a href="{{ url_for('employer_applications') }}">ดูใบสมัคร</a></p>
+                {% else %}
+                    <p>แพ็กเกจโปรโมทงานด่วนและประกาศแนะนำจะเปิดให้ใช้ในอนาคต</p>
                 {% endif %}
             </div>
 
             <div>
-                <h4>ความปลอดภัย</h4>
-                <p>AI Anti-Scam</p>
-                <p>Community Report</p>
+                <h4>รายได้ในอนาคต</h4>
+                <p>โปรโมทประกาศงาน</p>
+                <p>พื้นที่แนะนำบริษัท</p>
+                <p>โฆษณาท้องถิ่นและพันธมิตร</p>
             </div>
         </div>
 
         <div class="footer-bottom">
-            © {{ current_year }} JobBoard Anti-Scam — หางานง่ายขึ้น ปลอดภัยขึ้น และดูเป็นมืออาชีพขึ้น
+            © {{ current_year }} งานใกล้บ้าน — หางานง่ายขึ้น จ้างงานง่ายขึ้น และปลอดภัยขึ้น
         </div>
-    
-<div class="page-view-mini">
-  {% set pv = page_view_stats() %}
-  เข้าชมหน้านี้ {{ pv.current }} ครั้ง · เข้าชมรวม {{ pv.total }} ครั้ง
-</div>
-<style>
-.page-view-mini{
-  margin:18px auto 0;
-  width:min(1180px,calc(100% - 28px));
-  padding:10px 14px;
-  border-radius:16px;
-  border:1px solid rgba(56,189,248,.16);
-  background:rgba(15,23,42,.72);
-  color:rgba(226,232,240,.68);
-  font-size:12px;
-  font-weight:800;
-  text-align:center;
-}
-</style>
 
-</footer>
+        <div class="page-view-mini">
+          {% set pv = page_view_stats() %}
+          เข้าชมหน้านี้ {{ pv.current }} ครั้ง · เข้าชมรวม {{ pv.total }} ครั้ง
+        </div>
+        <style>
+        .page-view-mini{
+          margin:18px auto 0;
+          width:min(1180px,calc(100% - 28px));
+          padding:10px 14px;
+          border-radius:16px;
+          border:1px solid rgba(56,189,248,.16);
+          background:rgba(15,23,42,.72);
+          color:rgba(226,232,240,.68);
+          font-size:12px;
+          font-weight:800;
+          text-align:center;
+        }
+        </style>
+    </footer>
 
 </div>
 

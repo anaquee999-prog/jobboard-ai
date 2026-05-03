@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Employer Dashboard | JobBoard{% endblock %}
+{% block title %}แดชบอร์ดนายจ้าง | JobBoard{% endblock %}
 
 {% block content %}
 <style>
@@ -41,8 +41,8 @@
 {% set review_count = namespace(v=0) %}
 {% set urgent_count = namespace(v=0) %}
 {% for job in jobs %}
-  {% if job.status == 'ACTIVE' %}{% set active_count.v = active_count.v + 1 %}{% endif %}
-  {% if job.status == 'PENDING_AI_REVIEW' %}{% set review_count.v = review_count.v + 1 %}{% endif %}
+  {% if job.status == 'เปิดรับ' %}{% set active_count.v = active_count.v + 1 %}{% endif %}
+  {% if job.status == 'รอตรวจ' %}{% set review_count.v = review_count.v + 1 %}{% endif %}
   {% if job.is_urgent %}{% set urgent_count.v = urgent_count.v + 1 %}{% endif %}
 {% endfor %}
 
@@ -50,7 +50,7 @@
   <div class="employer-hero">
     <div class="employer-hero-top">
       <div>
-        <div class="employer-eyebrow">🏢 Employer Dashboard</div>
+        <div class="employer-eyebrow">🏢 แดชบอร์ดนายจ้าง</div>
         <h1 class="employer-title">{{ profile.company_name if profile else 'บริษัทของฉัน' }}</h1>
         <p class="employer-sub">จัดการประกาศงาน ตรวจสถานะ AI และดูใบสมัครได้จากหน้านี้</p>
       </div>
@@ -63,14 +63,14 @@
     <div class="employer-stats">
       <div class="employer-stat">
         <span>สถานะบริษัท</span>
-        <strong>{{ 'Verified' if profile and profile.is_company_verified else 'Unverified' }}</strong>
+        <strong>{{ 'ยืนยันแล้ว' if profile and profile.is_company_verified else 'รอยืนยัน' }}</strong>
       </div>
       <div class="employer-stat">
-        <span>Trust Score</span>
+        <span>คะแนนความน่าเชื่อถือ</span>
         <strong>{{ user.trust_score if user else '-' }}</strong>
       </div>
       <div class="employer-stat">
-        <span>Trust Level</span>
+        <span>ระดับบัญชี</span>
         <strong>{{ trust_level }}</strong>
       </div>
       <div class="employer-stat">
@@ -84,7 +84,7 @@
     <div class="employer-section-head">
       <div>
         <h2>งานที่คุณโพสต์</h2>
-        <p>ACTIVE {{ active_count.v }} งาน · รอตรวจ {{ review_count.v }} งาน · งานด่วน {{ urgent_count.v }} งาน</p>
+        <p>เปิดรับ {{ active_count.v }} งาน · รอตรวจ {{ review_count.v }} งาน · งานด่วน {{ urgent_count.v }} งาน</p>
       </div>
       <a class="employer-btn" href="{{ url_for('employer_create_job') }}">+ เพิ่มประกาศ</a>
     </div>
@@ -96,7 +96,7 @@
           <article class="job-card">
             <div class="job-card-top">
               <h3 class="job-title">{{ job.title }}</h3>
-              <span class="pill {% if job.status == 'ACTIVE' %}active{% elif job.status == 'PENDING_AI_REVIEW' %}review{% elif job.status == 'REJECTED' %}rejected{% endif %}">
+              <span class="pill {% if job.status == 'เปิดรับ' %}active{% elif job.status == 'รอตรวจ' %}review{% elif job.status == 'ไม่ผ่าน' %}rejected{% endif %}">
                 {{ job.status }}
               </span>
             </div>
@@ -105,7 +105,7 @@
               {% if job.location %}<span class="pill">📍 {{ job.location }}</span>{% endif %}
               {% if job.salary_range %}<span class="pill">💰 {{ job.salary_range }}</span>{% endif %}
               {% if job.is_urgent %}<span class="pill urgent">🔥 งานด่วน</span>{% endif %}
-              <span class="pill">AI Risk {{ risk }}</span>
+              <span class="pill">ตรวจประกาศ {{ risk }}/100</span>
             </div>
 
             <p class="job-desc">{{ job.description[:170] }}{% if job.description and job.description|length > 170 %}...{% endif %}</p>
