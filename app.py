@@ -4084,19 +4084,118 @@ def production_safety_limits():
 
 
 
+
+def _legal_raw_page(title, badge, intro, cards):
+    card_html = ""
+    for heading, body in cards:
+        card_html += f"""
+        <div class="card">
+          <h2>{heading}</h2>
+          <p>{body}</p>
+        </div>
+        """
+
+    html = f"""<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{title} | งานใกล้บ้าน</title>
+  <meta name="description" content="{intro}">
+  <style>
+    *{{box-sizing:border-box}}
+    body{{margin:0;font-family:Arial,'Tahoma',sans-serif;background:#020617;color:#fff}}
+    a{{color:inherit;text-decoration:none}}
+    .wrap{{width:min(1040px,calc(100% - 28px));margin:30px auto 60px}}
+    .nav{{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:18px;flex-wrap:wrap}}
+    .brand{{font-size:22px;font-weight:950}}
+    .brand span{{color:#38bdf8}}
+    .links{{display:flex;gap:8px;flex-wrap:wrap}}
+    .links a{{border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.82);padding:10px 13px;border-radius:999px;font-weight:900;color:#e0f2fe}}
+    .hero{{border:1px solid rgba(56,189,248,.24);border-radius:30px;padding:30px;background:radial-gradient(circle at 12% 10%,rgba(14,165,233,.22),transparent 34%),linear-gradient(135deg,rgba(15,23,42,.96),rgba(2,6,23,.96));box-shadow:0 24px 70px rgba(0,0,0,.28)}}
+    .badge{{display:inline-flex;border-radius:999px;padding:8px 12px;background:rgba(14,165,233,.14);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:950}}
+    h1{{font-size:clamp(32px,5vw,54px);line-height:1.05;margin:14px 0 10px}}
+    .lead{{color:#cbd5e1;font-weight:800;line-height:1.8;font-size:16px}}
+    .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:18px}}
+    .card{{padding:18px;border-radius:22px;background:rgba(15,23,42,.76);border:1px solid rgba(148,163,184,.14)}}
+    .card h2{{margin:0 0 8px;font-size:22px}}
+    .card p{{margin:0;color:#cbd5e1;font-weight:760;line-height:1.75}}
+    .footer{{margin-top:22px;color:#94a3b8;font-weight:800;text-align:center}}
+    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.hero{{padding:22px}}}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="nav">
+      <a class="brand" href="/">งาน<span>ใกล้บ้าน</span></a>
+      <div class="links">
+        <a href="/">หน้าแรก</a>
+        <a href="/jobs">ค้นหางาน</a>
+        <a href="/urgent">งานด่วน</a>
+        <a href="/register">สมัครใช้งาน</a>
+      </div>
+    </div>
+
+    <section class="hero">
+      <span class="badge">{badge}</span>
+      <h1>{title}</h1>
+      <p class="lead">{intro}</p>
+    </section>
+
+    <section class="grid">
+      {card_html}
+    </section>
+
+    <div class="footer">© งานใกล้บ้าน — หางานง่ายขึ้น จ้างงานง่ายขึ้น และปลอดภัยขึ้น</div>
+  </main>
+</body>
+</html>"""
+    return Response(html, mimetype="text/html; charset=utf-8")
+
+
 @app.route("/privacy")
 def privacy_policy():
-    return render_template("privacy.html")
+    return _legal_raw_page(
+        "นโยบายความเป็นส่วนตัว",
+        "ความเป็นส่วนตัว",
+        "งานใกล้บ้านเก็บข้อมูลเท่าที่จำเป็น เพื่อให้ผู้หางานสมัครงาน นายจ้างลงประกาศ ตรวจสอบงานหลอกลวง และติดต่อกันในระบบได้อย่างปลอดภัย",
+        [
+            ("ข้อมูลที่อาจเก็บ", "เบอร์โทร อีเมล ชื่อโปรไฟล์ ข้อมูลบริษัท ประกาศงาน ใบสมัคร ข้อความ รายงานงานต้องสงสัย และบันทึกการใช้งานเพื่อความปลอดภัย"),
+            ("การใช้งานข้อมูล", "ใช้เพื่อสมัครสมาชิก โพสต์งาน สมัครงาน ติดต่อกัน ตรวจสอบงานเสี่ยง ป้องกันสแปม และปรับปรุงคุณภาพเว็บ"),
+            ("สิทธิของผู้ใช้", "ผู้ใช้สามารถขอแก้ไข ลบ หรือจำกัดการแสดงข้อมูลของตนได้ โดยติดต่อผู้ดูแลระบบผ่านช่องทางที่เว็บกำหนด"),
+            ("ข้อควรระวัง", "ห้ามส่งเลขบัตรประชาชน เอกสารสำคัญ หรือข้อมูลการเงินผ่านช่องแชท หากยังไม่ได้ตรวจสอบนายจ้างและช่องทางต้นทางให้ชัดเจน"),
+        ],
+    )
 
 
 @app.route("/terms")
 def terms_page():
-    return render_template("terms.html")
+    return _legal_raw_page(
+        "เงื่อนไขการใช้งาน",
+        "ข้อตกลงใช้งาน",
+        "ผู้ใช้ต้องให้ข้อมูลจริง ใช้งานอย่างสุจริต และไม่ใช้เว็บเพื่อหลอกลวง เรียกเก็บเงิน หรือเผยแพร่ประกาศที่ผิดกฎหมาย",
+        [
+            ("สำหรับนายจ้าง", "ต้องประกาศงานจริง ระบุรายละเอียดชัดเจน ไม่เรียกเก็บค่าสมัคร ไม่ชวนโอนเงิน และยอมรับการตรวจสอบจากระบบหรือผู้ดูแล"),
+            ("สำหรับผู้หางาน", "ควรตรวจสอบรายละเอียดงาน ช่องทางติดต่อ และแหล่งต้นทางก่อนสมัคร ห้ามโอนเงินก่อนเริ่มงานหรือก่อนตรวจสอบความน่าเชื่อถือ"),
+            ("การระงับบัญชี", "ระบบอาจซ่อนประกาศ ระงับบัญชี หรือส่งให้ผู้ดูแลตรวจสอบ หากพบพฤติกรรมเสี่ยง สแปม หรือการหลอกลวง"),
+            ("ความรับผิดชอบ", "เว็บช่วยคัดกรองและจัดระเบียบข้อมูล แต่ผู้ใช้ยังควรตรวจสอบรายละเอียดจากต้นทางก่อนตัดสินใจสมัครหรือรับสมัคร"),
+        ],
+    )
 
 
 @app.route("/pricing")
 def pricing_page():
-    return render_template("pricing.html")
+    return _legal_raw_page(
+        "แพ็กเกจนายจ้างและโปรโมทประกาศ",
+        "รองรับรายได้ในอนาคต",
+        "ช่วงเริ่มต้นยังเน้นใช้งานฟรีเพื่อเพิ่มจำนวนงานและผู้สมัคร ก่อนต่อยอดเป็นบริการโปรโมทงานด่วน บริษัทแนะนำ และโฆษณาท้องถิ่น",
+        [
+            ("เริ่มต้นฟรี", "ลงประกาศพื้นฐาน ค้นหาผู้สมัคร และรับใบสมัครในระบบ เหมาะสำหรับเริ่มทดลองใช้งาน"),
+            ("โปรโมทงานด่วน", "ดันงานให้เด่นในหน้าแรกและหน้างานด่วน เหมาะกับงานที่ต้องการคนเร็ว"),
+            ("บริษัทแนะนำ", "พื้นที่สร้างความน่าเชื่อถือสำหรับนายจ้างที่รับสมัครต่อเนื่อง"),
+            ("โฆษณาท้องถิ่น", "รองรับร้านค้า โรงเรียนสอนอาชีพ บริการสมัครงาน หรือพันธมิตรที่เกี่ยวข้องกับการทำงานในอนาคต"),
+        ],
+    )
 
 
 
