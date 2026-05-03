@@ -20,7 +20,7 @@ LIMITS = {
     "otp": {"limit": 5, "window": 900},
     "openchat": {"limit": 20, "window": 300},
     "community": {"limit": 10, "window": 600},
-    "job_post": {"limit": 5, "window": 3600},
+    "job_post": {"limit": 10, "window": 900},
 }
 
 DEVICE_LIMIT = 30
