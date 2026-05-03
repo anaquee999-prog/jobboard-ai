@@ -1,4 +1,4 @@
-import time
+﻿import time
 import hashlib
 import re
 from collections import defaultdict
