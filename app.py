@@ -741,6 +741,82 @@ def create_notifications_for_role(role, title, message, link_url="", category="G
         return 0
 
 
+
+# ADMIN_IMPORT_NOTIFY_HELPERS_V1
+def notify_admins_import_event(title, message, link_url="", category="IMPORT", actor_user_id=None):
+    """
+    Send import/news result to all active admins via web notifications and inbox messages.
+    Uses existing notifications and messages tables only.
+    """
+    try:
+        ensure_notification_schema()
+        conn = get_db()
+
+        admins = conn.execute(
+            """
+            SELECT id
+            FROM users
+            WHERE role = 'ADMIN'
+              AND is_banned = 0
+            ORDER BY id ASC
+            """
+        ).fetchall()
+
+        if not admins:
+            return {"notifications": 0, "messages": 0}
+
+        notification_count = create_notifications_for_role(
+            "ADMIN",
+            title,
+            message,
+            link_url,
+            category,
+        )
+
+        sender_id = actor_user_id
+        if not sender_id:
+            sender_id = admins[0]["id"]
+
+        body = f"{title}\n\n{message}".strip()[:1000]
+        current_time = now_str()
+        message_count = 0
+
+        for admin_row in admins:
+            conn.execute(
+                """
+                INSERT INTO messages (
+                    sender_id, receiver_id, application_id, message, is_read, created_at
+                )
+                VALUES (?, ?, NULL, ?, 0, ?)
+                """,
+                (sender_id, admin_row["id"], body, current_time),
+            )
+            message_count += 1
+
+        add_activity_log(
+            actor_user_id,
+            "ADMIN_IMPORT_NOTIFY_ADMINS",
+            "messages",
+            None,
+            f"notifications={notification_count}, messages={message_count}, title={str(title)[:120]}",
+        )
+        conn.commit()
+        return {"notifications": notification_count, "messages": message_count}
+
+    except Exception as exc:
+        try:
+            add_activity_log(
+                actor_user_id,
+                "ADMIN_IMPORT_NOTIFY_FAILED",
+                "messages",
+                None,
+                str(exc)[:300],
+            )
+            get_db().commit()
+        except Exception:
+            pass
+        return {"notifications": 0, "messages": 0}
+
 def get_unread_notifications_count(user_id):
     try:
         ensure_notification_schema()
@@ -4471,6 +4547,13 @@ def admin_import_latest_doe_news():
     if recent_successful_import_exists(source_name, 10):
         log_import_run(source_name, "SKIPPED", skipped=1, error_message="Skipped by 10 minute manual throttle")
         get_db().commit()
+        notify_admins_import_event(
+            "ข้ามการดึงข่าวกรมแรงงานล่าสุด",
+            "ระบบข้ามการดึงข่าว เพราะมีการดึงสำเร็จภายใน 10 นาทีที่ผ่านมา",
+            url_for("admin_import_runs"),
+            "IMPORT",
+            admin["id"],
+        )
         return admin_import_done_page(
             "ข้ามการดึงข่าวงาน",
             {"สถานะ": "เพิ่งดึงสำเร็จในช่วง 10 นาทีที่ผ่านมา", "Inserted": 0, "Updated": 0},
@@ -4498,6 +4581,14 @@ def admin_import_latest_doe_news():
         )
         get_db().commit()
 
+        notify_admins_import_event(
+            "ดึงข่าวกรมแรงงานล่าสุดสำเร็จ",
+            f"Inserted: {result['inserted']}\nUpdated: {result['updated']}\nScanned: {result['scanned']}\nFixed Sources: {fixed_sources}\nErrors: {len(result['errors'])}",
+            url_for("admin_import_runs"),
+            "IMPORT",
+            admin["id"],
+        )
+
         send_discord_alert(
             "✅ ดึงข่าวกรมแรงงาน/กรมการจัดหางานล่าสุดสำเร็จ\n"
             f"Inserted: {result['inserted']}\n"
@@ -4521,6 +4612,13 @@ def admin_import_latest_doe_news():
     except Exception as exc:
         log_import_run(source_name, "ERROR", error_message=str(exc))
         get_db().commit()
+        notify_admins_import_event(
+            "ดึงข่าวกรมแรงงานล่าสุดไม่สำเร็จ",
+            f"เกิดข้อผิดพลาด: {str(exc)[:500]}",
+            url_for("admin_import_runs"),
+            "IMPORT_ERROR",
+            admin["id"] if admin else None,
+        )
         raise
 
 
@@ -4593,6 +4691,13 @@ def admin_fetch_government_news():
             f"inserted={result['inserted']}, updated={result['updated']}, skipped={result['skipped']}",
         )
         get_db().commit()
+        notify_admins_import_event(
+            "ดึงข่าวประจำวันสำเร็จ",
+            f"Inserted: {result['inserted']}\nUpdated: {result['updated']}\nSkipped: {result['skipped']}",
+            url_for("admin_import_runs"),
+            "IMPORT",
+            admin["id"],
+        )
         return redirect(url_for("admin_dashboard"))
     except Exception as exc:
         log_import_run(source_name, "ERROR", error_message=str(exc))
