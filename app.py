@@ -2,7 +2,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
-import time
 import hmac
 import io
 import sqlite3
@@ -32,7 +31,6 @@ from flask import (
     send_from_directory,
 )
 from security_engine import security_guard
-from db_compat import connect_database
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / os.environ.get("JOBBOARD_DATABASE_PATH", "instance/jobboard.db")
@@ -269,8 +267,11 @@ def apply_security_headers(response):
 
 def get_db():
     if "db" not in g:
-        database_url = os.environ.get("DATABASE_URL", "").strip()
-        g.db = connect_database(DB_PATH, database_url)
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        g.db = conn
     return g.db
 
 
@@ -533,7 +534,8 @@ def init_db():
 
 
     seed_admin(conn)
-    seed_demo_jobs(conn)
+    ensure_production_job_schema(conn)
+    clean_demo_and_test_data(conn)
     conn.commit()
 
 
@@ -638,4739 +640,396 @@ def seed_demo_jobs(conn):
         )
 
 
-def get_current_user():
-    user_id = session.get("user_id")
-    if not user_id:
-        return None
 
-    row = get_db().execute(
-        """
-        SELECT id, phone_number, role, is_verified, is_banned, trust_score
-        FROM users
-        WHERE id = ?
-        """,
-        (user_id,)
-    ).fetchone()
+# PRODUCTION_GOVERNMENT_FIX_V1
+def ensure_production_job_schema(conn):
+    ensure_column(conn, "job_posts", "view_count", "INTEGER NOT NULL DEFAULT 0")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_posts_gov_active ON job_posts(is_government_news, status, updated_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_posts_source_url ON job_posts(source_url)")
 
-    return dict(row) if row else None
 
-
-
-# NOTIFICATION_SCHEMA_V1
-def ensure_notification_schema():
-    conn = get_db()
-
-    ensure_column(conn, "users", "email", "TEXT DEFAULT ''")
-    ensure_column(conn, "users", "wants_email_alerts", "INTEGER NOT NULL DEFAULT 0")
-    ensure_column(conn, "users", "wants_web_alerts", "INTEGER NOT NULL DEFAULT 1")
-    ensure_column(conn, "users", "browser_notifications_enabled", "INTEGER NOT NULL DEFAULT 0")
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            title TEXT NOT NULL,
-            message TEXT NOT NULL,
-            link_url TEXT DEFAULT '',
-            category TEXT DEFAULT 'GENERAL',
-            is_read INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            read_at TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        );
-    """)
-
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);")
-
-    conn.commit()
-
-
-def create_notification(user_id, title, message, link_url="", category="GENERAL"):
-    try:
-        if not user_id:
-            return None
-
-        ensure_notification_schema()
-        conn = get_db()
-        current_time = now_str()
-
-        cur = conn.execute(
-            """
-            INSERT INTO notifications (
-                user_id, title, message, link_url, category, is_read, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, 0, ?)
-            """,
-            (
-                user_id,
-                str(title or "แจ้งเตือน")[:180],
-                str(message or "")[:1000],
-                str(link_url or "")[:500],
-                str(category or "GENERAL")[:60],
-                current_time,
-            )
-        )
-        conn.commit()
-        return cur.lastrowid
-    except Exception:
-        return None
-
-
-def create_notifications_for_role(role, title, message, link_url="", category="GENERAL"):
-    try:
-        ensure_notification_schema()
-        conn = get_db()
-        rows = conn.execute(
-            """
-            SELECT id
-            FROM users
-            WHERE role = ?
-              AND is_banned = 0
-              AND COALESCE(wants_web_alerts, 1) = 1
-            """,
-            (role,)
-        ).fetchall()
-
-        count = 0
-        for row in rows:
-            if create_notification(row["id"], title, message, link_url, category):
-                count += 1
-        return count
-    except Exception:
-        return 0
-
-
-
-# ADMIN_IMPORT_NOTIFY_HELPERS_V1
-def notify_admins_import_event(title, message, link_url="", category="IMPORT", actor_user_id=None):
-    """
-    Send import/news result to all active admins via web notifications and inbox messages.
-    Uses existing notifications and messages tables only.
-    """
-    try:
-        ensure_notification_schema()
-        conn = get_db()
-
-        admins = conn.execute(
-            """
-            SELECT id
-            FROM users
-            WHERE role = 'ADMIN'
-              AND is_banned = 0
-            ORDER BY id ASC
-            """
-        ).fetchall()
-
-        if not admins:
-            return {"notifications": 0, "messages": 0}
-
-        notification_count = create_notifications_for_role(
-            "ADMIN",
-            title,
-            message,
-            link_url,
-            category,
-        )
-
-        sender_id = actor_user_id
-        if not sender_id:
-            sender_id = admins[0]["id"]
-
-        body = f"{title}\n\n{message}".strip()[:1000]
-        current_time = now_str()
-        message_count = 0
-
-        for admin_row in admins:
-            conn.execute(
-                """
-                INSERT INTO messages (
-                    sender_id, receiver_id, application_id, message, is_read, created_at
-                )
-                VALUES (?, ?, NULL, ?, 0, ?)
-                """,
-                (sender_id, admin_row["id"], body, current_time),
-            )
-            message_count += 1
-
-        add_activity_log(
-            actor_user_id,
-            "ADMIN_IMPORT_NOTIFY_ADMINS",
-            "messages",
-            None,
-            f"notifications={notification_count}, messages={message_count}, title={str(title)[:120]}",
-        )
-        conn.commit()
-        return {"notifications": notification_count, "messages": message_count}
-
-    except Exception as exc:
-        try:
-            add_activity_log(
-                actor_user_id,
-                "ADMIN_IMPORT_NOTIFY_FAILED",
-                "messages",
-                None,
-                str(exc)[:300],
-            )
-            get_db().commit()
-        except Exception:
-            pass
-        return {"notifications": 0, "messages": 0}
-
-def get_unread_notifications_count(user_id):
-    try:
-        ensure_notification_schema()
-        conn = get_db()
-        row = conn.execute(
-            "SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0",
-            (user_id,)
-        ).fetchone()
-        return int(row["count"] or 0)
-    except Exception:
-        return 0
-
-
-def get_recent_notifications(user_id, limit=8):
-    try:
-        ensure_notification_schema()
-        conn = get_db()
-        return conn.execute(
-            """
-            SELECT *
-            FROM notifications
-            WHERE user_id = ?
-            ORDER BY is_read ASC, datetime(created_at) DESC, id DESC
-            LIMIT ?
-            """,
-            (user_id, int(limit or 8))
-        ).fetchall()
-    except Exception:
-        return []
-
-def login_required(view_func):
-    @wraps(view_func)
-    def wrapped(*args, **kwargs):
-        if not get_current_user():
-            return redirect(url_for("login"))
-        return view_func(*args, **kwargs)
-    return wrapped
-
-
-def role_required(*roles):
-    def decorator(view_func):
-        @wraps(view_func)
-        def wrapped(*args, **kwargs):
-            user = get_current_user()
-            if not user:
-                return redirect(url_for("login"))
-            if user["role"] not in roles:
-                abort(403)
-            return view_func(*args, **kwargs)
-        return wrapped
-    return decorator
-
-
-
-def enforce_security(action):
-    ok, message = security_guard(request, action)
-    if not ok:
-        add_activity_log(
-            session.get("user_id"),
-            "SECURITY_RATE_LIMIT",
-            "request",
-            None,
-            f"action={action}; ip={request.remote_addr}; path={request.path}",
-        )
-        try:
-            get_db().commit()
-        except Exception:
-            pass
-        return message, 429
-    return None
-
-def send_discord_alert(message, username="JobBoard Alert"):
-    if not DISCORD_SCAM_ALERT_WEBHOOK_URL:
-        return False
-
-    try:
-        response = requests.post(
-            DISCORD_SCAM_ALERT_WEBHOOK_URL,
-            json={
-                "username": username,
-                "content": message[:1900],
-            },
-            timeout=5,
-        )
-        return 200 <= response.status_code < 300
-    except Exception:
-        return False
-
-
-def send_job_risk_discord_alert(job_id, user, title, description, salary_range, location, status, score, reason):
-    try:
-        risk_score = int(score or 0)
-    except (TypeError, ValueError):
-        risk_score = 0
-
-    risk_label = scam_risk_label(risk_score)
-    employer_phone = user.get("phone_number", "-") if isinstance(user, dict) else "-"
-
-    short_description = str(description or "").strip().replace("\r", " ").replace("\n", " ")
-    if len(short_description) > 300:
-        short_description = short_description[:300] + "..."
-
-    safe_reason = str(reason or "-").strip()
-    if len(safe_reason) > 700:
-        safe_reason = safe_reason[:700] + "..."
-
-    admin_url = url_for("admin_scam_center", _external=True)
-
-    message = (
-        "🚨 พบประกาศงานเสี่ยงจากระบบ AI Anti-Scam\n"
-        f"Job ID: {job_id}\n"
-        f"สถานะ: {status}\n"
-        f"ระดับความเสี่ยง: {risk_label} ({risk_score}/100)\n"
-        f"นายจ้าง: {employer_phone}\n"
-        f"ตำแหน่ง: {title}\n"
-        f"เงินเดือน: {salary_range or '-'}\n"
-        f"พื้นที่: {location or '-'}\n"
-        f"เหตุผล: {safe_reason}\n"
-        f"รายละเอียดย่อ: {short_description or '-'}\n"
-        f"ตรวจสอบในระบบ: {admin_url}"
-    )
-
-    return send_discord_alert(message, username="JobBoard Scam Alert Bot")
-
-
-def send_job_report_discord_alert(job, user, reason, report_count, new_status):
-    try:
-        job_id = job["id"] if job else "-"
-        title = job["title"] if job else "-"
-        user_phone = user.get("phone_number", "-") if isinstance(user, dict) else "-"
-        message = (
-            "🚩 มีรายงานประกาศงานน่าสงสัย\n"
-            f"Job ID: {job_id}\n"
-            f"ตำแหน่ง: {title}\n"
-            f"ผู้รายงาน: {user_phone}\n"
-            f"เหตุผล: {str(reason or '-')[:500]}\n"
-            f"จำนวนรายงาน: {report_count}\n"
-            f"สถานะใหม่: {new_status}\n"
-            f"เวลา: {now_str()}"
-        )
-        return send_discord_alert(message, username="JobBoard Report Alert Bot")
-    except Exception:
-        return False
-
-
-@app.errorhandler(400)
-def handle_400(error):
-    return render_template("error.html", code=400, title="คำขอไม่ถูกต้อง", message="กรุณาตรวจสอบข้อมูลแล้วลองใหม่อีกครั้ง"), 400
-
-
-@app.errorhandler(403)
-def handle_403(error):
-    return render_template("error.html", code=403, title="ไม่มีสิทธิ์เข้าถึง", message="บัญชีของคุณไม่มีสิทธิ์ใช้งานหน้านี้"), 403
-
-
-@app.errorhandler(404)
-def handle_404(error):
-    return render_template("error.html", code=404, title="ไม่พบหน้าที่ต้องการ", message="ลิงก์นี้อาจถูกย้าย ลบ หรือพิมพ์ผิด"), 404
-
-
-@app.errorhandler(413)
-def handle_413(error):
-    return render_template("error.html", code=413, title="ไฟล์ใหญ่เกินไป", message="กรุณาอัปโหลดรูปภาพไม่เกิน 5 MB หรือวิดีโอไม่เกิน 50 MB"), 413
-
-
-@app.errorhandler(500)
-def handle_500(error):
-    try:
-        add_activity_log(session.get("user_id"), "SERVER_ERROR_500", "request", None, f"path={request.path}")
-        get_db().commit()
-    except Exception:
-        pass
-    return render_template("error.html", code=500, title="ระบบขัดข้องชั่วคราว", message="ระบบพบข้อผิดพลาด กรุณาลองใหม่อีกครั้ง หรือแจ้งผู้ดูแลระบบ"), 500
-
-
-@app.route("/")
-def home():
-    conn = get_db()
-
-    stats = {
-        "active_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'").fetchone()["count"],
-        "blocked_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'").fetchone()["count"],
-        "reports": conn.execute("SELECT COUNT(*) AS count FROM reports").fetchone()["count"],
-        "verified_employers": conn.execute("SELECT COUNT(*) AS count FROM employer_profiles WHERE is_company_verified = 1").fetchone()["count"],
-    }
-
-    latest_jobs = conn.execute(
-        """
-        SELECT
-            job_posts.*,
-            employer_profiles.company_name,
-            employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.status = 'ACTIVE'
-        ORDER BY datetime(job_posts.created_at) DESC, job_posts.id DESC
-        LIMIT 6
-        """
-    ).fetchall()
-
-    government_jobs = conn.execute(
-        """
-        SELECT
-            job_posts.*,
-            employer_profiles.company_name,
-            employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.status = 'ACTIVE'
-          AND job_posts.is_government_news = 1
-        ORDER BY
-            CASE WHEN job_posts.source_url LIKE '%doe.go.th%' THEN 0 ELSE 1 END,
-            CASE WHEN job_posts.source_url LIKE '%google.com%' THEN 9 ELSE 0 END,
-            CASE WHEN job_posts.source_url LIKE '%example.com%' THEN 9 ELSE 0 END,
-            datetime(job_posts.updated_at) DESC,
-            datetime(job_posts.created_at) DESC,
-            job_posts.id DESC
-        LIMIT 8
-        """
-    ).fetchall()
-
-    recommended_jobs = conn.execute(
-        """
-        SELECT
-            job_posts.*,
-            employer_profiles.company_name,
-            employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.status = 'ACTIVE'
-          AND job_posts.ai_risk_score <= 20
-        ORDER BY employer_profiles.is_company_verified DESC,
-                 job_posts.report_count ASC,
-                 datetime(job_posts.created_at) DESC
-        LIMIT 4
-        """
-    ).fetchall()
-
-    popular_employers = conn.execute(
-        """
-        SELECT
-            employer_profiles.user_id,
-            employer_profiles.company_name,
-            employer_profiles.website,
-            employer_profiles.is_company_verified,
-            users.trust_score,
-            COUNT(job_posts.id) AS job_count
-        FROM employer_profiles
-        JOIN users ON users.id = employer_profiles.user_id
-        LEFT JOIN job_posts ON job_posts.employer_id = employer_profiles.user_id
-                          AND job_posts.status = 'ACTIVE'
-        GROUP BY
-            employer_profiles.user_id,
-            employer_profiles.company_name,
-            employer_profiles.website,
-            employer_profiles.is_company_verified,
-            users.trust_score
-        ORDER BY employer_profiles.is_company_verified DESC,
-                 users.trust_score DESC,
-                 job_count DESC
-        LIMIT 6
-        """
-    ).fetchall()
-
-    locations = conn.execute(
-        """
-        SELECT location, COUNT(*) AS count
-        FROM job_posts
-        WHERE status = 'ACTIVE'
-          AND location != ''
-        GROUP BY location
-        ORDER BY count DESC, location ASC
-        LIMIT 8
-        """
-    ).fetchall()
-
-    return render_template(
-        "home.html",
-        latest_jobs=latest_jobs,
-        government_jobs=government_jobs,
-        recommended_jobs=recommended_jobs,
-        popular_employers=popular_employers,
-        locations=locations,
-        stats=stats,
-    )
-
-
-
-@app.route("/urgent")
-def urgent_jobs():
-    conn = get_db()
-
-    employer_jobs = conn.execute(
-        """
-        SELECT
-            job_posts.*,
-            employer_profiles.company_name,
-            employer_profiles.is_company_verified,
-            users.trust_score
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        LEFT JOIN users ON users.id = job_posts.employer_id
-        WHERE job_posts.status = 'ACTIVE'
-          AND (
-                COALESCE(job_posts.is_urgent, 0) = 1
-                OR job_posts.title LIKE '%ด่วน%'
-                OR job_posts.description LIKE '%ด่วน%'
-              )
-        ORDER BY
-            COALESCE(job_posts.is_urgent, 0) DESC,
-            employer_profiles.is_company_verified DESC,
-            datetime(job_posts.created_at) DESC,
-            job_posts.id DESC
-        LIMIT 80
-        """
-    ).fetchall()
-
-    seeker_posts = conn.execute(
-        """
-        SELECT
-            job_seeker_profiles.*,
-            users.phone_number,
-            users.trust_score,
-            users.created_at AS user_created_at
-        FROM job_seeker_profiles
-        JOIN users ON users.id = job_seeker_profiles.user_id
-        WHERE users.is_banned = 0
-          AND job_seeker_profiles.is_public = 1
-          AND (
-                COALESCE(job_seeker_profiles.is_urgent, 0) = 1
-                OR job_seeker_profiles.headline LIKE '%ด่วน%'
-                OR job_seeker_profiles.resume_url LIKE '%ด่วน%'
-              )
-        ORDER BY
-            COALESCE(job_seeker_profiles.is_urgent, 0) DESC,
-            datetime(job_seeker_profiles.updated_at) DESC,
-            job_seeker_profiles.id DESC
-        LIMIT 80
-        """
-    ).fetchall()
-
-    stats = {
-        "employer_jobs": len(employer_jobs),
-        "seeker_posts": len(seeker_posts),
-        "total": len(employer_jobs) + len(seeker_posts),
-    }
-
-    return render_template(
-        "urgent_jobs.html",
-        employer_jobs=employer_jobs,
-        seeker_posts=seeker_posts,
-        stats=stats,
-    )
-
-
-@app.route("/jobs")
-def jobs_public():
-    q = request.args.get("q", "").strip().lower()
-    location = request.args.get("location", "").strip()
-    page_raw = request.args.get("page", "1").strip()
-
-    try:
-        page = max(1, int(page_raw))
-    except ValueError:
-        page = 1
-
-    per_page = 10
-    offset = (page - 1) * per_page
-
-    conn = get_db()
-
-    where_sql = "WHERE job_posts.status = 'ACTIVE'"
-    params = []
-
-    if q:
-        like_q = f"%{q}%"
-        where_sql += """
-            AND (
-                lower(job_posts.title) LIKE ?
-                OR lower(job_posts.description) LIKE ?
-                OR lower(job_posts.location) LIKE ?
-                OR lower(job_posts.salary_range) LIKE ?
-                OR lower(employer_profiles.company_name) LIKE ?
-            )
-        """
-        params.extend([like_q, like_q, like_q, like_q, like_q])
-
-    if location:
-        where_sql += " AND lower(job_posts.location) LIKE ?"
-        params.append(f"%{location.lower()}%")
-
-    total = conn.execute(
-        f"""
-        SELECT COUNT(*) AS count
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        {where_sql}
-        """,
-        tuple(params)
-    ).fetchone()["count"]
-
-    jobs = conn.execute(
-        f"""
-        SELECT
-            job_posts.*,
-            employer_profiles.company_name,
-            employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        {where_sql}
-        ORDER BY datetime(job_posts.created_at) DESC, job_posts.id DESC
-        LIMIT ? OFFSET ?
-        """,
-        tuple(params + [per_page, offset])
-    ).fetchall()
-
-    total_pages = max(1, (total + per_page - 1) // per_page)
-
-    return render_template(
-        "jobs.html",
-        jobs=jobs,
-        q=q,
-        location=location,
-        page=page,
-        total_pages=total_pages,
-        total=total,
-    )
-
-
-@app.route("/robots.txt")
-def robots_txt():
-    lines = [
-        "User-agent: *",
-        "Allow: /",
-        "Disallow: /admin",
-        "Disallow: /admin/",
-        "Disallow: /dashboard",
-        "Disallow: /dashboard/",
-        f"Sitemap: {url_for('sitemap_xml', _external=True)}",
-    ]
-    return Response("\n".join(lines), mimetype="text/plain")
-
-
-@app.route("/sitemap.xml")
-def sitemap_xml():
-    conn = get_db()
-    jobs = conn.execute(
-        """
-        SELECT id, title, location, updated_at, created_at
-        FROM job_posts
-        WHERE status = 'ACTIVE'
-        ORDER BY datetime(updated_at) DESC, id DESC
-        LIMIT 5000
-        """
-    ).fetchall()
-
-    urls = [
-        (url_for("home", _external=True), now_str()[:10], "daily", "1.0"),
-        (url_for("jobs_public", _external=True), now_str()[:10], "daily", "0.9"),
-        (url_for("urgent_jobs", _external=True), now_str()[:10], "daily", "0.9"),
-        (url_for("community_board", _external=True), now_str()[:10], "daily", "0.7"),
-        (url_for("openchat", _external=True), now_str()[:10], "daily", "0.6"),
-    ]
-
-    for job in jobs:
-        lastmod = (job["updated_at"] or job["created_at"] or now_str())[:10]
-        urls.append((url_for("job_detail", slug=job_slug(job), _external=True), lastmod, "weekly", "0.8"))
-
-    xml = ['<?xml version="1.0" encoding="UTF-8"?>']
-    xml.append('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
-    for loc, lastmod, changefreq, priority in urls:
-        xml.append("  <url>")
-        xml.append(f"    <loc>{loc}</loc>")
-        xml.append(f"    <lastmod>{lastmod}</lastmod>")
-        xml.append(f"    <changefreq>{changefreq}</changefreq>")
-        xml.append(f"    <priority>{priority}</priority>")
-        xml.append("  </url>")
-    xml.append("</urlset>")
-    return Response("\n".join(xml), mimetype="application/xml")
-
-
-@app.route("/employers/<int:user_id>")
-def employer_public_profile(user_id):
-    conn = get_db()
-    employer = conn.execute(
-        """
-        SELECT
-            users.id,
-            users.phone_number,
-            users.trust_score,
-            employer_profiles.company_name,
-            employer_profiles.address,
-            employer_profiles.website,
-            employer_profiles.is_company_verified,
-            employer_profiles.created_at
-        FROM users
-        JOIN employer_profiles ON employer_profiles.user_id = users.id
-        WHERE users.id = ?
-          AND users.role = 'EMPLOYER'
-          AND users.is_banned = 0
-        """,
-        (user_id,)
-    ).fetchone()
-
-    if not employer:
-        abort(404)
-
-    jobs = conn.execute(
-        """
-        SELECT *
-        FROM job_posts
-        WHERE employer_id = ?
-          AND status = 'ACTIVE'
-        ORDER BY datetime(created_at) DESC, id DESC
-        LIMIT 50
-        """,
-        (user_id,)
-    ).fetchall()
-
-    return render_template("employer_profile.html", employer=employer, jobs=jobs)
-
-
-@app.route("/setup-check")
-def setup_check():
-    abort(404)
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    error = ""
-
-    if request.method == "POST":
-        blocked = enforce_security("register")
-        if blocked:
-            return blocked
-
-        role = request.form.get("role", "JOB_SEEKER").strip().upper()
-        phone_number = normalize_phone(request.form.get("phone_number"))
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-        confirm_password = request.form.get("confirm_password", "") or request.form.get("password_confirm", "")
-        accept_terms = request.form.get("accept_terms", "") or request.form.get("terms", "")
-        notify_consent = request.form.get("notify_consent") == "1"
-        full_name = request.form.get("full_name", "").strip()
-        company_name = request.form.get("company_name", "").strip()
-
-        password_ok, password_error = validate_account_password(password, phone_number)
-
-        if role not in {"JOB_SEEKER", "EMPLOYER"}:
-            error = "ประเภทบัญชีไม่ถูกต้อง"
-        elif not is_valid_thai_phone(phone_number):
-            error = "กรุณากรอกเบอร์โทรศัพท์ 10 หลัก เช่น 0800000000"
-        elif not email:
-            error = "กรุณากรอกอีเมล"
-        elif not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-            error = "รูปแบบอีเมลไม่ถูกต้อง"
-        elif not password_ok:
-            error = password_error
-        elif password != confirm_password:
-            error = "รหัสผ่านไม่ตรงกัน"
-        elif accept_terms not in {"on", "1", "true", "yes"}:
-            error = "กรุณายอมรับนโยบายความเป็นส่วนตัวและข้อกำหนดการใช้งาน"
-        elif not notify_consent:
-            error = "กรุณายอมรับการรับแจ้งเตือน"
-        elif role == "JOB_SEEKER" and not validate_profile_name(full_name, "ชื่อผู้หางาน", 80)[0]:
-            error = validate_profile_name(full_name, "ชื่อผู้หางาน", 80)[1]
-        elif role == "EMPLOYER" and not validate_profile_name(company_name, "ชื่อบริษัท", 120)[0]:
-            error = validate_profile_name(company_name, "ชื่อบริษัท", 120)[1]
-        else:
-            conn = get_db()
-            current_time = now_str()
-
-            try:
-                ensure_notification_schema()
-            except Exception:
-                pass
-
-            exists = conn.execute(
-                "SELECT id FROM users WHERE phone_number = ? LIMIT 1",
-                (phone_number,)
-            ).fetchone()
-
-
-            email_exists = conn.execute(
-                "SELECT id FROM users WHERE lower(COALESCE(email, '')) = ? AND COALESCE(email, '') != '' LIMIT 1",
-                (email.lower(),)
-            ).fetchone()
-
-            if exists:
-                error = "เบอร์โทรศัพท์นี้มีบัญชีอยู่แล้ว"
-            elif email_exists:
-                error = "อีเมลนี้มีบัญชีอยู่แล้ว"
-            else:
-                cur = conn.execute(
-                    """
-                    INSERT INTO users (
-                        phone_number, password_hash, role, is_verified, is_banned,
-                        trust_score, created_at, updated_at
-                    )
-                    VALUES (?, ?, ?, 1, 0, ?, ?, ?)
-                    """,
-                    (
-                        phone_number,
-                        hash_password(password),
-                        role,
-                        60 if role == "JOB_SEEKER" else 50,
-                        current_time,
-                        current_time,
-                    )
-                )
-                user_id = cur.lastrowid
-
-                try:
-                    conn.execute(
-                        """
-                        UPDATE users
-                        SET email = ?,
-                            wants_email_alerts = ?,
-                            wants_web_alerts = 1,
-                            browser_notifications_enabled = 0,
-                            updated_at = ?
-                        WHERE id = ?
-                        """,
-                        (email, 1 if notify_consent else 0, current_time, user_id)
-                    )
-                except Exception:
-                    pass
-
-                if role == "JOB_SEEKER":
-                    conn.execute(
-                        """
-                        INSERT INTO job_seeker_profiles (
-                            user_id, full_name, headline, resume_url,
-                            is_public, is_urgent, created_at, updated_at
-                        )
-                        VALUES (?, ?, '', '', 0, 0, ?, ?)
-                        """,
-                        (user_id, full_name, current_time, current_time)
-                    )
-                else:
-                    tax_id = f"EMP-{user_id}-{secrets.token_hex(4)}"
-                    conn.execute(
-                        """
-                        INSERT INTO employer_profiles (
-                            user_id, company_name, tax_id, is_company_verified,
-                            address, website, created_at, updated_at
-                        )
-                        VALUES (?, ?, ?, 0, '', '', ?, ?)
-                        """,
-                        (user_id, company_name, tax_id, current_time, current_time)
-                    )
-
-                add_activity_log(user_id, "REGISTER_ACCOUNT", "users", user_id, f"role={role}")
-                conn.commit()
-
-                session.clear()
-                session.permanent = True
-                session["user_id"] = user_id
-                session["role"] = role
-
-                try:
-                    create_notification(
-                        user_id,
-                        "สมัครสมาชิกสำเร็จ",
-                        "ยินดีต้อนรับสู่ JobBoard งานใกล้บ้าน",
-                        url_for("dashboard"),
-                        "ACCOUNT",
-                    )
-                except Exception:
-                    pass
-
-                return redirect(url_for("dashboard"))
-
-    return render_template("register.html", error=error)
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    error = ""
-
-    if request.method == "POST":
-        blocked = enforce_security("login")
-        if blocked:
-            return blocked
-
-        phone_number = normalize_phone(request.form.get("phone_number"))
-        password = request.form.get("password", "")
-
-        row = get_db().execute(
-            "SELECT * FROM users WHERE phone_number = ? LIMIT 1",
-            (phone_number,)
-        ).fetchone()
-
-        if not row or not verify_password(password, row["password_hash"]):
-            error = "เบอร์โทรหรือรหัสผ่านไม่ถูกต้อง"
-        elif row["is_banned"]:
-            error = "บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ"
-        else:
-            session.clear()
-            session.permanent = True
-            session["user_id"] = row["id"]
-            session["role"] = row["role"]
-            return redirect(url_for("dashboard"))
-
-    return render_template("login.html", error=error)
-
-
-@app.route("/logout", methods=["POST"])
-def logout():
-    session.clear()
-    return redirect(url_for("home"))
-
-
-
-@app.route("/admin/discord-test")
-@role_required("ADMIN")
-def admin_discord_test():
-    ok = send_discord_alert(
-        "✅ ทดสอบ Discord Webhook สำเร็จ\n"
-        "ระบบ JobBoard AI Anti-Scam เชื่อมต่อ Discord แล้ว",
-        username="JobBoard Scam Alert Bot",
-    )
-
-    if ok:
-        return "OK: Discord webhook sent"
-
-    return "ERROR: Discord webhook failed or DISCORD_SCAM_ALERT_WEBHOOK_URL is missing", 500
-
-@app.route("/admin/backup/download")
-@app.route("/admin/backup.zip")
-@role_required("ADMIN")
-def admin_backup_download():
-    admin = get_current_user()
-    conn = get_db()
-
-    try:
-        conn.commit()
-        conn.execute("PRAGMA wal_checkpoint(FULL)")
-    except Exception:
-        pass
-
-    add_activity_log(
-        admin["id"],
-        "ADMIN_DOWNLOAD_BACKUP",
-        "system",
-        None,
-        "download database and source backup zip",
-    )
-    conn.commit()
-
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    zip_buffer = io.BytesIO()
-
-    def add_file(zip_file, file_path, arcname):
-        file_path = Path(file_path)
-        if file_path.exists() and file_path.is_file():
-            zip_file.write(file_path, arcname)
-
-    def add_directory(zip_file, dir_path, arc_prefix):
-        dir_path = Path(dir_path)
-        if not dir_path.exists() or not dir_path.is_dir():
-            return
-
-        blocked_names = {
-            ".env",
-            "__pycache__",
-            ".git",
-            ".venv",
-            "venv",
-            "node_modules",
-            ".pytest_cache",
-        }
-
-        for item in dir_path.rglob("*"):
-            if any(part in blocked_names for part in item.parts):
-                continue
-            if item.is_file():
-                relative_name = item.relative_to(dir_path).as_posix()
-                zip_file.write(item, f"{arc_prefix}/{relative_name}")
-
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        add_file(zip_file, DB_PATH, f"database/{DB_PATH.name}")
-        add_file(zip_file, str(DB_PATH) + "-wal", f"database/{DB_PATH.name}-wal")
-        add_file(zip_file, str(DB_PATH) + "-shm", f"database/{DB_PATH.name}-shm")
-
-        important_files = [
-            "app.py",
-            "requirements.txt",
-            "Procfile",
-            ".gitignore",
-            "security_engine.py",
-            "scam_engine.py",
-            "auto_job_engine.py",
-            "government_scraper.py",
-            "graphic_generator.py",
-        ]
-
-        for filename in important_files:
-            add_file(zip_file, BASE_DIR / filename, f"source/{filename}")
-
-        add_directory(zip_file, BASE_DIR / "templates", "source/templates")
-        add_directory(zip_file, BASE_DIR / "static", "source/static")
-
-        info = (
-            "JobBoard AI Anti-Scam Backup\n"
-            f"Created at: {now_str()}\n"
-            "Includes: SQLite database, templates, static files, and key Python source files\n"
-            "Excluded: .env, .git, virtualenv, cache folders, and secrets\n"
-        )
-        zip_file.writestr("README-BACKUP.txt", info)
-
-    zip_buffer.seek(0)
-    filename = f"jobboard-ai-backup-{timestamp}.zip"
-
-    response = Response(zip_buffer.getvalue(), mimetype="application/zip")
-    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    user = get_current_user()
-    if user["role"] == "ADMIN":
-        return redirect(url_for("admin_dashboard"))
-    if user["role"] == "EMPLOYER":
-        return redirect(url_for("employer_dashboard"))
-    return redirect(url_for("job_seeker_dashboard"))
-
-
-@app.route("/dashboard/job-seeker")
-@role_required("JOB_SEEKER")
-def job_seeker_dashboard():
-    user = get_current_user()
-    conn = get_db()
-    profile = conn.execute(
-        "SELECT * FROM job_seeker_profiles WHERE user_id = ?",
-        (user["id"],)
-    ).fetchone()
-    applications = conn.execute(
-        """
-        SELECT applications.*, job_posts.title, job_posts.location, employer_profiles.company_name
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE applications.job_seeker_id = ?
-        ORDER BY datetime(applications.created_at) DESC
-        """,
-        (user["id"],)
-    ).fetchall()
-    return render_template("dashboard_job_seeker.html", profile=profile, applications=applications)
-
-
-def add_activity_log(actor_id, action, target_type="", target_id=None, detail=""):
-    conn = get_db()
-    conn.execute(
-        """
-        INSERT INTO activity_logs (actor_id, action, target_type, target_id, detail, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (actor_id, action, target_type, target_id, detail, now_str())
-    )
-
-
-def add_ai_decision_log(job_post_id, title, risk_score, risk_reason, final_status):
-    conn = get_db()
-    conn.execute(
-        """
-        INSERT INTO ai_decision_logs (
-            job_post_id, title, risk_score, risk_reason, final_status, created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (job_post_id, title, risk_score, risk_reason, final_status, now_str())
-    )
-
-
-def adjust_trust_score(user_id, delta):
-    conn = get_db()
-    conn.execute(
-        """
-        UPDATE users
-        SET trust_score = max(0, min(100, trust_score + ?)),
-            updated_at = ?
-        WHERE id = ?
-        """,
-        (delta, now_str(), user_id)
-    )
-
-
-def slugify(value):
-    text = str(value or "").strip().lower()
-    thai_or_word = re.findall(r"[a-z0-9ก-๙]+", text)
-    slug = "-".join(thai_or_word)
-    slug = re.sub(r"-+", "-", slug).strip("-")
-    return slug or "job"
-
-
-def job_slug(job):
-    return f"{slugify(job['title'])}-{job['location'].strip().lower() if job['location'] else 'online'}-{job['id']}"
-
-
-def get_trust_level(score):
-    try:
-        score = int(score)
-    except (TypeError, ValueError):
-        score = 50
-
-    if score >= 80:
-        return "HIGH_TRUST"
-    if score >= 50:
-        return "NORMAL"
-    if score >= 25:
-        return "LOW_TRUST"
-    return "LOCKED"
-
-
-def can_post_job(user):
-    if not user:
-        return False, "กรุณาเข้าสู่ระบบ"
-
-    if int(user.get("is_banned", 0)):
-        return False, "บัญชีนี้ถูกระงับ"
-
-    trust_score = int(user.get("trust_score", 50))
-    if trust_score < 25:
-        return False, "Trust Score ต่ำเกินไป ระบบระงับการโพสต์งานชั่วคราว กรุณาติดต่อ Admin"
-
-    return True, ""
-
-
-def get_user_by_id(user_id):
-    row = get_db().execute(
-        "SELECT id, phone_number, role, is_verified, is_banned, trust_score FROM users WHERE id = ?",
-        (user_id,)
-    ).fetchone()
-    return dict(row) if row else None
-
-
-def run_auto_job_engine_demo():
-    from auto_job_engine import run_demo
-    return run_demo()
-
-
-def run_government_scraper_demo():
-    from government_scraper import DEMO_JOBS, save_jobs_to_db
-    return save_jobs_to_db(DEMO_JOBS)
-
-
-def run_scam_scanner_now():
-    from scam_engine import scan_all_jobs
-    return scan_all_jobs(apply_changes=True)
-
-
-def scam_risk_label(score):
-    try:
-        score = int(score or 0)
-    except (TypeError, ValueError):
-        score = 0
-
-    if score >= 75:
-        return "HIGH"
-    if score >= 40:
-        return "MEDIUM"
-    return "LOW"
-
-
-def analyze_job_text(title, description):
-    text = f"{title} {description}".lower()
-    score = 0
-    reasons = []
-
-    high_risk = {
-        "โอนเงินก่อน": 45,
-        "ค่าประกัน": 40,
-        "ค่าสมัคร": 35,
-        "ค่ามัดจำ": 35,
-        "งานแพ็คของที่บ้าน": 35,
-        "ลงทุนก่อน": 45,
-        "ลงทุนน้อย": 30,
-        "กำไรสูง": 25,
-        "ไม่ต้องสัมภาษณ์": 25,
-        "แอดไลน์": 20,
-        "ทักไลน์": 20,
-        "รายได้หลักแสน": 40,
-    }
-
-    medium_risk = {
-        "งานออนไลน์": 15,
-        "จ่ายรายวัน": 15,
-        "ไม่ต้องมีประสบการณ์": 12,
-        "รับทันที": 12,
-        "รายได้ดี": 10,
-        "ทำที่บ้าน": 10,
-        "ไม่จำกัดวุฒิ": 8,
-    }
-
-    if len(description.strip()) < 80:
-        score += 20
-        reasons.append("รายละเอียดงานสั้นเกินไป")
-
-    for term, point in high_risk.items():
-        if term in text:
-            score += point
-            reasons.append(f"พบคำเสี่ยงสูง: {term}")
-
-    for term, point in medium_risk.items():
-        if term in text:
-            score += point
-            reasons.append(f"พบคำที่ควรตรวจเพิ่ม: {term}")
-
-    score = max(0, min(score, 100))
-
-    if not reasons:
-        reasons.append("ไม่พบคำเสี่ยงเด่นจาก rule-based scanner")
-
-    if score >= 70:
-        status = "REJECTED"
-    elif score >= 40:
-        status = "PENDING_AI_REVIEW"
-    else:
-        status = "ACTIVE"
-
-    return score, " | ".join(reasons[:8]), status
-
-
-
-def normalize_user_text_for_safety(value, max_length=1500):
-    text = str(value or "")
-    text = text.replace("\x00", "")
-    text = re.sub(r"[\u200b-\u200f\u202a-\u202e]", "", text)
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"[ \t]{2,}", " ", text)
-    text = re.sub(r"\n{4,}", "\n\n\n", text)
-    text = text.strip()
-
-    if len(text) > max_length:
-        text = text[:max_length].strip()
-
-    return text
-
-
-def detect_sensitive_personal_data(text):
-    raw = str(text or "")
-    digits = re.sub(r"\D", "", raw)
-    findings = []
-
-    if re.search(r"\b\d{13}\b", digits):
-        findings.append("พบเลขลักษณะคล้ายเลขบัตรประชาชน 13 หลัก")
-
-    if re.search(r"0[689]\d{8}", digits):
-        findings.append("พบเบอร์โทรศัพท์ในข้อความ")
-
-    if re.search(r"\b\d{10,12}\b", digits):
-        findings.append("พบเลขยาวลักษณะคล้ายเลขบัญชี/ข้อมูลการเงิน")
-
-    if re.search(r"(line\s*id|ไลน์|ไอดีไลน์|telegram|เทเลแกรม|whatsapp|วอทส์แอพ)", raw, re.IGNORECASE):
-        findings.append("พบช่องทางติดต่อภายนอก เช่น Line/Telegram/WhatsApp")
-
-    return findings
-
-
-def analyze_safety_text(body, context="GENERAL"):
-    text = normalize_user_text_for_safety(body, 2000)
-    lowered = text.lower()
-
-    score = 0
-    reasons = []
-
-    if not text:
-        return 100, "ข้อความว่างเปล่า", "BLOCKED"
-
-    if len(text) < 2:
-        score += 35
-        reasons.append("ข้อความสั้นเกินไป")
-
-    if len(text) > 1000:
-        score += 15
-        reasons.append("ข้อความยาวมากผิดปกติ")
-
-    if re.search(r"(.)\1{7,}", lowered):
-        score += 25
-        reasons.append("มีอักขระซ้ำจำนวนมาก")
-
-    url_count = len(re.findall(r"https?://|www\.|bit\.ly|shorturl|tinyurl|t\.me/", lowered))
-    if url_count >= 2:
-        score += 45
-        reasons.append("มีลิงก์หลายรายการ")
-    elif url_count == 1:
-        score += 18
-        reasons.append("มีลิงก์ในข้อความ")
-
-    dangerous_terms = {
-        "โอนเงินก่อน": 70,
-        "ค่าประกัน": 60,
-        "ค่าสมัคร": 55,
-        "ค่ามัดจำ": 55,
-        "ลงทุนก่อน": 70,
-        "เว็บพนัน": 80,
-        "พนัน": 65,
-        "บาคาร่า": 75,
-        "สล็อต": 75,
-        "เงินกู้": 55,
-        "ปล่อยกู้": 60,
-        "รับจำนำ": 45,
-        "รายได้หลักแสน": 55,
-        "ไม่ต้องสัมภาษณ์": 35,
-        "งานแพ็คของที่บ้าน": 60,
-        "แอดไลน์": 35,
-        "ทักไลน์": 35,
-        "telegram": 35,
-        "whatsapp": 35,
-    }
-
-    sexual_terms = {
-        "18+": 70,
-        "คลิปโป๊": 90,
-        "รูปโป๊": 90,
-        "หนังโป๊": 90,
-        "รับงานเสียว": 90,
-        "ไซด์ไลน์": 75,
-        "นัดเย": 95,
-        "เย็ด": 95,
-        "ควย": 65,
-        "หี": 65,
-        "นม": 35,
-    }
-
-    rude_terms = {
-        "เหี้ย": 60,
-        "สัส": 50,
-        "สัด": 50,
-        "ไอ้ควาย": 55,
-        "ไอ้โง่": 45,
-        "มึง": 25,
-        "กู": 20,
-    }
-
-    threat_terms = {
-        "ฆ่า": 75,
-        "ทำร้าย": 65,
-        "ขู่": 45,
-        "ประจาน": 45,
-        "แบล็คเมล์": 70,
-    }
-
-    for term, point in dangerous_terms.items():
-        if term in lowered:
-            score += point
-            reasons.append(f"พบคำเสี่ยงหลอกลวง/ผิดกฎ: {term}")
-
-    for term, point in sexual_terms.items():
-        if term in lowered:
-            score += point
-            reasons.append(f"พบคำลามก/อนาจาร: {term}")
-
-    for term, point in rude_terms.items():
-        if term in lowered:
-            score += point
-            reasons.append(f"พบคำไม่สุภาพ: {term}")
-
-    for term, point in threat_terms.items():
-        if term in lowered:
-            score += point
-            reasons.append(f"พบคำข่มขู่/คุกคาม: {term}")
-
-    personal_findings = detect_sensitive_personal_data(text)
-    if personal_findings:
-        if context in {"OPENCHAT", "COMMUNITY"}:
-            score += 55
-        else:
-            score += 25
-        reasons.extend(personal_findings[:4])
-
-    score = max(0, min(score, 100))
-
-    if score >= 75:
-        status = "BLOCKED"
-    elif score >= 35:
-        status = "PENDING_REVIEW"
-    else:
-        status = "ACTIVE"
-
-    if not reasons:
-        reasons.append("ผ่านการตรวจความปลอดภัยเบื้องต้น")
-
-    return score, " | ".join(reasons[:10]), status
-
-
-
-def safe_send_moderation_alert(content_type, content_id, user, body, status, score, reason):
-    try:
-        if "send_content_moderation_discord_alert" in globals():
-            return send_content_moderation_discord_alert(
-                content_type,
-                content_id,
-                user,
-                body,
-                status,
-                score,
-                reason,
-            )
-
-        user_phone = user.get("phone_number", "-") if isinstance(user, dict) else "-"
-        message = (
-            "🛡️ Safety Guard Alert\n"
-            f"Type: {content_type}\n"
-            f"Content ID: {content_id}\n"
-            f"Status: {status}\n"
-            f"Score: {score}/100\n"
-            f"User: {user_phone}\n"
-            f"Reason: {str(reason or '-')[:700]}\n"
-            f"Text: {str(body or '-')[:900]}"
-        )
-        return send_discord_alert(message, username="JobBoard Safety Guard")
-    except Exception:
-        return False
-
-
-def safe_add_activity_log(actor_id, action, target_type="", target_id=None, detail=""):
-    try:
-        add_activity_log(actor_id, action, target_type, target_id, detail)
-        return True
-    except Exception:
-        return False
-
-
-def reject_unsafe_text_response(score, reason):
-    safe_reason = str(reason or "ข้อความไม่ผ่านระบบความปลอดภัย")
-    return (
-        "ข้อความนี้ไม่สามารถส่งได้ เพราะระบบตรวจพบความเสี่ยงด้านความปลอดภัยหรือความเหมาะสม<br>"
-        f"คะแนนความเสี่ยง: {score}/100<br>"
-        f"เหตุผล: {safe_reason}<br>"
-        '<a href="javascript:history.back()">กลับไปแก้ไขข้อความ</a>'
-    ), 400
-
-def analyze_community_text(body):
-    return analyze_safety_text(body, context="COMMUNITY")
-
-
-@app.route("/community")
-def community_board():
-    user = get_current_user()
-    conn = get_db()
-    status_filter = request.args.get("status", "").strip().upper()
-
-    if user and user["role"] == "ADMIN":
-        where = "WHERE 1=1"
-        params = []
-        if status_filter in {"ACTIVE", "PENDING_REVIEW", "BLOCKED", "HIDDEN"}:
-            where += " AND community_posts.status = ?"
-            params.append(status_filter)
-    else:
-        where = "WHERE community_posts.status = 'ACTIVE'"
-        params = []
-
-    posts = conn.execute(
-        f"""
-        SELECT
-            community_posts.*,
-            users.phone_number,
-            users.role,
-            job_seeker_profiles.full_name,
-            employer_profiles.company_name
-        FROM community_posts
-        JOIN users ON users.id = community_posts.user_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = users.id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = users.id
-        {where}
-        ORDER BY datetime(community_posts.created_at) DESC, community_posts.id DESC
-        LIMIT 100
-        """,
-        tuple(params)
-    ).fetchall()
-
-    stats = {
-        "active": conn.execute("SELECT COUNT(*) AS count FROM community_posts WHERE status = 'ACTIVE'").fetchone()["count"],
-        "pending": conn.execute("SELECT COUNT(*) AS count FROM community_posts WHERE status = 'PENDING_REVIEW'").fetchone()["count"],
-        "blocked": conn.execute("SELECT COUNT(*) AS count FROM community_posts WHERE status = 'BLOCKED'").fetchone()["count"],
-    }
-    return render_template("community.html", posts=posts, stats=stats, status_filter=status_filter)
-
-
-@app.route("/community/posts", methods=["POST"])
-@login_required
-def create_community_post():
-    blocked = enforce_security("community")
-    if blocked:
-        return blocked
-
-    user = get_current_user()
-    body = normalize_user_text_for_safety(request.form.get("body", ""), 1000)
-
-    if not body:
-        return redirect(url_for("community_board"))
-
-    score, reason, status = analyze_safety_text(body, context="COMMUNITY")
-
-    if status == "BLOCKED":
-        alert_sent = safe_send_moderation_alert(
-            "COMMUNITY_BLOCKED",
-            "-",
-            user,
-            body,
-            status,
-            score,
-            reason,
-        )
-        safe_add_activity_log(
-            user["id"],
-            "COMMUNITY_POST_BLOCKED",
-            "community_posts",
-            None,
-            f"score={score}, alert={alert_sent}, reason={str(reason)[:200]}",
-        )
-        try:
-            get_db().commit()
-        except Exception:
-            pass
-        return reject_unsafe_text_response(score, reason)
-
+def clean_demo_and_test_data(conn):
     current_time = now_str()
-    conn = get_db()
+    ensure_production_job_schema(conn)
 
     conn.execute(
         """
-        INSERT INTO community_posts (
-            user_id, body, status, moderation_score, moderation_reason,
-            report_count, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-        """,
-        (user["id"], body, status, score, reason, current_time, current_time)
+        DELETE FROM job_posts
+        WHERE lower(COALESCE(ai_risk_reason, '')) LIKE '%demo%'
+           OR lower(COALESCE(description, '')) LIKE '%demo%'
+           OR title LIKE '%ตัวอย่าง%'
+           OR lower(COALESCE(source_url, '')) LIKE '%example.com%'
+           OR lower(COALESCE(source_url, '')) LIKE '%/demo/%'
+           OR title IN ('Marketing Officer', 'Graphic Designer')
+        """
     )
 
-    post_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-    add_activity_log(user["id"], "CREATE_COMMUNITY_POST", "community_posts", post_id, f"status={status}, score={score}")
-
-    if status in {"PENDING_REVIEW", "BLOCKED"} or int(score or 0) >= 35:
-        alert_sent = safe_send_moderation_alert(
-            "COMMUNITY",
-            post_id,
-            user,
-            body,
-            status,
-            score,
-            reason,
-        )
-        add_activity_log(
-            user["id"],
-            "DISCORD_COMMUNITY_ALERT_SENT" if alert_sent else "DISCORD_COMMUNITY_ALERT_FAILED",
-            "community_posts",
-            post_id,
-            f"status={status}, score={score}",
-        )
-
-    conn.commit()
-
-    return redirect(url_for("community_board"))
-
-
-@app.route("/community/posts/<int:post_id>/report", methods=["POST"])
-@login_required
-def report_community_post(post_id):
-    user = get_current_user()
-    reason = request.form.get("reason", "โพสต์ไม่เหมาะสม").strip() or "โพสต์ไม่เหมาะสม"
-    conn = get_db()
-
-    post = conn.execute("SELECT * FROM community_posts WHERE id = ?", (post_id,)).fetchone()
-    if not post:
-        abort(404)
-
-    exists = conn.execute(
-        "SELECT id FROM community_reports WHERE post_id = ? AND reporter_id = ?",
-        (post_id, user["id"])
-    ).fetchone()
-
-    if not exists:
-        current_time = now_str()
+    for phone in ("0811111111", "0810000001", "0810000002"):
         conn.execute(
-            """
-            INSERT INTO community_reports (post_id, reporter_id, reason, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (post_id, user["id"], reason, current_time)
+            "DELETE FROM users WHERE phone_number = ? AND role != 'ADMIN'",
+            (phone,),
         )
-        conn.execute(
-            """
-            UPDATE community_posts
-            SET report_count = report_count + 1,
-                status = CASE
-                    WHEN report_count + 1 >= 3 AND status = 'ACTIVE' THEN 'PENDING_REVIEW'
-                    ELSE status
-                END,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (current_time, post_id)
-        )
-        add_activity_log(user["id"], "REPORT_COMMUNITY_POST", "community_posts", post_id, reason)
-        conn.commit()
-
-    return redirect(url_for("community_board"))
-
-
-@app.route("/admin/community/posts/<int:post_id>/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_community_post(post_id, action):
-    action_map = {
-        "approve": "ACTIVE",
-        "review": "PENDING_REVIEW",
-        "hide": "HIDDEN",
-        "block": "BLOCKED",
-    }
-
-    admin = get_current_user()
-    conn = get_db()
-
-    post = conn.execute("SELECT id FROM community_posts WHERE id = ?", (post_id,)).fetchone()
-    if not post:
-        abort(404)
-
-    if action == "delete":
-        conn.execute("DELETE FROM community_posts WHERE id = ?", (post_id,))
-        add_activity_log(admin["id"], "ADMIN_DELETE_COMMUNITY_POST", "community_posts", post_id, "deleted")
-        conn.commit()
-        return redirect(url_for("community_board"))
-
-    if action not in action_map:
-        abort(404)
-
-    new_status = action_map[action]
-    conn.execute(
-        "UPDATE community_posts SET status = ?, updated_at = ? WHERE id = ?",
-        (new_status, now_str(), post_id)
-    )
-    add_activity_log(admin["id"], f"ADMIN_COMMUNITY_{action.upper()}", "community_posts", post_id, f"status={new_status}")
-    conn.commit()
-
-    return redirect(url_for("community_board"))
-
-
-
-
-def mask_phone_for_display(phone):
-    phone = str(phone or "")
-    if len(phone) >= 7:
-        return phone[:3] + "****" + phone[-3:]
-    return "สมาชิก"
-
-
-def get_openchat_media_kind(ext):
-    ext = str(ext or "").lower().strip(".")
-    if ext in OPENCHAT_ALLOWED_IMAGE_EXTENSIONS:
-        return "IMAGE"
-    if ext in OPENCHAT_ALLOWED_VIDEO_EXTENSIONS:
-        return "VIDEO"
-    return ""
-
-
-def validate_and_prepare_openchat_media(file_storage):
-    if not file_storage or not file_storage.filename:
-        return True, None
-
-    original_name = secure_filename(file_storage.filename or "")
-    ext = original_name.rsplit(".", 1)[-1].lower() if "." in original_name else ""
-    file_type = get_openchat_media_kind(ext)
-
-    if not file_type:
-        return False, "รองรับเฉพาะรูปภาพ jpg, jpeg, png, webp และวิดีโอ mp4, webm เท่านั้น"
-
-    data = file_storage.read()
-    file_storage.seek(0)
-
-    if not data:
-        return False, "ไฟล์ว่างเปล่า"
-
-    if file_type == "IMAGE" and len(data) > OPENCHAT_MAX_IMAGE_UPLOAD_BYTES:
-        return False, "รูปภาพต้องไม่เกิน 5 MB"
-
-    if file_type == "VIDEO" and len(data) > OPENCHAT_MAX_VIDEO_UPLOAD_BYTES:
-        return False, "วิดีโอต้องไม่เกิน 50 MB"
-
-    header = data[:64]
-
-    if ext in {"jpg", "jpeg"} and not header.startswith(b"\xff\xd8\xff"):
-        return False, "ไฟล์ jpg/jpeg ไม่ถูกต้อง"
-
-    if ext == "png" and not header.startswith(b"\x89PNG\r\n\x1a\n"):
-        return False, "ไฟล์ png ไม่ถูกต้อง"
-
-    if ext == "webp" and not (header.startswith(b"RIFF") and b"WEBP" in header[:16]):
-        return False, "ไฟล์ webp ไม่ถูกต้อง"
-
-    if ext == "mp4" and b"ftyp" not in header:
-        return False, "ไฟล์ mp4 ไม่ถูกต้อง"
-
-    if ext == "webm" and not header.startswith(b"\x1a\x45\xdf\xa3"):
-        return False, "ไฟล์ webm ไม่ถูกต้อง"
-
-    file_name = f"{secrets.token_hex(20)}.{ext}"
-
-    return True, {
-        "file_name": file_name,
-        "original_name": original_name,
-        "file_type": file_type,
-        "mime_type": file_storage.mimetype or "",
-        "data": data,
-    }
-
-
-def save_prepared_openchat_media(prepared_media):
-    OPENCHAT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    file_path = OPENCHAT_UPLOAD_DIR / prepared_media["file_name"]
-    file_path.write_bytes(prepared_media["data"])
-    return file_path
-
-
-def build_openchat_media_by_message(conn, messages, current_user=None):
-    media_by_message = {}
-    message_ids = [message["id"] for message in messages]
-    if not message_ids:
-        return media_by_message
-
-    try:
-        ensure_openchat_media_tables(conn)
-    except Exception:
-        return media_by_message
-
-    placeholders = ",".join(["?"] * len(message_ids))
-    where_status = "" if current_user and current_user.get("role") == "ADMIN" else "AND status = 'APPROVED'"
-
-    try:
-        rows = conn.execute(
-            f"""
-            SELECT *
-            FROM openchat_media
-            WHERE message_id IN ({placeholders})
-            {where_status}
-            ORDER BY datetime(created_at) ASC, id ASC
-            """,
-            tuple(message_ids)
-        ).fetchall()
-    except sqlite3.OperationalError:
-        return media_by_message
-
-    for row in rows:
-        media_by_message.setdefault(row["message_id"], []).append(row)
-
-    return media_by_message
-
-
-@app.route("/media/openchat/<path:filename>")
-def uploaded_openchat_media(filename):
-    safe_name = secure_filename(filename)
-    if not safe_name:
-        abort(404)
-
-    conn = get_db()
-    media = conn.execute(
-        "SELECT * FROM openchat_media WHERE file_name = ?",
-        (safe_name,)
-    ).fetchone()
-
-    if not media:
-        abort(404)
-
-    current = get_current_user()
-
-    if media["status"] != "APPROVED":
-        if not current:
-            abort(404)
-        if current["role"] != "ADMIN" and current["id"] != media["user_id"]:
-            abort(404)
-
-    return send_from_directory(str(OPENCHAT_UPLOAD_DIR), safe_name)
-
-
-
-def ensure_openchat_media_tables(conn):
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS openchat_media (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            message_id INTEGER NOT NULL,
-            user_id INTEGER NOT NULL,
-            file_name TEXT NOT NULL UNIQUE,
-            original_name TEXT DEFAULT '',
-            file_type TEXT NOT NULL,
-            mime_type TEXT DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'PENDING_REVIEW',
-            review_note TEXT DEFAULT '',
-            reviewed_by INTEGER,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (message_id) REFERENCES openchat_messages(id) ON DELETE CASCADE,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_openchat_media_message ON openchat_media(message_id);
-        CREATE INDEX IF NOT EXISTS idx_openchat_media_status ON openchat_media(status);
-        """
-    )
-
-
-@app.route("/openchat")
-@login_required
-def openchat():
-    user = get_current_user()
-    conn = get_db()
-    try:
-        ensure_openchat_media_tables(conn)
-    except Exception:
-        pass
-
-    messages = conn.execute(
-        """
-        SELECT
-            openchat_messages.id,
-            openchat_messages.user_id,
-            openchat_messages.message,
-            openchat_messages.status,
-            openchat_messages.moderation_score,
-            openchat_messages.moderation_reason,
-            openchat_messages.created_at,
-            users.phone_number,
-            COALESCE(job_seeker_profiles.full_name, employer_profiles.company_name, '') AS author_name,
-            users.role
-        FROM openchat_messages
-        JOIN users ON users.id = openchat_messages.user_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = users.id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = users.id
-        WHERE openchat_messages.status = 'ACTIVE'
-        ORDER BY datetime(openchat_messages.created_at) DESC, openchat_messages.id DESC
-        LIMIT 100
-        """
-    ).fetchall()
-
-    media_by_message = build_openchat_media_by_message(conn, messages, user)
-
-    return render_template(
-        "openchat.html",
-        messages=messages,
-        current_user=user,
-        media_by_message=media_by_message,
-        mask_phone_for_display=mask_phone_for_display,
-    )
-
-
-@app.route("/openchat/send", methods=["POST"])
-@login_required
-def openchat_send():
-    blocked = enforce_security("openchat")
-    if blocked:
-        return blocked
-
-    user = get_current_user()
-    message = normalize_user_text_for_safety(request.form.get("message", ""), 500)
-    media_file = request.files.get("media")
-    has_media = bool(media_file and media_file.filename)
-
-    if not message and not has_media:
-        return redirect(url_for("openchat"))
-
-    prepared_media = None
-    if has_media:
-        ok, result = validate_and_prepare_openchat_media(media_file)
-        if not ok:
-            return result, 400
-        prepared_media = result
-
-    if not message and prepared_media:
-        message = "ส่งรูปภาพ/วิดีโอ"
-
-    score, reason, status = analyze_safety_text(message, context="OPENCHAT")
-
-    if status == "BLOCKED":
-        alert_sent = safe_send_moderation_alert(
-            "OPENCHAT_BLOCKED",
-            "-",
-            user,
-            message,
-            status,
-            score,
-            reason,
-        )
-        safe_add_activity_log(
-            user["id"],
-            "OPENCHAT_MESSAGE_BLOCKED",
-            "openchat_messages",
-            None,
-            f"score={score}, alert={alert_sent}, reason={str(reason)[:200]}",
-        )
-        try:
-            get_db().commit()
-        except Exception:
-            pass
-        return reject_unsafe_text_response(score, reason)
-
-    current_time = now_str()
-    conn = get_db()
-    try:
-        ensure_openchat_media_tables(conn)
-    except Exception:
-        pass
 
     conn.execute(
         """
-        INSERT INTO openchat_messages (
-            user_id, message, status, moderation_score,
-            moderation_reason, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (user["id"], message, status, score, reason, current_time, current_time)
-    )
-
-    message_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-
-    if prepared_media:
-        save_prepared_openchat_media(prepared_media)
-
-        conn.execute(
-            """
-            INSERT INTO openchat_media (
-                message_id, user_id, file_name, original_name, file_type,
-                mime_type, status, review_note, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, 'PENDING_REVIEW', '', ?, ?)
-            """,
-            (
-                message_id,
-                user["id"],
-                prepared_media["file_name"],
-                prepared_media["original_name"],
-                prepared_media["file_type"],
-                prepared_media["mime_type"],
-                current_time,
-                current_time,
-            )
-        )
-
-        media_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-
-        add_activity_log(
-            user["id"],
-            "CREATE_OPENCHAT_MEDIA",
-            "openchat_media",
-            media_id,
-            f"message_id={message_id}, type={prepared_media['file_type']}",
-        )
-
-        safe_send_moderation_alert(
-            "OPENCHAT_MEDIA_PENDING_REVIEW",
-            media_id,
-            user,
-            message,
-            "PENDING_REVIEW",
-            score,
-            "มีรูปภาพ/วิดีโอใหม่ใน OpenChat รอ Admin ตรวจ",
-        )
-
-    add_activity_log(
-        user["id"],
-        "CREATE_OPENCHAT_MESSAGE",
-        "openchat_messages",
-        message_id,
-        f"status={status}, score={score}",
-    )
-
-    if status in {"PENDING_REVIEW", "BLOCKED"} or int(score or 0) >= 35:
-        alert_sent = safe_send_moderation_alert(
-            "OPENCHAT",
-            message_id,
-            user,
-            message,
-            status,
-            score,
-            reason,
-        )
-        add_activity_log(
-            user["id"],
-            "DISCORD_OPENCHAT_ALERT_SENT" if alert_sent else "DISCORD_OPENCHAT_ALERT_FAILED",
-            "openchat_messages",
-            message_id,
-            f"status={status}, score={score}",
-        )
-
-    conn.commit()
-
-    return redirect(url_for("openchat"))
-
-
-@app.route("/admin/openchat/messages/<int:message_id>/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_openchat_message(message_id, action):
-    action_map = {
-        "approve": "ACTIVE",
-        "review": "PENDING_REVIEW",
-        "hide": "HIDDEN",
-        "block": "BLOCKED",
-    }
-
-    admin = get_current_user()
-    conn = get_db()
-
-    message = conn.execute(
-        "SELECT id FROM openchat_messages WHERE id = ?",
-        (message_id,)
-    ).fetchone()
-
-    if not message:
-        abort(404)
-
-    if action == "delete":
-        conn.execute("DELETE FROM openchat_messages WHERE id = ?", (message_id,))
-        add_activity_log(admin["id"], "ADMIN_DELETE_OPENCHAT_MESSAGE", "openchat_messages", message_id, "deleted")
-        conn.commit()
-        return redirect(url_for("openchat"))
-
-    if action not in action_map:
-        abort(404)
-
-    new_status = action_map[action]
-    conn.execute(
-        "UPDATE openchat_messages SET status = ?, updated_at = ? WHERE id = ?",
-        (new_status, now_str(), message_id)
-    )
-    add_activity_log(admin["id"], f"ADMIN_OPENCHAT_{action.upper()}", "openchat_messages", message_id, f"status={new_status}")
-    conn.commit()
-
-    return redirect(url_for("openchat"))
-
-
-@app.route("/job/<int:job_id>")
-def job_detail_old(job_id):
-    conn = get_db()
-    job = conn.execute("SELECT id, title, location FROM job_posts WHERE id = ? AND status = 'ACTIVE'", (job_id,)).fetchone()
-    if not job:
-        abort(404)
-    return redirect(url_for("job_detail", slug=job_slug(job)), code=301)
-
-
-@app.route("/jobs/<slug>")
-def job_detail(slug):
-    job_id_match = re.search(r"-(\d+)$", slug)
-    if not job_id_match:
-        abort(404)
-    job_id = int(job_id_match.group(1))
-    conn = get_db()
-    job = conn.execute(
+        DELETE FROM employer_profiles
+        WHERE upper(COALESCE(tax_id, '')) LIKE 'DEMO-%'
+           OR upper(COALESCE(tax_id, '')) LIKE 'TEST-%'
+           OR company_name LIKE '%Demo%'
+           OR company_name LIKE '%ทดสอบ%'
         """
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.id = ?
-        """,
-        (job_id,)
-    ).fetchone()
+    )
 
-    if not job or job["status"] != "ACTIVE":
-        abort(404)
-
-    already_applied = False
-    current = get_current_user()
-    if current and current["role"] == "JOB_SEEKER":
-        row = conn.execute(
-            "SELECT id FROM applications WHERE job_seeker_id = ? AND job_post_id = ?",
-            (current["id"], job_id)
-        ).fetchone()
-        already_applied = row is not None
-
-    return render_template("job_detail.html", job=job, already_applied=already_applied)
-
-
-@app.route("/job/<int:job_id>/apply", methods=["POST"])
-@role_required("JOB_SEEKER")
-def apply_job(job_id):
-    user = get_current_user()
-    message = request.form.get("message", "").strip()
-    conn = get_db()
-
-    job = conn.execute(
-        "SELECT id FROM job_posts WHERE id = ? AND status = 'ACTIVE'",
-        (job_id,)
-    ).fetchone()
-
-    if not job:
-        abort(404)
-
-    exists = conn.execute(
-        "SELECT id FROM applications WHERE job_seeker_id = ? AND job_post_id = ?",
-        (user["id"], job_id)
-    ).fetchone()
-
-    if not exists:
-        current_time = now_str()
-        conn.execute(
-            """
-            INSERT INTO applications (
-                job_seeker_id, job_post_id, status, message, created_at, updated_at
-            )
-            VALUES (?, ?, 'PENDING', ?, ?, ?)
-            """,
-            (user["id"], job_id, message, current_time, current_time)
-        )
-        conn.commit()
-
-    return redirect(url_for("job_detail_old", job_id=job_id))
-
-
-@app.route("/job/<int:job_id>/report", methods=["POST"])
-@role_required("JOB_SEEKER", "EMPLOYER")
-def report_job(job_id):
-    user = get_current_user()
-    reason = request.form.get("reason", "").strip()
-    if not reason:
-        reason = "ประกาศน่าสงสัย"
-
-    conn = get_db()
-    job = conn.execute("SELECT * FROM job_posts WHERE id = ?", (job_id,)).fetchone()
-    if not job:
-        abort(404)
-
-    exists = conn.execute(
-        "SELECT id FROM reports WHERE job_post_id = ? AND reporter_id = ?",
-        (job_id, user["id"])
-    ).fetchone()
-
-    if not exists:
-        current_time = now_str()
-        conn.execute(
-            """
-            INSERT INTO reports (
-                job_post_id, reporter_id, reason, status, created_at, updated_at
-            )
-            VALUES (?, ?, ?, 'PENDING', ?, ?)
-            """,
-            (job_id, user["id"], reason, current_time, current_time)
-        )
-        new_report_count = int(job["report_count"] or 0) + 1
-        new_status = "PENDING_AI_REVIEW" if new_report_count >= 3 else job["status"]
-
-        conn.execute(
-            """
-            UPDATE job_posts
-            SET report_count = ?,
-                status = ?,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (new_report_count, new_status, current_time, job_id)
-        )
-
-        alert_sent = send_job_report_discord_alert(
-            job,
-            user,
-            reason,
-            new_report_count,
-            new_status,
-        )
-
-        add_activity_log(user["id"], "REPORT_JOB", "job_posts", job_id, reason)
-        add_activity_log(
-            user["id"],
-            "DISCORD_JOB_REPORT_ALERT_SENT" if alert_sent else "DISCORD_JOB_REPORT_ALERT_FAILED",
-            "job_posts",
-            job_id,
-            f"reports={new_report_count}, status={new_status}",
-        )
-        conn.commit()
-
-    return redirect(url_for("job_detail_old", job_id=job_id))
-
-
-@app.route("/dashboard/employer")
-@role_required("EMPLOYER")
-def employer_dashboard():
-    user = get_current_user()
-    conn = get_db()
-    profile = conn.execute(
-        "SELECT * FROM employer_profiles WHERE user_id = ?",
-        (user["id"],)
-    ).fetchone()
-    jobs = conn.execute(
+    conn.execute(
         """
-        SELECT *
-        FROM job_posts
-        WHERE employer_id = ?
-        ORDER BY datetime(created_at) DESC, id DESC
-        """,
-        (user["id"],)
-    ).fetchall()
-    return render_template(
-        "dashboard_employer.html",
-        profile=profile,
-        jobs=jobs,
-        user=user,
-        trust_level=get_trust_level(user["trust_score"]),
-    )
-
-
-@app.route("/dashboard/employer/jobs/new", methods=["GET", "POST"])
-@role_required("EMPLOYER")
-def employer_create_job():
-    user = get_current_user()
-    error = ""
-    preview = None
-
-    allowed, trust_error = can_post_job(user)
-    if not allowed:
-        return render_template("employer_job_form.html", error=trust_error, preview=None, locked=True)
-
-    if request.method == "POST":
-        blocked = enforce_security("job_post")
-        if blocked:
-            return blocked
-
-        title = request.form.get("title", "").strip()
-        description = request.form.get("description", "").strip()
-        salary_range = request.form.get("salary_range", "").strip()
-        location = request.form.get("location", "").strip()
-        is_urgent = 1 if request.form.get("is_urgent") else 0
-
-        if not title:
-            error = "กรุณากรอกชื่อตำแหน่งงาน"
-        elif len(description) < 40:
-            error = "กรุณากรอกรายละเอียดงานอย่างน้อย 40 ตัวอักษร"
-        else:
-            conn = get_db()
-
-            duplicate_job = conn.execute(
-                """
-                SELECT id, title, status, created_at
-                FROM job_posts
-                WHERE employer_id = ?
-                  AND lower(trim(title)) = lower(trim(?))
-                  AND lower(trim(COALESCE(location, ''))) = lower(trim(?))
-                  AND lower(trim(COALESCE(salary_range, ''))) = lower(trim(?))
-                  AND status NOT IN ('REJECTED', 'CLOSED')
-                ORDER BY datetime(created_at) DESC, id DESC
-                LIMIT 1
-                """,
-                (user["id"], title, location, salary_range)
-            ).fetchone()
-
-            if duplicate_job:
-                error = "พบประกาศงานนี้อยู่แล้วในระบบ จึงไม่สร้างซ้ำ กรุณาตรวจรายการงานที่คุณโพสต์ด้านล่าง"
-            else:
-                score, reason, status = analyze_job_text(title, description)
-
-                trust_score = int(user.get("trust_score", 50))
-                if trust_score < 40 and status == "ACTIVE":
-                    status = "PENDING_AI_REVIEW"
-                    reason = reason + " | Trust Score ต่ำกว่า 40 จึงส่งให้ Admin ตรวจเพิ่ม"
-                if trust_score < 25:
-                    status = "REJECTED"
-                    reason = reason + " | Trust Score ต่ำกว่า 25 ระบบไม่อนุญาตให้โพสต์งาน"
-
-                current_time = now_str()
-                conn.execute(
-                    """
-                    INSERT INTO job_posts (
-                        employer_id, title, description, salary_range, location,
-                        is_government_news, source_url, status, ai_risk_score,
-                        ai_risk_reason, report_count, created_at, updated_at, is_urgent
-                    )
-                    VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?)
-                    """,
-                    (
-                        user["id"],
-                        title,
-                        description,
-                        salary_range,
-                        location,
-                        status,
-                        score,
-                        reason,
-                        current_time,
-                        current_time,
-                        is_urgent,
-                    )
-                )
-                job_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-                add_ai_decision_log(job_id, title, score, reason, status)
-                add_activity_log(user["id"], "CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
-
-                if status == "ACTIVE":
-                    adjust_trust_score(user["id"], 2)
-                elif status == "REJECTED":
-                    adjust_trust_score(user["id"], -20)
-
-                if status in {"PENDING_AI_REVIEW", "REJECTED"} or scam_risk_label(score) == "HIGH":
-                    alert_sent = send_job_risk_discord_alert(
-                        job_id,
-                        user,
-                        title,
-                        description,
-                        salary_range,
-                        location,
-                        status,
-                        score,
-                        reason,
-                    )
-                    add_activity_log(
-                        user["id"],
-                        "DISCORD_JOB_RISK_ALERT_SENT" if alert_sent else "DISCORD_JOB_RISK_ALERT_FAILED",
-                        "job_posts",
-                        job_id,
-                        f"status={status}, risk={score}",
-                    )
-
-                conn.commit()
-                return redirect(url_for("employer_dashboard"))
-
-        preview = {
-            "title": title,
-            "description": description,
-            "salary_range": salary_range,
-            "location": location,
-            "is_urgent": is_urgent,
-        }
-
-    return render_template("employer_job_form.html", error=error, preview=preview)
-
-
-@app.route("/admin/jobs/<int:job_id>/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_job_status(job_id, action):
-    status_map = {
-        "approve": "ACTIVE",
-        "reject": "REJECTED",
-        "review": "PENDING_AI_REVIEW",
-        "close": "CLOSED",
-    }
-    if action not in status_map:
-        abort(404)
-
-    admin = get_current_user()
-    conn = get_db()
-    job = conn.execute("SELECT * FROM job_posts WHERE id = ?", (job_id,)).fetchone()
-    if not job:
-        abort(404)
-
-    new_status = status_map[action]
-    conn.execute(
-        "UPDATE job_posts SET status = ?, updated_at = ? WHERE id = ?",
-        (new_status, now_str(), job_id)
-    )
-
-    if action == "approve":
-        adjust_trust_score(job["employer_id"], 5)
-    elif action == "reject":
-        adjust_trust_score(job["employer_id"], -25)
-    elif action == "close":
-        adjust_trust_score(job["employer_id"], 1)
-
-    add_activity_log(admin["id"], f"ADMIN_{action.upper()}_JOB", "job_posts", job_id, f"new_status={new_status}")
-    conn.commit()
-    return redirect(url_for("admin_moderation"))
-
-
-@app.route("/admin/jobs/<int:job_id>/delete", methods=["POST"])
-@role_required("ADMIN")
-def admin_delete_job(job_id):
-    admin = get_current_user()
-    conn = get_db()
-    job = conn.execute("SELECT * FROM job_posts WHERE id = ?", (job_id,)).fetchone()
-    if not job:
-        abort(404)
-
-    conn.execute("DELETE FROM job_posts WHERE id = ?", (job_id,))
-    adjust_trust_score(job["employer_id"], -10)
-    add_activity_log(admin["id"], "ADMIN_DELETE_JOB", "job_posts", job_id, job["title"])
-    conn.commit()
-    return redirect(url_for("admin_moderation"))
-
-
-@app.route("/admin/users/<int:user_id>/ban", methods=["POST"])
-@role_required("ADMIN")
-def admin_ban_user(user_id):
-    admin = get_current_user()
-    reason = request.form.get("reason", "Admin banned user").strip()
-    conn = get_db()
-    conn.execute(
-        "UPDATE users SET is_banned = 1, trust_score = 0, updated_at = ? WHERE id = ? AND role != 'ADMIN'",
-        (now_str(), user_id)
-    )
-    conn.execute(
-        "UPDATE job_posts SET status = 'REJECTED', updated_at = ? WHERE employer_id = ?",
-        (now_str(), user_id)
-    )
-    add_activity_log(admin["id"], "ADMIN_BAN_USER", "users", user_id, reason)
-    conn.commit()
-    return redirect(url_for("admin_users"))
-
-
-@app.route("/admin/users/<int:user_id>/unban", methods=["POST"])
-@role_required("ADMIN")
-def admin_unban_user(user_id):
-    admin = get_current_user()
-    conn = get_db()
-    conn.execute(
-        "UPDATE users SET is_banned = 0, trust_score = 50, updated_at = ? WHERE id = ? AND role != 'ADMIN'",
-        (now_str(), user_id)
-    )
-    add_activity_log(admin["id"], "ADMIN_UNBAN_USER", "users", user_id, "unban user")
-    conn.commit()
-    return redirect(url_for("admin_users"))
-
-
-@app.route("/admin/moderation")
-@role_required("ADMIN")
-def admin_moderation():
-    conn = get_db()
-    q = request.args.get("q", "").strip().lower()
-    status = request.args.get("status", "").strip()
-
-    where = "WHERE 1=1"
-    params = []
-    if q:
-        like = f"%{q}%"
-        where += " AND (lower(job_posts.title) LIKE ? OR lower(job_posts.description) LIKE ? OR lower(employer_profiles.company_name) LIKE ?)"
-        params.extend([like, like, like])
-    if status:
-        where += " AND job_posts.status = ?"
-        params.append(status)
-
-    jobs = conn.execute(
-        f"""
-        SELECT job_posts.*, employer_profiles.company_name, users.phone_number,
-               users.trust_score, users.is_banned
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        LEFT JOIN users ON users.id = job_posts.employer_id
-        {where}
-        ORDER BY
-            CASE job_posts.status
-                WHEN 'PENDING_AI_REVIEW' THEN 1
-                WHEN 'REJECTED' THEN 2
-                WHEN 'ACTIVE' THEN 3
-                WHEN 'CLOSED' THEN 4
-                ELSE 5
+        UPDATE job_posts
+        SET source_url = CASE
+                WHEN is_government_news = 1 THEN COALESCE(NULLIF(source_url, ''), 'https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label')
+                ELSE source_url
             END,
-            job_posts.ai_risk_score DESC,
-            datetime(job_posts.created_at) DESC
-        LIMIT 100
+            updated_at = ?
+        WHERE status = 'ACTIVE'
+          AND is_government_news = 1
+          AND (
+                source_url IS NULL
+                OR source_url = ''
+                OR lower(source_url) LIKE '%example.com%'
+                OR lower(source_url) LIKE '%google.com%'
+                OR source_url = '#'
+          )
         """,
-        tuple(params)
-    ).fetchall()
-
-    return render_template("admin_moderation.html", jobs=jobs, q=q, status=status)
-
-
-@app.route("/admin/users")
-@role_required("ADMIN")
-def admin_users():
-    conn = get_db()
-    users = conn.execute(
-        """
-        SELECT users.*,
-               employer_profiles.company_name,
-               job_seeker_profiles.full_name,
-               COUNT(job_posts.id) AS job_count
-        FROM users
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = users.id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = users.id
-        LEFT JOIN job_posts ON job_posts.employer_id = users.id
-        GROUP BY users.id
-        ORDER BY datetime(users.created_at) DESC, users.id DESC
-        LIMIT 200
-        """
-    ).fetchall()
-    return render_template("admin_users.html", users=users)
-
-
-@app.route("/admin/scam-center")
-@role_required("ADMIN")
-def admin_scam_center():
-    conn = get_db()
-
-    try:
-        logs = conn.execute(
-            """
-            SELECT scam_scan_logs.*, job_posts.title
-            FROM scam_scan_logs
-            LEFT JOIN job_posts ON job_posts.id = scam_scan_logs.job_post_id
-            ORDER BY datetime(scam_scan_logs.created_at) DESC, scam_scan_logs.id DESC
-            LIMIT 100
-            """
-        ).fetchall()
-    except sqlite3.OperationalError:
-        logs = []
-
-    jobs = conn.execute(
-        """
-        SELECT
-            job_posts.*,
-            employer_profiles.company_name,
-            users.trust_score
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        LEFT JOIN users ON users.id = job_posts.employer_id
-        WHERE job_posts.is_government_news = 0
-        ORDER BY job_posts.ai_risk_score DESC,
-                 job_posts.report_count DESC,
-                 datetime(job_posts.created_at) DESC
-        LIMIT 100
-        """
-    ).fetchall()
-
-    stats = {
-        "high": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE ai_risk_score >= 75").fetchone()["count"],
-        "medium": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE ai_risk_score >= 40 AND ai_risk_score < 75").fetchone()["count"],
-        "low": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE ai_risk_score < 40 OR ai_risk_score IS NULL").fetchone()["count"],
-        "pending": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'").fetchone()["count"],
-    }
-
-    return render_template("admin_scam_center.html", jobs=jobs, logs=logs, stats=stats)
-
-
-@app.route("/admin/scam-center/run", methods=["POST"])
-@role_required("ADMIN")
-def admin_run_scam_scanner():
-    admin = get_current_user()
-    result = run_scam_scanner_now()
-    add_activity_log(
-        admin["id"],
-        "ADMIN_RUN_SCAM_SCANNER",
-        "job_posts",
-        None,
-        f"scanned={result['scanned']}, high={result['high']}, medium={result['medium']}, low={result['low']}, changed={result['changed']}",
+        (current_time,),
     )
-    get_db().commit()
-    return redirect(url_for("admin_scam_center"))
 
 
-@app.route("/admin/import-runs")
-@role_required("ADMIN")
-def admin_import_runs():
-    conn = get_db()
-    try:
-        runs = conn.execute(
-            """
-            SELECT *
-            FROM import_runs
-            ORDER BY datetime(created_at) DESC, id DESC
-            LIMIT 100
-            """
-        ).fetchall()
-    except sqlite3.OperationalError:
-        runs = []
-    return render_template("admin_import_runs.html", runs=runs)
+def government_jobs_where_sql(prefix="job_posts"):
+    return f"""
+        {prefix}.status = 'ACTIVE'
+        AND {prefix}.is_government_news = 1
+        AND COALESCE({prefix}.source_url, '') != ''
+        AND lower(COALESCE({prefix}.source_url, '')) NOT LIKE '%example.com%'
+        AND lower(COALESCE({prefix}.source_url, '')) NOT LIKE '%google.com%'
+        AND lower(COALESCE({prefix}.source_url, '')) NOT LIKE '%localhost%'
+        AND lower(COALESCE({prefix}.source_url, '')) NOT LIKE '%127.0.0.1%'
+        AND {prefix}.title NOT LIKE '%ตัวอย่าง%'
+        AND lower(COALESCE({prefix}.description, '')) NOT LIKE '%demo%'
+    """
 
 
-@app.route("/admin/logs")
-@role_required("ADMIN")
-def admin_logs():
-    conn = get_db()
-    activity_logs = conn.execute(
-        """
-        SELECT activity_logs.*, users.phone_number, users.role
-        FROM activity_logs
-        LEFT JOIN users ON users.id = activity_logs.actor_id
-        ORDER BY datetime(activity_logs.created_at) DESC, activity_logs.id DESC
-        LIMIT 200
-        """
-    ).fetchall()
-
-    ai_logs = conn.execute(
-        """
-        SELECT ai_decision_logs.*, job_posts.status
-        FROM ai_decision_logs
-        LEFT JOIN job_posts ON job_posts.id = ai_decision_logs.job_post_id
-        ORDER BY datetime(ai_decision_logs.created_at) DESC, ai_decision_logs.id DESC
-        LIMIT 200
-        """
-    ).fetchall()
-
-    return render_template("admin_logs.html", activity_logs=activity_logs, ai_logs=ai_logs)
 
 
-@app.route("/admin/trust")
-@role_required("ADMIN")
-def admin_trust_center():
-    conn = get_db()
-    users = conn.execute(
-        """
-        SELECT users.*,
-               employer_profiles.company_name,
-               employer_profiles.is_company_verified,
-               job_seeker_profiles.full_name,
-               COUNT(DISTINCT job_posts.id) AS job_count,
-               COUNT(DISTINCT reports.id) AS reports_made
-        FROM users
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = users.id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = users.id
-        LEFT JOIN job_posts ON job_posts.employer_id = users.id
-        LEFT JOIN reports ON reports.reporter_id = users.id
-        GROUP BY users.id
-        ORDER BY users.trust_score ASC, datetime(users.created_at) DESC
-        LIMIT 300
-        """
-    ).fetchall()
 
-    return render_template("admin_trust.html", users=users, get_trust_level=get_trust_level)
-
-
-@app.route("/admin/users/<int:user_id>/trust/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_trust(user_id, action):
-    admin = get_current_user()
-    deltas = {
-        "increase": 10,
-        "decrease": -10,
-        "reset": 0,
-        "verify": 20,
-    }
-
-    if action not in deltas:
-        abort(404)
-
-    conn = get_db()
-    target = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    if not target or target["role"] == "ADMIN":
-        abort(404)
-
-    if action == "reset":
-        conn.execute(
-            "UPDATE users SET trust_score = 50, is_banned = 0, updated_at = ? WHERE id = ?",
-            (now_str(), user_id)
-        )
-        add_activity_log(admin["id"], "ADMIN_RESET_TRUST", "users", user_id, "trust=50")
-    else:
-        adjust_trust_score(user_id, deltas[action])
-        add_activity_log(admin["id"], f"ADMIN_TRUST_{action.upper()}", "users", user_id, f"delta={deltas[action]}")
-
-    conn.commit()
-    return redirect(url_for("admin_trust_center"))
-
-
-@app.route("/admin/employers/<int:user_id>/verify", methods=["POST"])
-@role_required("ADMIN")
-def admin_verify_employer(user_id):
-    admin = get_current_user()
-    conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE id = ? AND role = 'EMPLOYER'", (user_id,)).fetchone()
-    if not user:
-        abort(404)
-
-    conn.execute(
-        "UPDATE employer_profiles SET is_company_verified = 1, updated_at = ? WHERE user_id = ?",
-        (now_str(), user_id)
+# SAFE_PUBLIC_ROUTES_FINAL_V1
+def _safe_html_escape(value):
+    return (
+        str(value or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
     )
-    adjust_trust_score(user_id, 20)
-    add_activity_log(admin["id"], "ADMIN_VERIFY_EMPLOYER", "users", user_id, "verified employer +20 trust")
-    conn.commit()
-    return redirect(url_for("admin_trust_center"))
 
 
-@app.route("/admin/employers/<int:user_id>/unverify", methods=["POST"])
-@role_required("ADMIN")
-def admin_unverify_employer(user_id):
-    admin = get_current_user()
-    conn = get_db()
-    user = conn.execute("SELECT * FROM users WHERE id = ? AND role = 'EMPLOYER'", (user_id,)).fetchone()
-    if not user:
-        abort(404)
-
-    conn.execute(
-        "UPDATE employer_profiles SET is_company_verified = 0, updated_at = ? WHERE user_id = ?",
-        (now_str(), user_id)
-    )
-    adjust_trust_score(user_id, -20)
-    add_activity_log(admin["id"], "ADMIN_UNVERIFY_EMPLOYER", "users", user_id, "unverified employer -20 trust")
-    conn.commit()
-    return redirect(url_for("admin_trust_center"))
-
-
-
-def ensure_local_source_employer(conn, phone, company_name, tax_id, province):
-    current_time = now_str()
-
-    user = conn.execute(
-        "SELECT id FROM users WHERE phone_number = ?",
-        (phone,)
-    ).fetchone()
-
-    if user:
-        employer_id = user["id"]
-        conn.execute(
-            """
-            UPDATE users
-            SET role = 'EMPLOYER',
-                is_verified = 1,
-                is_banned = 0,
-                trust_score = 90,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (current_time, employer_id)
-        )
-    else:
-        conn.execute(
-            """
-            INSERT INTO users (
-                phone_number, password_hash, role, is_verified, is_banned,
-                trust_score, created_at, updated_at
-            )
-            VALUES (?, ?, 'EMPLOYER', 1, 0, 90, ?, ?)
-            """,
-            (
-                phone,
-                hash_password(f"source-import-{province}-disabled-login"),
-                current_time,
-                current_time,
-            )
-        )
-        employer_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-
-    profile = conn.execute(
-        "SELECT id FROM employer_profiles WHERE user_id = ?",
-        (employer_id,)
-    ).fetchone()
-
-    if profile:
-        conn.execute(
-            """
-            UPDATE employer_profiles
-            SET company_name = ?,
-                tax_id = ?,
-                is_company_verified = 1,
-                address = ?,
-                website = '',
-                updated_at = ?
-            WHERE user_id = ?
-            """,
-            (company_name, tax_id, province, current_time, employer_id)
-        )
-    else:
-        conn.execute(
-            """
-            INSERT INTO employer_profiles (
-                user_id, company_name, tax_id, is_company_verified,
-                address, website, created_at, updated_at
-            )
-            VALUES (?, ?, ?, 1, ?, '', ?, ?)
-            """,
-            (employer_id, company_name, tax_id, province, current_time, current_time)
-        )
-
-    return employer_id
-
-
-def get_upper_central_job_import_data():
-    return [
-        {
-            "province": "พิจิตร",
-            "phone": "0996600001",
-            "employer": "สำนักงานจัดหางานจังหวัดพิจิตร / แหล่งงานท้องถิ่น",
-            "tax_id": "LOCAL-SOURCE-PHICHIT",
-            "source_url": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label",
-            "jobs": [
-                {
-                    "title": "เจ้าหน้าที่บัญชี วิทยาลัยชุมชนพิจิตร",
-                    "description": "ข้อมูลนำเข้าจากประกาศรับสมัครงานจังหวัดพิจิตร ตำแหน่งเจ้าหน้าที่บัญชี จำนวน 1 อัตรา ผู้สมัครควรตรวจสอบรายละเอียด วันรับสมัคร คุณสมบัติ และเอกสารที่ต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "พิจิตร",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "พนักงานบัญชี จังหวัดพิจิตร",
-                    "description": "ตำแหน่งงานว่างในพื้นที่จังหวัดพิจิตรจากข้อมูลสำนักงานจัดหางาน เหมาะสำหรับผู้มีพื้นฐานบัญชี เอกสาร และงานสำนักงาน กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "พิจิตร",
-                    "is_gov": 0,
-                },
-                {
-                    "title": "บาริสต้า จังหวัดพิจิตร",
-                    "description": "ตำแหน่งงานบริการในพื้นที่จังหวัดพิจิตรจากข้อมูลตำแหน่งงานว่าง เหมาะสำหรับผู้สนใจงานร้านกาแฟ งานบริการลูกค้า และงานหน้าร้าน กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "พิจิตร",
-                    "is_gov": 0,
-                },
-                {
-                    "title": "พนักงานทั่วไป จังหวัดพิจิตร",
-                    "description": "ตำแหน่งงานทั่วไปในพื้นที่จังหวัดพิจิตรจากข้อมูลสำนักงานจัดหางาน เหมาะสำหรับผู้ต้องการงานใกล้บ้านและพร้อมเริ่มงานตามเงื่อนไขนายจ้าง กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "พิจิตร",
-                    "is_gov": 0,
-                },
-                {
-                    "title": "ฝ่ายผลิต จังหวัดพิจิตร",
-                    "description": "ตำแหน่งงานฝ่ายผลิตในพื้นที่จังหวัดพิจิตรจากข้อมูลตำแหน่งงานว่าง เหมาะสำหรับผู้สนใจงานโรงงาน งานผลิต และงานประจำพื้นที่ กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "พิจิตร",
-                    "is_gov": 0,
-                },
-                {
-                    "title": "พนักงานปฏิบัติการพิเศษ จังหวัดพิจิตร",
-                    "description": "ตำแหน่งงานในพื้นที่จังหวัดพิจิตรจากข้อมูลสำนักงานจัดหางาน เหมาะสำหรับผู้ที่ต้องการงานประจำในพื้นที่และสามารถปฏิบัติงานตามเงื่อนไขนายจ้าง กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "พิจิตร",
-                    "is_gov": 0,
-                },
-            ],
-        },
-        {
-            "province": "พิษณุโลก",
-            "phone": "0996500002",
-            "employer": "สำนักงานจัดหางานจังหวัดพิษณุโลก / แหล่งงานท้องถิ่น",
-            "tax_id": "LOCAL-SOURCE-PHITSANULOK",
-            "source_url": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label",
-            "jobs": [
-                {
-                    "title": "พนักงานทั่วไป โรงพยาบาลมหาวิทยาลัยนเรศวร",
-                    "description": "ข้อมูลนำเข้าจากข่าวประชาสัมพันธ์ตำแหน่งงานในจังหวัดพิษณุโลก ตำแหน่งพนักงานทั่วไป ผู้สมัครควรตรวจสอบคุณสมบัติ วันรับสมัคร และเอกสารที่ต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "พิษณุโลก",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "ลูกจ้างชั่วคราว โรงพยาบาลพุทธชินราช พิษณุโลก",
-                    "description": "ประกาศตำแหน่งลูกจ้างชั่วคราวในพื้นที่จังหวัดพิษณุโลกจากแหล่งข้อมูลสำนักงานจัดหางาน ผู้สมัครควรตรวจสอบตำแหน่งย่อย คุณสมบัติ และกำหนดการที่ต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "พิษณุโลก",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "พนักงานรักษาความปลอดภัย วิทยาลัยอาชีวศึกษาพิษณุโลก",
-                    "description": "ข้อมูลประกาศรับสมัครพนักงานรักษาความปลอดภัยในพื้นที่จังหวัดพิษณุโลก เหมาะสำหรับผู้สนใจงานดูแลความปลอดภัยในหน่วยงาน กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "พิษณุโลก",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "นักวิชาการสรรพสามิต สำนักงานสรรพสามิตภาคที่ 6",
-                    "description": "ข้อมูลประกาศรับสมัครงานหน่วยงานในพื้นที่พิษณุโลก ตำแหน่งนักวิชาการสรรพสามิต ผู้สมัครควรตรวจสอบคุณสมบัติ เอกสาร และวันรับสมัครที่ต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "พิษณุโลก",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "พนักงานทำความสะอาด สทบ.สาขาเขต 3",
-                    "description": "ข้อมูลประกาศรับสมัครพนักงานทำความสะอาดในพื้นที่จังหวัดพิษณุโลกจากสำนักงานจัดหางาน เหมาะสำหรับผู้ต้องการงานบริการทั่วไป กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "พิษณุโลก",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "ตำแหน่งงานว่างจังหวัดพิษณุโลก ประจำเดือนล่าสุด",
-                    "description": "รวมตำแหน่งงานว่างจากสำนักงานจัดหางานจังหวัดพิษณุโลก ผู้สมัครสามารถตรวจสอบรายการตำแหน่งล่าสุด รายละเอียดนายจ้าง และเงื่อนไขการสมัครจากต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "พิษณุโลก",
-                    "is_gov": 0,
-                },
-            ],
-        },
-        {
-            "province": "กำแพงเพชร",
-            "phone": "0996200003",
-            "employer": "สำนักงานจัดหางานจังหวัดกำแพงเพชร / แหล่งงานท้องถิ่น",
-            "tax_id": "LOCAL-SOURCE-KAMPHAENGPHET",
-            "source_url": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label",
-            "jobs": [
-                {
-                    "title": "นักวิชาการแรงงาน สำนักงานจัดหางานจังหวัดกำแพงเพชร",
-                    "description": "ข้อมูลประกาศตำแหน่งนักวิชาการแรงงาน สังกัดสำนักงานจัดหางานจังหวัดกำแพงเพชร ผู้สมัครควรตรวจสอบคุณสมบัติ กำหนดการ และรายละเอียดที่ต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "กำแพงเพชร",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "นักวิชาการแรงงาน จิตวิทยาการแนะแนว จังหวัดกำแพงเพชร",
-                    "description": "ข้อมูลประกาศรับสมัครตำแหน่งนักวิชาการแรงงานด้านจิตวิทยาการแนะแนวในจังหวัดกำแพงเพชร ผู้สมัครควรตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "กำแพงเพชร",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "ตำแหน่งงานว่างจังหวัดกำแพงเพชร ประจำเดือนมกราคม 2569",
-                    "description": "ข้อมูลตำแหน่งงานว่างประจำเดือนจากสำนักงานจัดหางานจังหวัดกำแพงเพชร ผู้สมัครควรตรวจสอบรายการตำแหน่ง นายจ้าง และเงื่อนไขการสมัครที่ต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "กำแพงเพชร",
-                    "is_gov": 0,
-                },
-                {
-                    "title": "ตำแหน่งงานว่างจังหวัดกำแพงเพชร ประจำเดือนธันวาคม 2568",
-                    "description": "ข้อมูลตำแหน่งงานว่างประจำเดือนจากสำนักงานจัดหางานจังหวัดกำแพงเพชร เหมาะสำหรับผู้ต้องการหางานใกล้บ้านในพื้นที่ กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "กำแพงเพชร",
-                    "is_gov": 0,
-                },
-                {
-                    "title": "ตำแหน่งงานนัดพบแรงงาน @ ชากังราว",
-                    "description": "ข้อมูลกิจกรรมตำแหน่งงานนัดพบแรงงานในจังหวัดกำแพงเพชร ผู้สมัครสามารถติดตามรายละเอียดนายจ้าง วันเวลา และตำแหน่งที่เปิดรับจากต้นทางก่อนเข้าร่วม",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "กำแพงเพชร",
-                    "is_gov": 0,
-                },
-                {
-                    "title": "ตำแหน่งงานว่างจังหวัดกำแพงเพชร ประจำเดือนพฤศจิกายน 2568",
-                    "description": "ข้อมูลตำแหน่งงานว่างจากสำนักงานจัดหางานจังหวัดกำแพงเพชร ผู้สมัครควรตรวจสอบรายการตำแหน่งล่าสุดและรายละเอียดการสมัครจากต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "กำแพงเพชร",
-                    "is_gov": 0,
-                },
-            ],
-        },
-        {
-            "province": "นครสวรรค์",
-            "phone": "0996000004",
-            "employer": "สำนักงานจัดหางานจังหวัดนครสวรรค์ / แหล่งงานท้องถิ่น",
-            "tax_id": "LOCAL-SOURCE-NAKHONSAWAN",
-            "source_url": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label",
-            "jobs": [
-                {
-                    "title": "พนักงานวิเคราะห์นโยบายและแผน สำนักงานจังหวัดนครสวรรค์",
-                    "description": "ข้อมูลประกาศรับสมัครพนักงานวิเคราะห์นโยบายและแผนในจังหวัดนครสวรรค์ ผู้สมัครควรตรวจสอบคุณสมบัติ กำหนดวันรับสมัคร และเอกสารที่ต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "นครสวรรค์",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "เจ้าหน้าที่วิเคราะห์นโยบายและแผน สำนักงานทรัพยากรน้ำแห่งชาติ",
-                    "description": "ข้อมูลประกาศรับสมัครพนักงานจ้างเหมาบริการ ตำแหน่งเจ้าหน้าที่วิเคราะห์นโยบายและแผน ค่าจ้างตามประกาศ ผู้สมัครควรตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "15,000 บาท",
-                    "location": "นครสวรรค์",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "งานดูแลรักษาความปลอดภัย อุทยานแห่งชาติแม่วงก์",
-                    "description": "ข้อมูลประกาศรับสมัครพนักงานจ้างเอกชนดำเนินงาน ตำแหน่งงานดูแลรักษาความปลอดภัย ในพื้นที่นครสวรรค์ ผู้สมัครควรตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "9,000 บาท",
-                    "location": "นครสวรรค์",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "ตำแหน่งงานโรงพยาบาลสวรรค์ประชารักษ์",
-                    "description": "ข้อมูลประกาศรับสมัครงานโรงพยาบาลสวรรค์ประชารักษ์หลายตำแหน่ง เช่น นักโภชนาการ นักกายภาพบำบัด นักเทคนิคการแพทย์ เภสัชกร และแพทย์แผนไทย กรุณาตรวจสอบรายละเอียดต้นทางก่อนสมัคร",
-                    "salary": "ตรวจสอบตามประกาศ",
-                    "location": "นครสวรรค์",
-                    "is_gov": 1,
-                },
-                {
-                    "title": "ตำแหน่งงานว่างจังหวัดนครสวรรค์ ประจำวันที่ 27 เมษายน 2569",
-                    "description": "ข้อมูลตำแหน่งงานว่างรายวันจากสำนักงานจัดหางานจังหวัดนครสวรรค์ ผู้สมัครควรตรวจสอบรายการตำแหน่ง นายจ้าง และวิธีสมัครจากต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "นครสวรรค์",
-                    "is_gov": 0,
-                },
-                {
-                    "title": "ตำแหน่งงานว่างจังหวัดนครสวรรค์ ประจำเดือนกุมภาพันธ์ 2569",
-                    "description": "ข้อมูลวารสาร/ตำแหน่งงานว่างประจำเดือนจากสำนักงานจัดหางานจังหวัดนครสวรรค์ ผู้สมัครควรตรวจสอบรายละเอียดรายการตำแหน่งจากต้นทางก่อนสมัคร",
-                    "salary": "ตามโครงสร้างนายจ้าง",
-                    "location": "นครสวรรค์",
-                    "is_gov": 0,
-                },
-            ],
-        },
-    ]
-
-
-
-
-def get_official_doe_source_for_location(location):
+def _safe_agency_name(company_name="", location="", source_url=""):
+    company_name = str(company_name or "").strip()
     location = str(location or "").strip()
+    source_url = str(source_url or "").lower().strip()
 
-    mapping = {
-        "พิจิตร": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label",
-        "พิษณุโลก": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label",
-        "กำแพงเพชร": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label",
-        "นครสวรรค์": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label",
-    }
+    bad = {"", "ระบบดึงงานอัตโนมัติ", "auto job engine", "government job news"}
 
-    for province, url in mapping.items():
-        if province in location:
-            return url
+    if company_name.lower() not in bad:
+        return company_name
 
-    return "https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label"
-
-
-def is_bad_or_placeholder_source_url(source_url):
-    source_url = str(source_url or "").strip().lower()
-
-    if not source_url:
-        return True
-
-    bad_patterns = [
-        "google.com",
-        "example.com",
-        "facebook.com",
-        "localhost",
-        "127.0.0.1",
-        "#",
-    ]
-
-    return any(pattern in source_url for pattern in bad_patterns)
+    if "phichit" in source_url or "พิจิตร" in location:
+        return "สำนักงานจัดหางานจังหวัดพิจิตร"
+    if "phitsanulok" in source_url or "พิษณุโลก" in location:
+        return "สำนักงานจัดหางานจังหวัดพิษณุโลก"
+    if "kamphaengphet" in source_url or "กำแพงเพชร" in location:
+        return "สำนักงานจัดหางานจังหวัดกำแพงเพชร"
+    if "nakhonsawan" in source_url or "นครสวรรค์" in location:
+        return "สำนักงานจัดหางานจังหวัดนครสวรรค์"
+    return "กรมการจัดหางาน / ข่าวประกาศรับสมัครงาน"
 
 
-
-# SAFE_SOURCE_URL_HELPER
-def safe_source_url(source_url="", location="", title=""):
-    raw = str(source_url or "").strip()
-
-    if raw and not is_bad_or_placeholder_source_url(raw):
-        return raw
-
-    lookup_text = " ".join([
-        str(location or "").strip(),
-        str(title or "").strip(),
-    ]).strip()
-
-    try:
-        return get_official_doe_source_for_location(lookup_text)
-    except Exception:
-        return "https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label"
-
-def repair_job_source_urls_to_official():
-    conn = get_db()
-    current_time = now_str()
-
-    rows = conn.execute(
-        """
-        SELECT id, title, location, source_url, is_government_news
-        FROM job_posts
-        WHERE source_url = ''
-           OR lower(source_url) LIKE '%google.com%'
-           OR lower(source_url) LIKE '%example.com%'
-           OR lower(source_url) LIKE '%localhost%'
-           OR lower(source_url) LIKE '%127.0.0.1%'
-           OR source_url = '#'
-        ORDER BY id ASC
-        """
-    ).fetchall()
-
-    fixed = 0
-
-    for row in rows:
-        title = str(row["title"] or "")
-        location = str(row["location"] or "")
-        is_gov = int(row["is_government_news"] or 0)
-
-        should_repair = False
-
-        if is_gov == 1:
-            should_repair = True
-
-        if any(word in title for word in ["กรม", "แรงงาน", "จัดหางาน", "รับสมัคร", "ตำแหน่งงานว่าง", "ราชการ", "ลูกจ้าง"]):
-            should_repair = True
-
-        if any(province in location for province in ["พิจิตร", "พิษณุโลก", "กำแพงเพชร", "นครสวรรค์"]):
-            should_repair = True
-
-        if not should_repair:
-            continue
-
-        official_url = get_official_doe_source_for_location(location)
-
-        conn.execute(
-            """
-            UPDATE job_posts
-            SET source_url = ?,
-                is_government_news = CASE
-                    WHEN title LIKE '%ราชการ%'
-                      OR title LIKE '%กรม%'
-                      OR title LIKE '%แรงงาน%'
-                      OR title LIKE '%จัดหางาน%'
-                      OR title LIKE '%รับสมัคร%'
-                      OR title LIKE '%ลูกจ้าง%'
-                    THEN 1
-                    ELSE is_government_news
-                END,
-                ai_risk_score = COALESCE(ai_risk_score, 0),
-                ai_risk_reason = CASE
-                    WHEN ai_risk_reason = '' OR ai_risk_reason IS NULL THEN 'official DOE source repaired'
-                    ELSE ai_risk_reason || ' | official DOE source repaired'
-                END,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (official_url, current_time, row["id"])
-        )
-        fixed += 1
-
-    return fixed
-
-
-def clean_doe_title(value):
-    value = unescape(str(value or ""))
-    value = re.sub(r"<[^>]+>", " ", value)
-    value = re.sub(r"\s+", " ", value)
-    value = value.strip(" \n\t-–—•|")
-    return value
-
-
-def is_useful_doe_job_title(title):
-    title = clean_doe_title(title)
+def _safe_is_real_job_title(title):
+    title = str(title or "").strip()
     lowered = title.lower()
 
-    if len(title) < 10:
+    if len(title) < 8:
         return False
 
     bad_terms = [
-        "เข้าสู่ระบบ",
-        "ค้นหา",
-        "หน้าหลัก",
-        "ศูนย์ข่าว",
-        "ดาวน์โหลด",
-        "ติดต่อ",
-        "previous",
-        "next",
-        "first",
-        "last",
-        "rss",
-        "read more",
-        "ข่าวประชาสัมพันธ์ทั่วไป",
-        "การจัดซื้อจัดจ้าง",
+        "สำนักงานบริหารแรงงานไทยไปต่างประเทศ",
+        "สำนักบริหารแรงงานต่างด้าว",
+        "เว็บลิงค์หน่วยงานภายนอก",
+        "เว็บลิงค์หน่วยงานภายใน",
+        "รายงานงบทดลองเบิกจ่าย",
+        "ข่าวประกาศ",
+        "กฏหมาย",
+        "กฎหมาย",
+        "แผนงาน",
+        "โครงการ และงบประมาณ",
+        "ยุทธศาสตร์",
+        "แผนปฏิบัติราชการ",
+        "แผนพัฒนาดิจิทัล",
+        "นโยบายกรม",
+        "นโยบายกระทรวง",
+        "อำนาจหน้าที่",
+        "ภารกิจของหน่วยงาน",
+        "โครงสร้างหน่วยงาน",
+        "ข้อมูลผู้บริหาร",
+        "ผู้บริหารกรม",
+        "ผลการปฏิบัติงาน",
+        "คู่มือตาม",
+        "เกี่ยวกับบริษัทจัดหางาน",
+        "บทความ/งานวิเคราะห์",
+        "วารสาร",
+        "mobile app",
+        "ข้อมูลการไปทำงานต่างประเทศ",
+        "สถานการณ์ว่างงาน",
+        "ศูนย์บริหารข้อมูลตลาดแรงงาน",
+        "การทำงานในประเทศ",
+        "การทำงานของคนต่างด้าว",
+        "การไปทำงานต่างประเทศ",
+        "การเดินทางไปทำงานต่างประเทศ",
+        "แรงงานต่างด้าว",
     ]
 
-    if any(term in lowered for term in bad_terms):
+    if any(term.lower() in lowered for term in bad_terms):
         return False
 
     good_terms = [
-        "ตำแหน่งงานว่าง",
         "รับสมัคร",
         "เปิดรับสมัคร",
-        "ประกาศ",
-        "พนักงาน",
-        "ลูกจ้าง",
-        "จ้างเหมา",
-        "ราชการ",
-        "งาน",
-        "คนหางาน",
+        "ประกาศรับสมัคร",
+        "ตำแหน่งงานว่าง",
+        "งานว่าง",
         "นัดพบแรงงาน",
+        "ตลาดงาน",
+        "ลูกจ้าง",
+        "พนักงาน",
+        "จ้างเหมา",
+        "สอบคัดเลือก",
+        "สรรหา",
     ]
 
     return any(term in title for term in good_terms)
 
 
-def extract_doe_listing_items(source, limit=12):
-    url = source["url"]
-    headers = {
-        "User-Agent": "JobBoardAI/1.0 (+https://jobboard-ai-app.onrender.com)",
-        "Accept": "text/html,application/xhtml+xml",
-    }
-
-    try:
-        response = requests.get(url, headers=headers, timeout=15)
-        response.raise_for_status()
-        html = response.text
-    except Exception as exc:
-        return [], str(exc)
-
-    pairs = re.findall(
-        r'<a[^>]+href=["\\\']([^"\\\']+)["\\\'][^>]*>(.*?)</a>',
-        html,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-
-    items = []
-    seen = set()
-
-    for href, label_html in pairs:
-        title = clean_doe_title(label_html)
-        if not is_useful_doe_job_title(title):
-            continue
-
-        href = unescape(str(href or "")).strip()
-        if not href or href.startswith("#") or href.lower().startswith("javascript:"):
-            continue
-
-        source_url = urljoin(url, href)
-
-        key = (title, source_url)
-        if key in seen:
-            continue
-
-        seen.add(key)
-        items.append({
-            "title": title[:180],
-            "source_url": source_url,
-            "province": source["province"],
-            "employer": source["employer"],
-            "priority": source.get("priority", 50),
-        })
-
-        if len(items) >= limit:
-            break
-
-    return items, ""
-
-
-def ensure_doe_source_employer(conn, source):
-    current_time = now_str()
-    phone = normalize_phone(source["phone"])
-
-    user = conn.execute(
-        "SELECT id FROM users WHERE phone_number = ?",
-        (phone,)
-    ).fetchone()
-
-    if user:
-        employer_id = user["id"]
-        conn.execute(
-            """
-            UPDATE users
-            SET role = 'EMPLOYER',
-                is_verified = 1,
-                is_banned = 0,
-                trust_score = 95,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (current_time, employer_id)
-        )
-    else:
-        conn.execute(
-            """
-            INSERT INTO users (
-                phone_number, password_hash, role, is_verified, is_banned,
-                trust_score, created_at, updated_at
-            )
-            VALUES (?, ?, 'EMPLOYER', 1, 0, 95, ?, ?)
-            """,
-            (
-                phone,
-                hash_password(f"doe-source-{source['key']}-disabled-login"),
-                current_time,
-                current_time,
-            )
-        )
-        employer_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
-
-    profile = conn.execute(
-        "SELECT id FROM employer_profiles WHERE user_id = ?",
-        (employer_id,)
-    ).fetchone()
-
-    if profile:
-        conn.execute(
-            """
-            UPDATE employer_profiles
-            SET company_name = ?,
-                tax_id = ?,
-                is_company_verified = 1,
-                address = ?,
-                website = ?,
-                updated_at = ?
-            WHERE user_id = ?
-            """,
-            (
-                source["employer"],
-                source["tax_id"],
-                source["province"],
-                source["url"],
-                current_time,
-                employer_id,
-            )
-        )
-    else:
-        conn.execute(
-            """
-            INSERT INTO employer_profiles (
-                user_id, company_name, tax_id, is_company_verified,
-                address, website, created_at, updated_at
-            )
-            VALUES (?, ?, ?, 1, ?, ?, ?, ?)
-            """,
-            (
-                employer_id,
-                source["employer"],
-                source["tax_id"],
-                source["province"],
-                source["url"],
-                current_time,
-                current_time,
-            )
-        )
-
-    return employer_id
-
-
-def import_latest_doe_news_to_db():
-    conn = get_db()
-    current_time = now_str()
-
-    inserted = 0
-    updated = 0
-    scanned = 0
-    errors = []
-
-    for source in DOE_NEWS_SOURCES:
-        employer_id = ensure_doe_source_employer(conn, source)
-        items, error = extract_doe_listing_items(source, limit=12)
-
-        if error:
-            errors.append(f"{source['province']}: {error[:120]}")
-            continue
-
-        for item in items:
-            scanned += 1
-            title = item["title"]
-            province = item["province"]
-            source_url = item["source_url"]
-
-            description = (
-                f"ข่าวประกาศรับสมัครงาน/ตำแหน่งงานว่างจาก {source['employer']}\\n\\n"
-                f"หัวข้อ: {title}\\n"
-                f"พื้นที่: {province}\\n\\n"
-                "ผู้หางานควรกดลิงก์ต้นทางเพื่อตรวจสอบรายละเอียดล่าสุด คุณสมบัติ วิธีสมัคร วันรับสมัคร และเอกสารที่ต้องใช้ก่อนสมัครทุกครั้ง"
-            )
-
-            exists = conn.execute(
-                """
-                SELECT id
-                FROM job_posts
-                WHERE source_url = ?
-                LIMIT 1
-                """,
-                (source_url,)
-            ).fetchone()
-
-            if exists:
-                conn.execute(
-                    """
-                    UPDATE job_posts
-                    SET employer_id = ?,
-                        title = ?,
-                        description = ?,
-                        salary_range = ?,
-                        location = ?,
-                        is_government_news = 1,
-                        status = 'ACTIVE',
-                        ai_risk_score = 0,
-                        ai_risk_reason = 'DOE official live import',
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        employer_id,
-                        title,
-                        description,
-                        "ตรวจสอบตามประกาศต้นทาง",
-                        province,
-                        current_time,
-                        exists["id"],
-                    )
-                )
-                updated += 1
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO job_posts (
-                        employer_id, title, description, salary_range, location,
-                        is_government_news, source_url, status, ai_risk_score,
-                        ai_risk_reason, report_count, created_at, updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, 1, ?, 'ACTIVE', 0, 'DOE official live import', 0, ?, ?)
-                    """,
-                    (
-                        employer_id,
-                        title,
-                        description,
-                        "ตรวจสอบตามประกาศต้นทาง",
-                        province,
-                        source_url,
-                        current_time,
-                        current_time,
-                    )
-                )
-                inserted += 1
-
-    return {
-        "inserted": inserted,
-        "updated": updated,
-        "scanned": scanned,
-        "errors": errors,
-    }
-
-
-def import_upper_central_jobs_to_db():
-    conn = get_db()
-    current_time = now_str()
-
-    inserted = 0
-    updated = 0
-
-    for group in get_upper_central_job_import_data():
-        employer_id = ensure_local_source_employer(
-            conn,
-            group["phone"],
-            group["employer"],
-            group["tax_id"],
-            group["province"],
-        )
-
-        for job in group["jobs"]:
-            title = job["title"].strip()
-            location = job["location"].strip()
-            source_url = group["source_url"].strip()
-            description = (
-                job["description"].strip()
-                + "\n\nที่มา: "
-                + group["employer"]
-                + "\nหมายเหตุ: โปรดตรวจสอบรายละเอียดล่าสุดจากแหล่งข้อมูลต้นทางก่อนสมัครทุกครั้ง"
-            )
-
-            exists = conn.execute(
-                """
-                SELECT id
-                FROM job_posts
-                WHERE title = ?
-                  AND location = ?
-                  AND source_url = ?
-                LIMIT 1
-                """,
-                (title, location, source_url)
-            ).fetchone()
-
-            if exists:
-                conn.execute(
-                    """
-                    UPDATE job_posts
-                    SET employer_id = ?,
-                        description = ?,
-                        salary_range = ?,
-                        is_government_news = ?,
-                        status = 'ACTIVE',
-                        ai_risk_score = 0,
-                        ai_risk_reason = 'official/local source import',
-                        updated_at = ?
-                    WHERE id = ?
-                    """,
-                    (
-                        employer_id,
-                        description,
-                        job["salary"],
-                        int(job["is_gov"]),
-                        current_time,
-                        exists["id"],
-                    )
-                )
-                updated += 1
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO job_posts (
-                        employer_id, title, description, salary_range, location,
-                        is_government_news, source_url, status, ai_risk_score,
-                        ai_risk_reason, report_count, created_at, updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 0, 'official/local source import', 0, ?, ?)
-                    """,
-                    (
-                        employer_id,
-                        title,
-                        description,
-                        job["salary"],
-                        location,
-                        int(job["is_gov"]),
-                        source_url,
-                        current_time,
-                        current_time,
-                    )
-                )
-                inserted += 1
-
-    return inserted, updated
-
-
-
-# PRODUCTION_SAFETY_LIMITS_AND_LEGAL_PAGES
-_RATE_LIMIT_BUCKETS = {}
-
-
-def _client_ip_for_limit():
-    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-    return forwarded or request.remote_addr or "unknown"
-
-
-def _rate_limit_key(scope):
-    user_id = session.get("user_id", "guest")
-    return f"{scope}:{_client_ip_for_limit()}:{user_id}"
-
-
-def _hit_rate_limit(scope, max_hits, window_seconds):
-    now = time.time()
-    key = _rate_limit_key(scope)
-    items = _RATE_LIMIT_BUCKETS.get(key, [])
-    items = [ts for ts in items if now - ts < window_seconds]
-    allowed = len(items) < max_hits
-    items.append(now)
-    _RATE_LIMIT_BUCKETS[key] = items
-
-    if len(_RATE_LIMIT_BUCKETS) > 5000:
-        stale_before = now - 7200
-        for old_key in list(_RATE_LIMIT_BUCKETS.keys())[:1000]:
-            _RATE_LIMIT_BUCKETS[old_key] = [ts for ts in _RATE_LIMIT_BUCKETS[old_key] if ts >= stale_before]
-            if not _RATE_LIMIT_BUCKETS[old_key]:
-                _RATE_LIMIT_BUCKETS.pop(old_key, None)
-
-    return not allowed
-
-
-@app.before_request
-def production_safety_limits():
-    if request.endpoint == "static":
-        return None
-
-    path = request.path or ""
-    method = request.method.upper()
-
-    if path.startswith("/internal/admin/seed-test-accounts-and-repair"):
-        if os.environ.get("JOBBOARD_ENABLE_INTERNAL_SEED", "0").strip() != "1":
-            abort(404)
-
-        expected = os.environ.get("JOBBOARD_CRON_TOKEN", "").strip()
-        token = request.headers.get("X-Cron-Token", "").strip()
-        if not expected or not token or not hmac.compare_digest(token, expected):
-            abort(403)
-
-    checks = []
-    if method == "POST" and path.startswith("/login"):
-        checks.append(("login", 8, 15 * 60))
-    if method == "POST" and path.startswith("/register"):
-        checks.append(("register", 5, 60 * 60))
-    if method == "POST" and path.startswith("/dashboard/employer/jobs/new"):
-        checks.append(("post_job", 8, 60 * 60))
-    if method == "POST" and ("/report" in path or path.endswith("/report")):
-        checks.append(("report", 12, 60 * 60))
-    if method == "POST" and ("message" in path or "messages" in path):
-        checks.append(("message", 30, 15 * 60))
-    if method == "POST" and ("community" in path or "openchat" in path):
-        checks.append(("community", 25, 15 * 60))
-
-    for scope, max_hits, window_seconds in checks:
-        if _hit_rate_limit(scope, max_hits, window_seconds):
-            return "ใช้งานถี่เกินไป กรุณารอสักครู่แล้วลองใหม่อีกครั้ง", 429
-
-    return None
-
-
-
-
-def _legal_raw_page(title, badge, intro, cards):
-    card_html = ""
-    for heading, body in cards:
-        card_html += f"""
-        <div class="card">
-          <h2>{heading}</h2>
-          <p>{body}</p>
-        </div>
-        """
-
-    html = f"""<!doctype html>
-<html lang="th">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{title} | งานใกล้บ้าน</title>
-  <meta name="description" content="{intro}">
-  <style>
-    *{{box-sizing:border-box}}
-    body{{margin:0;font-family:Arial,'Tahoma',sans-serif;background:#020617;color:#fff}}
-    a{{color:inherit;text-decoration:none}}
-    .wrap{{width:min(1040px,calc(100% - 28px));margin:30px auto 60px}}
-    .nav{{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:18px;flex-wrap:wrap}}
-    .brand{{font-size:22px;font-weight:950}}
-    .brand span{{color:#38bdf8}}
-    .links{{display:flex;gap:8px;flex-wrap:wrap}}
-    .links a{{border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.82);padding:10px 13px;border-radius:999px;font-weight:900;color:#e0f2fe}}
-    .hero{{border:1px solid rgba(56,189,248,.24);border-radius:30px;padding:30px;background:radial-gradient(circle at 12% 10%,rgba(14,165,233,.22),transparent 34%),linear-gradient(135deg,rgba(15,23,42,.96),rgba(2,6,23,.96));box-shadow:0 24px 70px rgba(0,0,0,.28)}}
-    .badge{{display:inline-flex;border-radius:999px;padding:8px 12px;background:rgba(14,165,233,.14);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:950}}
-    h1{{font-size:clamp(32px,5vw,54px);line-height:1.05;margin:14px 0 10px}}
-    .lead{{color:#cbd5e1;font-weight:800;line-height:1.8;font-size:16px}}
-    .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:18px}}
-    .card{{padding:18px;border-radius:22px;background:rgba(15,23,42,.76);border:1px solid rgba(148,163,184,.14)}}
-    .card h2{{margin:0 0 8px;font-size:22px}}
-    .card p{{margin:0;color:#cbd5e1;font-weight:760;line-height:1.75}}
-    .footer{{margin-top:22px;color:#94a3b8;font-weight:800;text-align:center}}
-    @media(max-width:760px){{.grid{{grid-template-columns:1fr}}.hero{{padding:22px}}}}
-  </style>
-</head>
-<body>
-  <main class="wrap">
-    <div class="nav">
-      <a class="brand" href="/">งาน<span>ใกล้บ้าน</span></a>
-      <div class="links">
-        <a href="/">หน้าแรก</a>
-        <a href="/jobs">ค้นหางาน</a>
-        <a href="/urgent">งานด่วน</a>
-        <a href="/register">สมัครใช้งาน</a>
-      </div>
-    </div>
-
-    <section class="hero">
-      <span class="badge">{badge}</span>
-      <h1>{title}</h1>
-      <p class="lead">{intro}</p>
-    </section>
-
-    <section class="grid">
-      {card_html}
-    </section>
-
-    <div class="footer">© งานใกล้บ้าน — หางานง่ายขึ้น จ้างงานง่ายขึ้น และปลอดภัยขึ้น</div>
-  </main>
-</body>
-</html>"""
-    return Response(html, mimetype="text/html; charset=utf-8")
-
-
-@app.route("/privacy")
-def privacy_policy():
-    return _legal_raw_page(
-        "นโยบายความเป็นส่วนตัว",
-        "ความเป็นส่วนตัว",
-        "งานใกล้บ้านเก็บข้อมูลเท่าที่จำเป็น เพื่อให้ผู้หางานสมัครงาน นายจ้างลงประกาศ ตรวจสอบงานหลอกลวง และติดต่อกันในระบบได้อย่างปลอดภัย",
-        [
-            ("ข้อมูลที่อาจเก็บ", "เบอร์โทร อีเมล ชื่อโปรไฟล์ ข้อมูลบริษัท ประกาศงาน ใบสมัคร ข้อความ รายงานงานต้องสงสัย และบันทึกการใช้งานเพื่อความปลอดภัย"),
-            ("การใช้งานข้อมูล", "ใช้เพื่อสมัครสมาชิก โพสต์งาน สมัครงาน ติดต่อกัน ตรวจสอบงานเสี่ยง ป้องกันสแปม และปรับปรุงคุณภาพเว็บ"),
-            ("สิทธิของผู้ใช้", "ผู้ใช้สามารถขอแก้ไข ลบ หรือจำกัดการแสดงข้อมูลของตนได้ โดยติดต่อผู้ดูแลระบบผ่านช่องทางที่เว็บกำหนด"),
-            ("ข้อควรระวัง", "ห้ามส่งเลขบัตรประชาชน เอกสารสำคัญ หรือข้อมูลการเงินผ่านช่องแชท หากยังไม่ได้ตรวจสอบนายจ้างและช่องทางต้นทางให้ชัดเจน"),
-        ],
-    )
-
-
-@app.route("/terms")
-def terms_page():
-    return _legal_raw_page(
-        "เงื่อนไขการใช้งาน",
-        "ข้อตกลงใช้งาน",
-        "ผู้ใช้ต้องให้ข้อมูลจริง ใช้งานอย่างสุจริต และไม่ใช้เว็บเพื่อหลอกลวง เรียกเก็บเงิน หรือเผยแพร่ประกาศที่ผิดกฎหมาย",
-        [
-            ("สำหรับนายจ้าง", "ต้องประกาศงานจริง ระบุรายละเอียดชัดเจน ไม่เรียกเก็บค่าสมัคร ไม่ชวนโอนเงิน และยอมรับการตรวจสอบจากระบบหรือผู้ดูแล"),
-            ("สำหรับผู้หางาน", "ควรตรวจสอบรายละเอียดงาน ช่องทางติดต่อ และแหล่งต้นทางก่อนสมัคร ห้ามโอนเงินก่อนเริ่มงานหรือก่อนตรวจสอบความน่าเชื่อถือ"),
-            ("การระงับบัญชี", "ระบบอาจซ่อนประกาศ ระงับบัญชี หรือส่งให้ผู้ดูแลตรวจสอบ หากพบพฤติกรรมเสี่ยง สแปม หรือการหลอกลวง"),
-            ("ความรับผิดชอบ", "เว็บช่วยคัดกรองและจัดระเบียบข้อมูล แต่ผู้ใช้ยังควรตรวจสอบรายละเอียดจากต้นทางก่อนตัดสินใจสมัครหรือรับสมัคร"),
-        ],
-    )
-
-
-@app.route("/pricing")
-def pricing_page():
-    return _legal_raw_page(
-        "แพ็กเกจนายจ้างและโปรโมทประกาศ",
-        "รองรับรายได้ในอนาคต",
-        "ช่วงเริ่มต้นยังเน้นใช้งานฟรีเพื่อเพิ่มจำนวนงานและผู้สมัคร ก่อนต่อยอดเป็นบริการโปรโมทงานด่วน บริษัทแนะนำ และโฆษณาท้องถิ่น",
-        [
-            ("เริ่มต้นฟรี", "ลงประกาศพื้นฐาน ค้นหาผู้สมัคร และรับใบสมัครในระบบ เหมาะสำหรับเริ่มทดลองใช้งาน"),
-            ("โปรโมทงานด่วน", "ดันงานให้เด่นในหน้าแรกและหน้างานด่วน เหมาะกับงานที่ต้องการคนเร็ว"),
-            ("บริษัทแนะนำ", "พื้นที่สร้างความน่าเชื่อถือสำหรับนายจ้างที่รับสมัครต่อเนื่อง"),
-            ("โฆษณาท้องถิ่น", "รองรับร้านค้า โรงเรียนสอนอาชีพ บริการสมัครงาน หรือพันธมิตรที่เกี่ยวข้องกับการทำงานในอนาคต"),
-        ],
-    )
-
-
-
-
-# JOB_IMPORT_ENGINE_HARDENED
-def ensure_import_runs_schema():
-    conn = get_db()
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS import_runs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source_name TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'SUCCESS',
-            inserted_count INTEGER NOT NULL DEFAULT 0,
-            updated_count INTEGER NOT NULL DEFAULT 0,
-            skipped_count INTEGER NOT NULL DEFAULT 0,
-            error_message TEXT DEFAULT '',
-            created_at TEXT NOT NULL
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_import_runs_created ON import_runs(created_at);
-        CREATE INDEX IF NOT EXISTS idx_import_runs_source ON import_runs(source_name);
-        """
-    )
-    return conn
-
-
-def log_import_run(source_name, status, inserted=0, updated=0, skipped=0, error_message=""):
-    conn = ensure_import_runs_schema()
-    conn.execute(
-        """
-        INSERT INTO import_runs (
-            source_name, status, inserted_count, updated_count,
-            skipped_count, error_message, created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            str(source_name or "unknown")[:120],
-            str(status or "SUCCESS")[:40],
-            int(inserted or 0),
-            int(updated or 0),
-            int(skipped or 0),
-            str(error_message or "")[:800],
-            now_str(),
-        )
-    )
-
-
-def recent_successful_import_exists(source_name, minutes=30):
-    from datetime import datetime, timedelta
-
-    try:
-        minutes = max(1, int(minutes or 30))
-    except (TypeError, ValueError):
-        minutes = 30
-
-    threshold = (datetime.now() - timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
-
-    conn = ensure_import_runs_schema()
-    row = conn.execute(
-        """
-        SELECT id
-        FROM import_runs
-        WHERE source_name = ?
-          AND status = 'SUCCESS'
-          AND created_at >= ?
-        ORDER BY datetime(created_at) DESC, id DESC
-        LIMIT 1
-        """,
-        (source_name, threshold)
-    ).fetchone()
-
-    return row is not None
-
-
-def import_throttle_minutes(default_minutes=30):
-    try:
-        return max(1, int(os.environ.get("JOBBOARD_IMPORT_MIN_INTERVAL_MINUTES", default_minutes)))
-    except (TypeError, ValueError):
-        return int(default_minutes)
-
-
-def admin_import_confirm_page(title, message, action_label="เริ่มดำเนินการ"):
-    return render_template_string(
-        """
-        {% extends "base.html" %}
-        {% block title %}{{ title }} | งานใกล้บ้าน{% endblock %}
-        {% block content %}
-        <section style="width:min(860px,calc(100% - 28px));margin:34px auto 60px;padding:28px;border-radius:28px;border:1px solid rgba(56,189,248,.24);background:rgba(15,23,42,.88);color:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28);">
-          <span style="display:inline-flex;border-radius:999px;padding:8px 12px;background:rgba(14,165,233,.14);border:1px solid rgba(56,189,248,.24);color:#bae6fd;font-weight:950;">ระบบดึงงาน</span>
-          <h1 style="font-size:clamp(30px,5vw,48px);margin:14px 0 10px;">{{ title }}</h1>
-          <p style="color:#cbd5e1;font-weight:800;line-height:1.75;">{{ message }}</p>
-          <form method="post" style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px;">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" style="border:0;border-radius:999px;padding:13px 18px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;cursor:pointer;">{{ action_label }}</button>
-            <a href="{{ url_for('admin_import_runs') }}" style="border-radius:999px;padding:13px 18px;background:rgba(2,6,23,.64);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;font-weight:950;text-decoration:none;">ดูประวัติการดึงงาน</a>
-            <a href="{{ url_for('admin_dashboard') }}" style="border-radius:999px;padding:13px 18px;background:rgba(2,6,23,.64);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;font-weight:950;text-decoration:none;">กลับ Admin</a>
-          </form>
-        </section>
-        {% endblock %}
-        """,
-        title=title,
-        message=message,
-        action_label=action_label,
-    )
-
-
-def admin_import_done_page(title, result):
-    return render_template_string(
-        """
-        {% extends "base.html" %}
-        {% block title %}{{ title }} | งานใกล้บ้าน{% endblock %}
-        {% block content %}
-        <section style="width:min(860px,calc(100% - 28px));margin:34px auto 60px;padding:28px;border-radius:28px;border:1px solid rgba(34,197,94,.24);background:rgba(15,23,42,.88);color:#fff;box-shadow:0 24px 70px rgba(0,0,0,.28);">
-          <span style="display:inline-flex;border-radius:999px;padding:8px 12px;background:rgba(34,197,94,.13);border:1px solid rgba(34,197,94,.24);color:#bbf7d0;font-weight:950;">เสร็จสิ้น</span>
-          <h1 style="font-size:clamp(30px,5vw,48px);margin:14px 0 10px;">{{ title }}</h1>
-          <div style="display:grid;gap:10px;margin-top:16px;">
-            {% for key, value in result.items() %}
-              <div style="display:flex;justify-content:space-between;gap:14px;padding:13px 15px;border-radius:18px;background:rgba(2,6,23,.60);border:1px solid rgba(148,163,184,.14);">
-                <strong>{{ key }}</strong>
-                <span>{{ value }}</span>
-              </div>
-            {% endfor %}
-          </div>
-          <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:22px;">
-            <a href="{{ url_for('admin_import_runs') }}" style="border-radius:999px;padding:13px 18px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;text-decoration:none;">ดูประวัติการดึงงาน</a>
-            <a href="{{ url_for('jobs_public') }}" style="border-radius:999px;padding:13px 18px;background:rgba(2,6,23,.64);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;font-weight:950;text-decoration:none;">ดูหน้างาน</a>
-            <a href="{{ url_for('admin_dashboard') }}" style="border-radius:999px;padding:13px 18px;background:rgba(2,6,23,.64);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;font-weight:950;text-decoration:none;">กลับ Admin</a>
-          </div>
-        </section>
-        {% endblock %}
-        """,
-        title=title,
-        result=result,
-    )
-
-
-def is_valid_cron_request():
-    token = request.headers.get("X-Cron-Token", "").strip()
-    return bool(JOBBOARD_CRON_TOKEN) and bool(token) and hmac.compare_digest(token, JOBBOARD_CRON_TOKEN)
-
-
-@app.route("/internal/cron/import-upper-central-jobs", methods=["GET", "POST"])
-def cron_import_upper_central_jobs():
-    if not is_valid_cron_request():
-        abort(403)
-
-    source_name = "cron-upper-central-and-doe-news"
-    force = request.args.get("force", "").strip() == "1"
-
-    if not force and recent_successful_import_exists(source_name, import_throttle_minutes(30)):
-        log_import_run(source_name, "SKIPPED", skipped=1, error_message="Skipped by import throttle")
-        get_db().commit()
-        return jsonify({
-            "ok": True,
-            "skipped": True,
-            "reason": "recent import already completed",
-            "checked_at": now_str(),
-        })
-
-    try:
-        static_inserted, static_updated = import_upper_central_jobs_to_db()
-        doe_result = import_latest_doe_news_to_db()
-        source_fixed = repair_job_source_urls_to_official()
-
-        inserted = int(static_inserted or 0) + int(doe_result.get("inserted", 0))
-        updated = int(static_updated or 0) + int(doe_result.get("updated", 0))
-        errors = doe_result.get("errors", [])
-
-        log_import_run(
-            source_name,
-            "SUCCESS" if not errors else "SUCCESS_WITH_ERRORS",
-            inserted=inserted,
-            updated=updated,
-            skipped=len(errors),
-            error_message=" | ".join(errors[:3]) if errors else "",
-        )
-
-        add_activity_log(
-            None,
-            "CRON_IMPORT_UPPER_CENTRAL_AND_DOE_NEWS",
-            "job_posts",
-            None,
-            f"inserted={inserted}, updated={updated}, doe_scanned={doe_result.get('scanned', 0)}, source_fixed={source_fixed}, errors={len(errors)}",
-        )
-        get_db().commit()
-
-        send_discord_alert(
-            "✅ Auto Import งาน/ข่าวกรมแรงงานสำเร็จ\n"
-            f"Inserted: {inserted}\n"
-            f"Updated: {updated}\n"
-            f"DOE Scanned: {doe_result.get('scanned', 0)}\n"
-            f"Source Links Fixed: {source_fixed}\n"
-            f"Errors: {len(errors)}\n"
-            "พื้นที่: พิจิตร / พิษณุโลก / กำแพงเพชร / นครสวรรค์ / กรมการจัดหางาน\n"
-            f"เวลา: {now_str()}",
-            username="JobBoard Auto Import Bot",
-        )
-
-        return jsonify({
-            "ok": True,
-            "inserted": inserted,
-            "updated": updated,
-            "doe_scanned": doe_result.get("scanned", 0),
-            "doe_errors": errors,
-            "source_fixed": source_fixed,
-            "provinces": ["พิจิตร", "พิษณุโลก", "กำแพงเพชร", "นครสวรรค์"],
-            "checked_at": now_str(),
-        })
-    except Exception as exc:
-        log_import_run(source_name, "ERROR", error_message=str(exc))
-        get_db().commit()
-        raise
-
-
-@app.route("/admin/doe-news/repair-sources", methods=["GET", "POST"])
-@role_required("ADMIN")
-def admin_repair_doe_source_links():
-    if request.method == "GET":
-        return admin_import_confirm_page(
-            "ซ่อมลิงก์ต้นทางข่าวงาน",
-            "ระบบจะซ่อมลิงก์ต้นทางที่ว่าง ลิงก์ตัวอย่าง หรือลิงก์ไม่เหมาะสม ให้กลับไปยังแหล่งข้อมูลทางการของกรมการจัดหางาน",
-            "ซ่อมลิงก์ต้นทาง",
-        )
-
-    admin = get_current_user()
-    source_name = "repair-doe-source-links"
-
-    try:
-        fixed = repair_job_source_urls_to_official()
-
-        log_import_run(source_name, "SUCCESS", updated=fixed)
-        add_activity_log(
-            admin["id"],
-            "ADMIN_REPAIR_DOE_SOURCE_LINKS",
-            "job_posts",
-            None,
-            f"fixed_sources={fixed}",
-        )
-        get_db().commit()
-
-        send_discord_alert(
-            "✅ ซ่อมลิงก์ต้นทางข่าวกรมแรงงานสำเร็จ\n"
-            f"Fixed Sources: {fixed}\n"
-            f"เวลา: {now_str()}",
-            username="JobBoard DOE Import Bot",
-        )
-
-        return admin_import_done_page(
-            "ซ่อมลิงก์ต้นทางสำเร็จ",
-            {"Fixed Sources": fixed, "เวลา": now_str()},
-        )
-    except Exception as exc:
-        log_import_run(source_name, "ERROR", error_message=str(exc))
-        get_db().commit()
-        raise
-
-
-@app.route("/admin/doe-news/import-latest", methods=["GET", "POST"])
-@role_required("ADMIN")
-def admin_import_latest_doe_news():
-    if request.method == "GET":
-        return admin_import_confirm_page(
-            "ดึงข่าวงานจากกรมการจัดหางาน",
-            "ระบบจะดึงข่าวรับสมัครงานล่าสุดจากแหล่งทางการของกรมการจัดหางานและสำนักงานจัดหางานจังหวัดที่ตั้งค่าไว้",
-            "เริ่มดึงข่าวงาน",
-        )
-
-    admin = get_current_user()
-    source_name = "admin-doe-news-live"
-
-    if recent_successful_import_exists(source_name, 10):
-        log_import_run(source_name, "SKIPPED", skipped=1, error_message="Skipped by 10 minute manual throttle")
-        get_db().commit()
-        notify_admins_import_event(
-            "ข้ามการดึงข่าวกรมแรงงานล่าสุด",
-            "ระบบข้ามการดึงข่าว เพราะมีการดึงสำเร็จภายใน 10 นาทีที่ผ่านมา",
-            url_for("admin_import_runs"),
-            "IMPORT",
-            admin["id"],
-        )
-        return admin_import_done_page(
-            "ข้ามการดึงข่าวงาน",
-            {"สถานะ": "เพิ่งดึงสำเร็จในช่วง 10 นาทีที่ผ่านมา", "Inserted": 0, "Updated": 0},
-        )
-
-    try:
-        result = import_latest_doe_news_to_db()
-        fixed_sources = repair_job_source_urls_to_official()
-
-        log_import_run(
-            source_name,
-            "SUCCESS" if not result.get("errors") else "SUCCESS_WITH_ERRORS",
-            inserted=result.get("inserted", 0),
-            updated=result.get("updated", 0) + fixed_sources,
-            skipped=len(result.get("errors", [])),
-            error_message=" | ".join(result.get("errors", [])[:3]) if result.get("errors") else "",
-        )
-
-        add_activity_log(
-            admin["id"],
-            "ADMIN_IMPORT_LATEST_DOE_NEWS",
-            "job_posts",
-            None,
-            f"inserted={result['inserted']}, updated={result['updated']}, scanned={result['scanned']}, fixed_sources={fixed_sources}, errors={len(result['errors'])}",
-        )
-        get_db().commit()
-
-        notify_admins_import_event(
-            "ดึงข่าวกรมแรงงานล่าสุดสำเร็จ",
-            f"Inserted: {result['inserted']}\nUpdated: {result['updated']}\nScanned: {result['scanned']}\nFixed Sources: {fixed_sources}\nErrors: {len(result['errors'])}",
-            url_for("admin_import_runs"),
-            "IMPORT",
-            admin["id"],
-        )
-
-        send_discord_alert(
-            "✅ ดึงข่าวกรมแรงงาน/กรมการจัดหางานล่าสุดสำเร็จ\n"
-            f"Inserted: {result['inserted']}\n"
-            f"Updated: {result['updated']}\n"
-            f"Scanned: {result['scanned']}\n"
-            f"Fixed Sources: {fixed_sources}\n"
-            f"Errors: {len(result['errors'])}",
-            username="JobBoard DOE Import Bot",
-        )
-
-        return admin_import_done_page(
-            "ดึงข่าวงานสำเร็จ",
-            {
-                "Inserted": result["inserted"],
-                "Updated": result["updated"],
-                "Scanned": result["scanned"],
-                "Fixed Sources": fixed_sources,
-                "Errors": len(result["errors"]),
-            },
-        )
-    except Exception as exc:
-        log_import_run(source_name, "ERROR", error_message=str(exc))
-        get_db().commit()
-        notify_admins_import_event(
-            "ดึงข่าวกรมแรงงานล่าสุดไม่สำเร็จ",
-            f"เกิดข้อผิดพลาด: {str(exc)[:500]}",
-            url_for("admin_import_runs"),
-            "IMPORT_ERROR",
-            admin["id"] if admin else None,
-        )
-        raise
-
-
-@app.route("/admin/local-jobs/import-upper-central", methods=["GET", "POST"])
-@role_required("ADMIN")
-def admin_import_upper_central_jobs():
-    if request.method == "GET":
-        return admin_import_confirm_page(
-            "นำเข้างานท้องถิ่นภาคเหนือตอนล่าง",
-            "ระบบจะนำเข้าข้อมูลงานตั้งต้นของพื้นที่ พิจิตร พิษณุโลก กำแพงเพชร และนครสวรรค์ พร้อมกันซ้ำด้วยชื่อ ตำแหน่ง พื้นที่ และลิงก์ต้นทาง",
-            "เริ่มนำเข้างานท้องถิ่น",
-        )
-
-    admin = get_current_user()
-    source_name = "admin-upper-central-static"
-
-    if recent_successful_import_exists(source_name, 10):
-        log_import_run(source_name, "SKIPPED", skipped=1, error_message="Skipped by 10 minute manual throttle")
-        get_db().commit()
-        return admin_import_done_page(
-            "ข้ามการนำเข้างาน",
-            {"สถานะ": "เพิ่งนำเข้าสำเร็จในช่วง 10 นาทีที่ผ่านมา", "Inserted": 0, "Updated": 0},
-        )
-
-    try:
-        inserted, updated = import_upper_central_jobs_to_db()
-
-        log_import_run(source_name, "SUCCESS", inserted=inserted, updated=updated)
-        add_activity_log(
-            admin["id"],
-            "ADMIN_IMPORT_UPPER_CENTRAL_JOBS",
-            "job_posts",
-            None,
-            f"inserted={inserted}, updated={updated}, provinces=phichit,phitsanulok,kamphaengphet,nakhonsawan",
-        )
-        get_db().commit()
-
-        return admin_import_done_page(
-            "นำเข้างานท้องถิ่นสำเร็จ",
-            {"Inserted": inserted, "Updated": updated, "พื้นที่": "พิจิตร / พิษณุโลก / กำแพงเพชร / นครสวรรค์"},
-        )
-    except Exception as exc:
-        log_import_run(source_name, "ERROR", error_message=str(exc))
-        get_db().commit()
-        raise
-
-
-@app.route("/admin/government-news/fetch", methods=["POST"])
-@role_required("ADMIN")
-def admin_fetch_government_news():
-    admin = get_current_user()
-    source_name = "admin-auto-job-engine-demo"
-
-    try:
-        result = run_auto_job_engine_demo()
-
-        log_import_run(
-            source_name,
-            "SUCCESS",
-            inserted=result.get("inserted", 0),
-            updated=result.get("updated", 0),
-            skipped=result.get("skipped", 0),
-        )
-
-        add_activity_log(
-            admin["id"],
-            "ADMIN_RUN_AUTO_JOB_ENGINE",
-            "job_posts",
-            None,
-            f"inserted={result['inserted']}, updated={result['updated']}, skipped={result['skipped']}",
-        )
-        get_db().commit()
-        notify_admins_import_event(
-            "ดึงข่าวประจำวันสำเร็จ",
-            f"Inserted: {result['inserted']}\nUpdated: {result['updated']}\nSkipped: {result['skipped']}",
-            url_for("admin_import_runs"),
-            "IMPORT",
-            admin["id"],
-        )
-        return redirect(url_for("admin_dashboard"))
-    except Exception as exc:
-        log_import_run(source_name, "ERROR", error_message=str(exc))
-        get_db().commit()
-        raise
-
-
-
-
-def format_file_size(num_bytes):
-    try:
-        num_bytes = int(num_bytes or 0)
-    except (TypeError, ValueError):
-        num_bytes = 0
-
-    units = ["B", "KB", "MB", "GB"]
-    size = float(num_bytes)
-    for unit in units:
-        if size < 1024 or unit == units[-1]:
-            return f"{size:.1f} {unit}" if unit != "B" else f"{int(size)} {unit}"
-        size = size / 1024
-
-    return f"{num_bytes} B"
-
-
-@app.route("/admin/system-health")
-@role_required("ADMIN")
-def admin_system_health():
+def _safe_fetch_government_rows(limit=100, q="", location=""):
     conn = get_db()
 
-    db_exists = DB_PATH.exists()
-    db_size = DB_PATH.stat().st_size if db_exists else 0
-
-    env_checks = {
-        "JOBBOARD_SECRET_KEY": bool(app.secret_key),
-        "JOBBOARD_ADMIN_PHONE": bool(ADMIN_PHONE),
-        "JOBBOARD_ADMIN_PASSWORD": bool(ADMIN_PASSWORD),
-        "JOBBOARD_DATABASE_PATH": bool(os.environ.get("JOBBOARD_DATABASE_PATH", "").strip()),
-        "JOBBOARD_SESSION_COOKIE_SECURE": app.config.get("SESSION_COOKIE_SECURE") is True,
-        "DISCORD_SCAM_ALERT_WEBHOOK_URL": bool(DISCORD_SCAM_ALERT_WEBHOOK_URL),
-        "JOBBOARD_CRON_TOKEN": bool(JOBBOARD_CRON_TOKEN),
-    }
-
-    stats = {
-        "users": conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"],
-        "active_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'").fetchone()["count"],
-        "pending_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'").fetchone()["count"],
-        "rejected_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'").fetchone()["count"],
-        "reports": conn.execute("SELECT COUNT(*) AS count FROM reports").fetchone()["count"],
-        "activity_logs": conn.execute("SELECT COUNT(*) AS count FROM activity_logs").fetchone()["count"],
-    }
-
-    health = {
-        "checked_at": now_str(),
-        "render_git_commit": os.environ.get("RENDER_GIT_COMMIT", "").strip(),
-        "render_service_name": os.environ.get("RENDER_SERVICE_NAME", "").strip(),
-        "render_external_url": os.environ.get("RENDER_EXTERNAL_URL", "").strip(),
-        "database_path": str(DB_PATH),
-        "database_exists": db_exists,
-        "database_size": format_file_size(db_size),
-        "env_checks": env_checks,
-        "stats": stats,
-    }
-
-    return render_template("admin_system_health.html", health=health)
-
-
-
-@app.route("/admin/openchat-media-review")
-@role_required("ADMIN")
-def admin_openchat_media_review():
-    conn = get_db()
     try:
-        ensure_openchat_media_tables(conn)
+        ensure_production_job_schema(conn)
     except Exception:
         pass
 
-    status_filter = request.args.get("status", "PENDING_REVIEW").strip().upper()
-
-    where = "WHERE 1=1"
+    where = """
+        job_posts.status = 'ACTIVE'
+        AND job_posts.is_government_news = 1
+        AND COALESCE(job_posts.source_url, '') != ''
+        AND lower(COALESCE(job_posts.source_url, '')) NOT LIKE '%example.com%'
+        AND lower(COALESCE(job_posts.source_url, '')) NOT LIKE '%google.com%'
+        AND lower(COALESCE(job_posts.source_url, '')) NOT LIKE '%localhost%'
+        AND lower(COALESCE(job_posts.source_url, '')) NOT LIKE '%127.0.0.1%'
+        AND job_posts.title NOT LIKE '%ตัวอย่าง%'
+        AND lower(COALESCE(job_posts.description, '')) NOT LIKE '%demo%'
+    """
     params = []
 
-    if status_filter in {"PENDING_REVIEW", "APPROVED", "REJECTED"}:
-        where += " AND openchat_media.status = ?"
-        params.append(status_filter)
+    q = str(q or "").strip().lower()
+    location = str(location or "").strip().lower()
 
-    media_items = conn.execute(
-        f"""
-        SELECT
-            openchat_media.*,
-            openchat_messages.message,
-            openchat_messages.status AS message_status,
-            openchat_messages.moderation_score,
-            openchat_messages.moderation_reason,
-            users.phone_number,
-            users.role,
-            COALESCE(job_seeker_profiles.full_name, employer_profiles.company_name, '') AS author_name
-        FROM openchat_media
-        JOIN openchat_messages ON openchat_messages.id = openchat_media.message_id
-        JOIN users ON users.id = openchat_media.user_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = users.id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = users.id
-        {where}
-        ORDER BY datetime(openchat_media.created_at) DESC, openchat_media.id DESC
-        LIMIT 200
-        """,
-        tuple(params)
-    ).fetchall()
-
-    stats = {
-        "pending": conn.execute("SELECT COUNT(*) AS count FROM openchat_media WHERE status = 'PENDING_REVIEW'").fetchone()["count"],
-        "approved": conn.execute("SELECT COUNT(*) AS count FROM openchat_media WHERE status = 'APPROVED'").fetchone()["count"],
-        "rejected": conn.execute("SELECT COUNT(*) AS count FROM openchat_media WHERE status = 'REJECTED'").fetchone()["count"],
-    }
-
-    return render_template(
-        "admin_openchat_media_review.html",
-        media_items=media_items,
-        stats=stats,
-        status_filter=status_filter,
-        mask_phone_for_display=mask_phone_for_display,
-    )
-
-
-@app.route("/admin/openchat-media-review/<int:media_id>/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_openchat_media_review(media_id, action):
-    admin = get_current_user()
-    conn = get_db()
-
-    media = conn.execute("SELECT * FROM openchat_media WHERE id = ?", (media_id,)).fetchone()
-    if not media:
-        abort(404)
-
-    current_time = now_str()
-
-    if action == "approve":
-        conn.execute(
-            """
-            UPDATE openchat_media
-            SET status = 'APPROVED',
-                reviewed_by = ?,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (admin["id"], current_time, media_id)
-        )
-        add_activity_log(admin["id"], "ADMIN_APPROVE_OPENCHAT_MEDIA", "openchat_media", media_id, f"message_id={media['message_id']}")
-
-    elif action == "reject":
-        conn.execute(
-            """
-            UPDATE openchat_media
-            SET status = 'REJECTED',
-                reviewed_by = ?,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (admin["id"], current_time, media_id)
-        )
-        add_activity_log(admin["id"], "ADMIN_REJECT_OPENCHAT_MEDIA", "openchat_media", media_id, f"message_id={media['message_id']}")
-
-    elif action == "delete":
-        file_path = OPENCHAT_UPLOAD_DIR / media["file_name"]
-        try:
-            if file_path.exists():
-                file_path.unlink()
-        except Exception:
-            pass
-
-        conn.execute("DELETE FROM openchat_media WHERE id = ?", (media_id,))
-        add_activity_log(admin["id"], "ADMIN_DELETE_OPENCHAT_MEDIA", "openchat_media", media_id, f"message_id={media['message_id']}")
-
-    else:
-        abort(404)
-
-    conn.commit()
-    return redirect(url_for("admin_openchat_media_review"))
-
-
-@app.route("/admin")
-@role_required("ADMIN")
-def admin_dashboard():
-    conn = get_db()
-    stats = {
-        "pending_ai": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'").fetchone()["count"],
-        "active": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'").fetchone()["count"],
-        "rejected": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'").fetchone()["count"],
-        "reports": conn.execute("SELECT COUNT(*) AS count FROM reports WHERE status = 'PENDING'").fetchone()["count"],
-        "users": conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"],
-    }
-    latest_users = conn.execute(
+    if q:
+        like_q = f"%{q}%"
+        where += """
+            AND (
+                lower(job_posts.title) LIKE ?
+                OR lower(job_posts.description) LIKE ?
+                OR lower(job_posts.location) LIKE ?
+                OR lower(employer_profiles.company_name) LIKE ?
+            )
         """
-        SELECT id, phone_number, role, is_verified, trust_score, created_at
-        FROM users
-        ORDER BY datetime(created_at) DESC, id DESC
-        LIMIT 10
-        """
-    ).fetchall()
+        params.extend([like_q, like_q, like_q, like_q])
 
-    review_jobs = conn.execute(
-        """
-        SELECT job_posts.*, employer_profiles.company_name
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.status IN ('PENDING_AI_REVIEW', 'REJECTED')
-        ORDER BY job_posts.ai_risk_score DESC, datetime(job_posts.created_at) DESC
-        LIMIT 20
-        """
-    ).fetchall()
-
-    reports = conn.execute(
-        """
-        SELECT reports.*, job_posts.title
-        FROM reports
-        JOIN job_posts ON job_posts.id = reports.job_post_id
-        WHERE reports.status = 'PENDING'
-        ORDER BY datetime(reports.created_at) DESC
-        LIMIT 20
-        """
-    ).fetchall()
-
-    return render_template(
-        "admin_dashboard.html",
-        stats=stats,
-        latest_users=latest_users,
-        review_jobs=review_jobs,
-        reports=reports,
-    )
-
-
-
-@app.route("/job/<int:job_id>/generate-image")
-def generate_image(job_id):
-    from graphic_generator import generate_job_graphic
-
-    conn = get_db()
-
-    job = conn.execute(
-        """
-        SELECT
-            job_posts.*,
-            employer_profiles.company_name
-        FROM job_posts
-        LEFT JOIN employer_profiles
-            ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.id = ?
-        """,
-        (job_id,)
-    ).fetchone()
-
-    if not job:
-        return "Job not found", 404
-
-    image_url = generate_job_graphic(job)
-    return redirect(image_url)
-
-
-@app.route("/jobs/location/<province>")
-def jobs_by_province(province):
-    conn = get_db()
-
-    jobs = conn.execute(
-        """
-        SELECT
-            job_posts.*,
-            employer_profiles.company_name,
-            employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles
-            ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.status = 'ACTIVE'
-          AND job_posts.location LIKE ?
-        ORDER BY datetime(job_posts.created_at) DESC, job_posts.id DESC
-        """,
-        (f"%{province}%",)
-    ).fetchall()
-
-    return render_template(
-        "jobs_by_province.html",
-        jobs=jobs,
-        province=province,
-        total=len(jobs),
-    )
-
-
-@app.route("/job-seeker/post", methods=["GET", "POST"])
-@role_required("JOB_SEEKER")
-def job_seeker_post():
-    user = get_current_user()
-    conn = get_db()
-
-    profile = conn.execute(
-        "SELECT * FROM job_seeker_profiles WHERE user_id = ?",
-        (user["id"],)
-    ).fetchone()
-
-    error = ""
-
-    if request.method == "POST":
-        full_name = request.form.get("full_name", "").strip()
-        headline = request.form.get("headline", "").strip()
-        preferred_location = request.form.get("preferred_location", "").strip()
-        bio = request.form.get("bio", "").strip()
-        is_public = 1 if request.form.get("is_public") else 0
-        is_urgent = 1 if request.form.get("is_urgent") else 0
-
-        if not full_name:
-            error = "กรุณากรอกชื่อ-นามสกุล"
-        else:
-            current_time = now_str()
-            combined_bio = bio
-            if preferred_location:
-                combined_bio = f"พื้นที่ที่ต้องการทำงาน: {preferred_location}\n\n{bio}".strip()
-
-            if profile:
-                conn.execute(
-                    """
-                    UPDATE job_seeker_profiles
-                    SET full_name = ?, headline = ?, resume_url = ?, is_public = ?, is_urgent = ?, updated_at = ?
-                    WHERE user_id = ?
-                    """,
-                    (full_name, headline, combined_bio, is_public, is_urgent, current_time, user["id"])
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO job_seeker_profiles (
-                        user_id, full_name, headline, resume_url, is_public, is_urgent, created_at, updated_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (user["id"], full_name, headline, combined_bio, is_public, is_urgent, current_time, current_time)
-                )
-
-            conn.commit()
-            return redirect(url_for("job_seeker_dashboard"))
-
-    return render_template(
-        "job_seeker_post.html",
-        profile=profile,
-        error=error
-    )
-
-
-@app.route("/messages")
-@login_required
-def inbox():
-    user = get_current_user()
-    conn = get_db()
-
-    messages = conn.execute(
-        """
-        SELECT
-            messages.*,
-            sender.phone_number AS sender_phone,
-            receiver.phone_number AS receiver_phone,
-            applications.status AS application_status,
-            job_posts.title AS job_title,
-            job_seeker_profiles.full_name AS sender_full_name,
-            employer_profiles.company_name AS sender_company_name
-        FROM messages
-        JOIN users AS sender ON sender.id = messages.sender_id
-        JOIN users AS receiver ON receiver.id = messages.receiver_id
-        LEFT JOIN applications ON applications.id = messages.application_id
-        LEFT JOIN job_posts ON job_posts.id = applications.job_post_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = sender.id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = sender.id
-        WHERE messages.receiver_id = ?
-        ORDER BY datetime(messages.created_at) DESC, messages.id DESC
-        """,
-        (user["id"],)
-    ).fetchall()
-
-    conn.execute(
-        "UPDATE messages SET is_read = 1 WHERE receiver_id = ?",
-        (user["id"],)
-    )
-    conn.commit()
-
-    return render_template("inbox.html", messages=messages)
-
-
-
-
-@app.route("/api/messages/unread-count")
-@login_required
-def api_unread_messages_count():
-    user = get_current_user()
-    conn = get_db()
-    count = conn.execute(
-        """
-        SELECT COUNT(*) AS count
-        FROM messages
-        WHERE receiver_id = ?
-          AND is_read = 0
-        """,
-        (user["id"],)
-    ).fetchone()["count"]
-
-    return jsonify({"unread": int(count)})
-
-
-@app.route("/messages/send", methods=["POST"])
-@login_required
-def send_message():
-    blocked = enforce_security("message")
-    if blocked:
-        return blocked
-
-    user = get_current_user()
-    receiver_id = request.form.get("receiver_id", "").strip()
-    application_id = request.form.get("application_id", "").strip()
-    message = normalize_user_text_for_safety(request.form.get("message", ""), 1000)
-
-    if not receiver_id or not message:
-        return "กรุณากรอกข้อความให้ครบ", 400
-
-    safety_score, safety_reason, safety_status = analyze_safety_text(message, context="PRIVATE_MESSAGE")
-    if safety_status == "BLOCKED":
-        alert_sent = safe_send_moderation_alert(
-            "PRIVATE_MESSAGE_BLOCKED",
-            "-",
-            user,
-            message,
-            safety_status,
-            safety_score,
-            safety_reason,
-        )
-        safe_add_activity_log(
-            user["id"],
-            "PRIVATE_MESSAGE_BLOCKED",
-            "messages",
-            None,
-            f"score={safety_score}, alert={alert_sent}, reason={str(safety_reason)[:200]}",
-        )
-        try:
-            get_db().commit()
-        except Exception:
-            pass
-        return reject_unsafe_text_response(safety_score, safety_reason)
+    if location:
+        where += " AND lower(job_posts.location) LIKE ?"
+        params.append(f"%{location}%")
 
     try:
-        receiver_id_int = int(receiver_id)
-    except ValueError:
-        return "receiver_id ไม่ถูกต้อง", 400
-
-    application_id_int = None
-    if application_id:
-        try:
-            application_id_int = int(application_id)
-        except ValueError:
-            application_id_int = None
-
-    conn = get_db()
-
-    receiver = conn.execute(
-        "SELECT id FROM users WHERE id = ? AND is_banned = 0",
-        (receiver_id_int,)
-    ).fetchone()
-    if not receiver:
-        return "ไม่พบผู้รับข้อความ", 404
-
-    if application_id_int:
-        application = conn.execute(
-            """
-            SELECT applications.*, job_posts.employer_id
-            FROM applications
-            JOIN job_posts ON job_posts.id = applications.job_post_id
-            WHERE applications.id = ?
+        rows = conn.execute(
+            f"""
+            SELECT
+                job_posts.id,
+                job_posts.title,
+                job_posts.description,
+                job_posts.salary_range,
+                job_posts.location,
+                job_posts.source_url,
+                job_posts.created_at,
+                job_posts.updated_at,
+                COALESCE(job_posts.view_count, 0) AS view_count,
+                employer_profiles.company_name,
+                employer_profiles.is_company_verified
+            FROM job_posts
+            LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+            WHERE {where}
+            ORDER BY
+                CASE WHEN lower(job_posts.source_url) LIKE '%doe.go.th%' THEN 0 ELSE 1 END,
+                datetime(job_posts.updated_at) DESC,
+                datetime(job_posts.created_at) DESC,
+                job_posts.id DESC
+            LIMIT ?
             """,
-            (application_id_int,)
-        ).fetchone()
-
-        if not application:
-            return "ไม่พบใบสมัคร", 404
-
-        allowed_sender_ids = {application["job_seeker_id"], application["employer_id"]}
-        if user["id"] not in allowed_sender_ids or receiver_id_int not in allowed_sender_ids:
-            abort(403)
-
-    conn.execute(
-        """
-        INSERT INTO messages (sender_id, receiver_id, application_id, message, is_read, created_at)
-        VALUES (?, ?, ?, ?, 0, ?)
-        """,
-        (user["id"], receiver_id_int, application_id_int, message, now_str())
-    )
-    conn.commit()
-
-    return redirect(request.referrer or url_for("inbox"))
-
-
-@app.route("/dashboard/employer/applications")
-@role_required("EMPLOYER")
-def employer_applications():
-    user = get_current_user()
-    conn = get_db()
-
-    applications = conn.execute(
-        """
-        SELECT
-            applications.*,
-            users.phone_number AS applicant_phone,
-            job_posts.title AS job_title,
-            job_posts.location AS job_location,
-            job_seeker_profiles.full_name,
-            job_seeker_profiles.headline,
-            job_seeker_profiles.resume_url
-        FROM applications
-        JOIN users ON users.id = applications.job_seeker_id
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = applications.job_seeker_id
-        WHERE job_posts.employer_id = ?
-        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
-        """,
-        (user["id"],)
-    ).fetchall()
-
-    return render_template("employer_applications.html", applications=applications)
-
-
-@app.route("/dashboard/employer/applications/<int:application_id>/<action>", methods=["POST"])
-@role_required("EMPLOYER")
-def employer_update_application(application_id, action):
-    status_map = {
-        "review": "REVIEWING",
-        "shortlist": "SHORTLISTED",
-        "reject": "REJECTED",
-        "hire": "HIRED",
-    }
-
-    if action not in status_map:
-        abort(404)
-
-    user = get_current_user()
-    conn = get_db()
-
-    application = conn.execute(
-        """
-        SELECT applications.*, job_posts.employer_id
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        WHERE applications.id = ?
-        """,
-        (application_id,)
-    ).fetchone()
-
-    if not application or application["employer_id"] != user["id"]:
-        abort(404)
-
-    new_status = status_map[action]
-    conn.execute(
-        """
-        UPDATE applications
-        SET status = ?, updated_at = ?
-        WHERE id = ?
-        """,
-        (new_status, now_str(), application_id)
-    )
-    conn.commit()
-
-    return redirect(url_for("employer_applications"))
-
-
-def normalize_page_path_for_stats(path):
-    path = str(path or "/").split("?")[0].strip()
-    if not path:
-        path = "/"
-
-    if path != "/" and path.endswith("/"):
-        path = path[:-1]
-
-    return path[:240]
-
-
-def should_track_page_view():
-    if request.method != "GET":
-        return False
-
-    if request.endpoint == "static":
-        return False
-
-    path = request.path or "/"
-
-    ignored_prefixes = (
-        "/static/",
-        "/api/",
-        "/media/",
-        "/favicon.ico",
-        "/robots.txt",
-        "/sitemap.xml",
-        "/internal/",
-    )
-
-    return not path.startswith(ignored_prefixes)
-
-
-def get_page_title_for_stats(path):
-    path = normalize_page_path_for_stats(path)
-
-    titles = {
-        "/": "หน้าแรก",
-        "/jobs": "งานใกล้ฉัน",
-        "/urgent": "งานด่วน",
-        "/openchat": "OpenChat",
-        "/login": "เข้าสู่ระบบ",
-        "/register": "สมัครใช้งาน",
-        "/admin": "Admin Dashboard",
-    }
-
-    if path.startswith("/jobs/"):
-        return "รายละเอียดงาน"
-    if path.startswith("/admin"):
-        return "Admin"
-    if path.startswith("/dashboard"):
-        return "Dashboard"
-    if path.startswith("/messages"):
-        return "ข้อความ"
-
-    return titles.get(path, path)
-
-
-def get_page_view_stats(path=None):
-    try:
-        conn = get_db()
-        page_path = normalize_page_path_for_stats(path or request.path)
-
-        row = conn.execute(
-            "SELECT view_count FROM page_views WHERE page_path = ?",
-            (page_path,)
-        ).fetchone()
-
-        total = conn.execute(
-            "SELECT COALESCE(SUM(view_count), 0) AS total FROM page_views"
-        ).fetchone()["total"]
-
-        return {
-            "path": page_path,
-            "current": int(row["view_count"]) if row else 0,
-            "total": int(total or 0),
-        }
+            tuple(params + [int(limit or 100)]),
+        ).fetchall()
     except Exception:
-        return {"path": path or "/", "current": 0, "total": 0}
+        rows = []
+
+    clean_rows = []
+    for row in rows:
+        if _safe_is_real_job_title(row["title"]):
+            clean_rows.append(row)
+
+    return clean_rows
 
 
-@app.after_request
-def track_page_view_response(response):
-    try:
-        if response.status_code == 200 and should_track_page_view():
-            content_type = response.headers.get("Content-Type", "")
-            if "text/html" in content_type:
-                conn = get_db()
-                page_path = normalize_page_path_for_stats(request.path)
-                page_title = get_page_title_for_stats(page_path)
-                current_time = now_str()
+def _safe_render_public_page(page_title, subtitle, rows, q="", location="", show_search=True):
+    cards = []
 
-                conn.execute(
-                    """
-                    INSERT INTO page_views (page_path, page_title, view_count, last_viewed_at, created_at)
-                    VALUES (?, ?, 1, ?, ?)
-                    ON CONFLICT(page_path) DO UPDATE SET
-                        page_title = excluded.page_title,
-                        view_count = page_views.view_count + 1,
-                        last_viewed_at = excluded.last_viewed_at
-                    """,
-                    (page_path, page_title, current_time, current_time)
-                )
-                conn.commit()
-    except Exception:
-        pass
+    for row in rows:
+        title = _safe_html_escape(row["title"])
+        loc = _safe_html_escape(row["location"] or "ทั่วประเทศ")
+        agency = _safe_html_escape(_safe_agency_name(row["company_name"], row["location"], row["source_url"]))
+        salary = _safe_html_escape(row["salary_range"] or "ตรวจสอบตามประกาศต้นทาง")
+        updated = _safe_html_escape(row["updated_at"] or row["created_at"] or "")
+        source_url = _safe_html_escape(row["source_url"])
+        views = int(row["view_count"] or 0)
 
-    return response
+        detail_url = f"/job/{row['id']}"
+
+        cards.append(
+            f"""
+            <article class="card">
+                <div class="badge">งานราชการ / DOE</div>
+                <h2>{title}</h2>
+                <p><b>หน่วยงาน:</b> {agency}</p>
+                <p><b>พื้นที่:</b> {loc}</p>
+                <p><b>เงินเดือน:</b> {salary}</p>
+                <p><b>อัปเดต:</b> {updated} · <b>เข้าชม:</b> {views} ครั้ง</p>
+                <div class="actions">
+                    <a class="btn primary" href="{detail_url}">ดูรายละเอียด</a>
+                    <a class="btn" href="{source_url}" target="_blank" rel="noopener">เปิดต้นทาง DOE</a>
+                </div>
+            </article>
+            """
+        )
+
+    if not cards:
+        cards.append(
+            """
+            <article class="card">
+                <h2>ยังไม่พบงานราชการจริงในฐานข้อมูล</h2>
+                <p>ให้รัน <code>python auto_job_engine.py --live</code> เพื่อดึงข่าวล่าสุด</p>
+            </article>
+            """
+        )
+
+    search_html = ""
+    if show_search:
+        search_html = f"""
+        <form class="search" method="get" action="/jobs">
+            <input name="q" value="{_safe_html_escape(q)}" placeholder="ค้นหา เช่น รับสมัคร ลูกจ้าง พนักงาน">
+            <input name="location" value="{_safe_html_escape(location)}" placeholder="จังหวัด เช่น พิจิตร พิษณุโลก">
+            <button type="submit">ค้นหา</button>
+            <a href="/jobs">ล้างคำค้น</a>
+        </form>
+        """
+
+    return f"""
+    <!doctype html>
+    <html lang="th">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>{_safe_html_escape(page_title)} | งานใกล้บ้าน</title>
+        <style>
+            body{{margin:0;font-family:Tahoma,Arial,sans-serif;background:#f8fafc;color:#0f172a;line-height:1.65}}
+            .wrap{{max-width:1160px;margin:0 auto;padding:28px 18px 70px}}
+            .hero{{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff;border-radius:26px;padding:34px;box-shadow:0 20px 50px rgba(15,23,42,.18);margin-bottom:18px}}
+            .hero h1{{margin:0 0 8px;font-size:clamp(28px,5vw,44px)}}
+            .hero p{{margin:0;opacity:.92;font-size:17px}}
+            .nav{{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}}
+            .nav a,.btn,.search button,.search a{{display:inline-block;padding:10px 14px;border-radius:999px;background:#fff;color:#1d4ed8;border:1px solid #dbeafe;text-decoration:none;font-weight:700}}
+            .search{{display:grid;grid-template-columns:1fr 1fr auto auto;gap:10px;background:#fff;padding:14px;border-radius:18px;border:1px solid #e2e8f0;margin:18px 0}}
+            .search input{{padding:12px 14px;border-radius:999px;border:1px solid #cbd5e1;font-size:15px}}
+            .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px}}
+            .card{{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:20px;box-shadow:0 10px 30px rgba(15,23,42,.08)}}
+            .card h2{{margin:10px 0;font-size:20px}}
+            .badge{{display:inline-block;background:#dcfce7;color:#166534;border-radius:999px;padding:6px 10px;font-weight:700;font-size:13px}}
+            .actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}}
+            .btn.primary,.search button{{background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer}}
+            .count{{color:#dbeafe;margin-top:8px}}
+            @media(max-width:760px){{.search{{grid-template-columns:1fr}}}}
+        </style>
+    </head>
+    <body>
+        <main class="wrap">
+            <section class="hero">
+                <h1>{_safe_html_escape(page_title)}</h1>
+                <p>{_safe_html_escape(subtitle)}</p>
+                <p class="count">พบข้อมูล {len(rows)} รายการ</p>
+            </section>
+            <nav class="nav">
+                <a href="/">หน้าแรก</a>
+                <a href="/home">Home</a>
+                <a href="/jobs">งานราชการทั้งหมด</a>
+                <a href="/news">ข่าวกรมแรงงาน</a>
+                <a href="/urgent">งานด่วน</a>
+            </nav>
+            {search_html}
+            <section class="grid">{''.join(cards)}</section>
+        </main>
+    </body>
+    </html>
+    """
+
+
+@app.route("/")
+@app.route("/home")
+def home():
+    rows = _safe_fetch_government_rows(limit=12)
+    return _safe_render_public_page(
+        "งานใกล้บ้าน",
+        "รวมงานราชการ ข่าวกรมแรงงาน และตำแหน่งงานว่างจากแหล่งข้อมูลจริง",
+        rows,
+    )
+
+
+@app.route("/jobs")
+def jobs_public():
+    q = request.args.get("q", "").strip()
+    location = request.args.get("location", "").strip()
+    rows = _safe_fetch_government_rows(limit=100, q=q, location=location)
+    return _safe_render_public_page(
+        "งานราชการทั้งหมด",
+        "ค้นหาและดูประกาศรับสมัครงานราชการ/ตำแหน่งงานว่างจาก DOE และสำนักงานจัดหางานจังหวัด",
+        rows,
+        q=q,
+        location=location,
+    )
+
+
+@app.route("/news")
+def government_news():
+    rows = _safe_fetch_government_rows(limit=100)
+    return _safe_render_public_page(
+        "ข่าวกรมแรงงาน / งานราชการ",
+        "รวมข่าวประกาศรับสมัครงานและตำแหน่งงานว่างจากแหล่งข้อมูลราชการจริง",
+        rows,
+        show_search=False,
+    )
+
 
 
 @app.cli.command("init-db")
@@ -5381,21 +1040,12 @@ def init_db_command():
     print(f"Initialized database at {DB_PATH}")
 
 
-_DATABASE_READY_DONE = False
-
 @app.before_request
 def ensure_database_ready():
-    global _DATABASE_READY_DONE
-
     if request.endpoint == "static":
         return None
-
     validate_runtime_config()
-
-    if not _DATABASE_READY_DONE:
-        init_db()
-        _DATABASE_READY_DONE = True
-
+    init_db()
     return None
 
 
@@ -5404,57 +1054,77 @@ def ensure_database_ready():
 
 
 # AUTO_FIX_BAD_SOURCE_URLS_ONCE
+_AUTO_SOURCE_REPAIR_DONE = False
+
 @app.before_request
 def auto_repair_bad_source_urls_once():
-    # Disabled for public requests. Run repair from Admin or cron only.
+    global _AUTO_SOURCE_REPAIR_DONE
+
+    if _AUTO_SOURCE_REPAIR_DONE:
+        return None
+
+    try:
+        endpoint = request.endpoint or ""
+        if endpoint.startswith("static"):
+            return None
+
+        _AUTO_SOURCE_REPAIR_DONE = True
+
+        conn = get_db()
+        bad = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM job_posts
+            WHERE source_url = ''
+               OR source_url IS NULL
+               OR lower(source_url) LIKE '%google.com%'
+               OR lower(source_url) LIKE '%example.com%'
+               OR lower(source_url) LIKE '%localhost%'
+               OR lower(source_url) LIKE '%127.0.0.1%'
+               OR source_url = '#'
+            """
+        ).fetchone()["count"]
+
+        if int(bad or 0) > 0:
+            repair_job_source_urls_to_official()
+    except Exception:
+        return None
+
     return None
 
 
 
-# SEED_TEST_ACCOUNTS_AND_REPAIR_DB
 
+# SEED_TEST_ACCOUNTS_AND_REPAIR_DB
 def upsert_test_user_account(phone, password, role, display_name):
     conn = get_db()
     current_time = now_str()
-    phone = normalize_phone(phone)
     password_hash = hash_password(password)
-    role = str(role or "").strip().upper()
-
-    if role not in {"JOB_SEEKER", "EMPLOYER"}:
-        raise ValueError("Invalid test account role")
 
     existing = conn.execute(
-        "SELECT id FROM users WHERE phone_number = ? LIMIT 1",
+        "SELECT id FROM users WHERE phone = ? LIMIT 1",
         (phone,)
     ).fetchone()
-
-    trust_score = 80 if role == "JOB_SEEKER" else 85
 
     if existing:
         user_id = existing["id"]
         conn.execute(
             """
             UPDATE users
-            SET password_hash = ?,
-                role = ?,
-                is_verified = 1,
-                is_banned = 0,
-                trust_score = ?,
-                updated_at = ?
+            SET password_hash = ?, role = ?, is_phone_verified = 1, status = 'ACTIVE', updated_at = ?
             WHERE id = ?
             """,
-            (password_hash, role, trust_score, current_time, user_id)
+            (password_hash, role, current_time, user_id)
         )
     else:
         cur = conn.execute(
             """
             INSERT INTO users (
-                phone_number, password_hash, role, is_verified, is_banned,
-                trust_score, created_at, updated_at
+                phone, password_hash, role, is_phone_verified, status, created_at, updated_at
             )
-            VALUES (?, ?, ?, 1, 0, ?, ?, ?)
+            VALUES (?, ?, ?, 1, 'ACTIVE', ?, ?)
             """,
-            (phone, password_hash, role, trust_score, current_time, current_time)
+            (phone, password_hash, role, current_time, current_time)
         )
         user_id = cur.lastrowid
 
@@ -5468,12 +1138,7 @@ def upsert_test_user_account(phone, password, role, display_name):
             conn.execute(
                 """
                 UPDATE job_seeker_profiles
-                SET full_name = ?,
-                    headline = ?,
-                    resume_url = ?,
-                    is_public = 1,
-                    is_urgent = 1,
-                    updated_at = ?
+                SET full_name = ?, headline = ?, resume_url = ?, is_public = 1, is_urgent = 1, updated_at = ?
                 WHERE user_id = ?
                 """,
                 (
@@ -5488,8 +1153,7 @@ def upsert_test_user_account(phone, password, role, display_name):
             conn.execute(
                 """
                 INSERT INTO job_seeker_profiles (
-                    user_id, full_name, headline, resume_url,
-                    is_public, is_urgent, created_at, updated_at
+                    user_id, full_name, headline, resume_url, is_public, is_urgent, created_at, updated_at
                 )
                 VALUES (?, ?, ?, ?, 1, 1, ?, ?)
                 """,
@@ -5504,79 +1168,62 @@ def upsert_test_user_account(phone, password, role, display_name):
             )
 
     if role == "EMPLOYER":
-        tax_id = f"TEST-EMPLOYER-{user_id:06d}"
-
         row = conn.execute(
             "SELECT id FROM employer_profiles WHERE user_id = ? LIMIT 1",
             (user_id,)
         ).fetchone()
 
         if row:
+            employer_id = row["id"]
             conn.execute(
                 """
                 UPDATE employer_profiles
-                SET company_name = ?,
-                    tax_id = ?,
-                    is_company_verified = 1,
-                    address = ?,
-                    website = ?,
-                    updated_at = ?
+                SET company_name = ?, tax_id = ?, company_description = ?, is_company_verified = 1, updated_at = ?
                 WHERE user_id = ?
                 """,
                 (
                     display_name,
-                    tax_id,
-                    "บัญชีทดสอบระบบงานใกล้บ้าน",
-                    "",
+                    "TEST-EMPLOYER-0002",
+                    "บริษัททดสอบสำหรับตรวจระบบนายจ้าง งานใกล้บ้าน",
                     current_time,
                     user_id,
                 )
             )
         else:
-            conn.execute(
+            cur = conn.execute(
                 """
                 INSERT INTO employer_profiles (
-                    user_id, company_name, tax_id, is_company_verified,
-                    address, website, created_at, updated_at
+                    user_id, company_name, tax_id, company_description, is_company_verified, created_at, updated_at
                 )
-                VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, 1, ?, ?)
                 """,
                 (
                     user_id,
                     display_name,
-                    tax_id,
-                    "บัญชีทดสอบระบบงานใกล้บ้าน",
-                    "",
+                    "TEST-EMPLOYER-0002",
+                    "บริษัททดสอบสำหรับตรวจระบบนายจ้าง งานใกล้บ้าน",
                     current_time,
                     current_time,
                 )
             )
+            employer_id = cur.lastrowid
 
         existing_job = conn.execute(
             """
-            SELECT id
-            FROM job_posts
-            WHERE employer_id = ?
-              AND title = ?
+            SELECT id FROM job_posts
+            WHERE employer_id = ? AND title = ?
             LIMIT 1
             """,
-            (user_id, "ด่วน รับพนักงานประสานงานใกล้บ้าน")
+            (employer_id, "ด่วน รับพนักงานประสานงานใกล้บ้าน")
         ).fetchone()
 
         if existing_job:
             conn.execute(
                 """
                 UPDATE job_posts
-                SET description = ?,
-                    salary_range = ?,
-                    location = ?,
-                    is_government_news = 0,
-                    source_url = '',
-                    status = 'ACTIVE',
-                    ai_risk_score = 5,
-                    ai_risk_reason = ?,
-                    is_urgent = 1,
-                    updated_at = ?
+                SET description = ?, salary_range = ?, location = ?, is_government_news = 0,
+                    source_url = '', status = 'ACTIVE', ai_risk_score = 5,
+                    ai_risk_reason = ?, is_urgent = 1, updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -5599,7 +1246,7 @@ def upsert_test_user_account(phone, password, role, display_name):
                 VALUES (?, ?, ?, ?, ?, 0, '', 'ACTIVE', 5, ?, 0, ?, ?, 1)
                 """,
                 (
-                    user_id,
+                    employer_id,
                     "ด่วน รับพนักงานประสานงานใกล้บ้าน",
                     "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ",
                     "15,000 - 18,000 บาท",
@@ -5612,6 +1259,7 @@ def upsert_test_user_account(phone, password, role, display_name):
 
     conn.commit()
     return user_id
+
 
 def force_repair_demo_and_bad_sources():
     conn = get_db()
@@ -5681,44 +1329,7 @@ def force_repair_demo_and_bad_sources():
 
 @app.route("/internal/admin/seed-test-accounts-and-repair", methods=["GET", "POST"])
 def internal_seed_test_accounts_and_repair():
-    token = request.args.get("token", "") or request.form.get("token", "")
-    expected = os.getenv("JOBBOARD_CRON_TOKEN", "")
-
-    if not expected or token != expected:
-        abort(403)
-
-    seeker_id = upsert_test_user_account(
-        "0810000001",
-        "JobSeeker@2026",
-        "JOB_SEEKER",
-        "ผู้หางาน ทดสอบ"
-    )
-
-    employer_id = upsert_test_user_account(
-        "0810000002",
-        "Employer@2026",
-        "EMPLOYER",
-        "บริษัท ทดสอบ งานใกล้บ้าน จำกัด"
-    )
-
-    fixed_sources = force_repair_demo_and_bad_sources()
-
-    return {
-        "ok": True,
-        "job_seeker": {
-            "phone": "0810000001",
-            "password": "JobSeeker@2026",
-            "otp": "123456",
-            "user_id": seeker_id,
-        },
-        "employer": {
-            "phone": "0810000002",
-            "password": "Employer@2026",
-            "otp": "123456",
-            "user_id": employer_id,
-        },
-        "fixed_sources": fixed_sources,
-    }
+    abort(404)
 
 
 
@@ -5748,6 +1359,31 @@ def auto_ensure_notification_schema():
 
 # NOTIFICATION_ROUTES_V1
 @app.route("/notifications")
+
+# RESTORED_AUTH_DECORATORS_V2
+def login_required(view_func):
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not get_current_user():
+            return redirect(url_for('login'))
+        return view_func(*args, **kwargs)
+    return wrapped
+
+
+def role_required(*roles):
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapped(*args, **kwargs):
+            user = get_current_user()
+            if not user:
+                return redirect(url_for('login'))
+            if user['role'] not in roles:
+                abort(403)
+            return view_func(*args, **kwargs)
+        return wrapped
+    return decorator
+
+
 @login_required
 def notifications_page():
     user = get_current_user()

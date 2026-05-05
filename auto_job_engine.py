@@ -2,75 +2,27 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import argparse
-import hashlib
-import json
 import os
 import re
 import sqlite3
-import time
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 from urllib.parse import urljoin
 
-try:
-    import requests
-except ImportError:
-    requests = None
+import requests
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / os.environ.get("JOBBOARD_DATABASE_PATH", "instance/jobboard.db")
-
-USER_AGENT = "NganKlaibaanBot/1.0 (+local-development)"
+USER_AGENT = "JobBoardAI/1.0 (+https://jobboard-ai-app.onrender.com)"
 REQUEST_TIMEOUT = 20
 
-SOURCES = [
-    {
-        "name": "OCSC",
-        "url": "https://job.ocsc.go.th",
-        "type": "smoke",
-        "agency": "สำนักงาน ก.พ.",
-    },
-    {
-        "name": "Sorbratchakarn",
-        "url": "https://www.sorbratchakarn.com",
-        "type": "smoke",
-        "agency": "สอบราชการ",
-    },
-]
-
-DEMO_JOBS = [
-    {
-        "title": "กรมตัวอย่าง รับสมัครพนักงานราชการทั่วไป",
-        "agency": "กรมตัวอย่าง",
-        "location": "ทั่วประเทศ",
-        "salary_range": "",
-        "description": "ประกาศรับสมัครพนักงานราชการทั่วไปจากระบบ Auto Job Engine ใช้สำหรับทดสอบการนำเข้าข่าวงานราชการแบบอัตโนมัติ",
-        "source_url": "https://job.ocsc.go.th/demo/auto-job-001",
-    },
-    {
-        "title": "สำนักงานตัวอย่าง รับสมัครเจ้าหน้าที่บริหารงานทั่วไป",
-        "agency": "สำนักงานตัวอย่าง",
-        "location": "กรุงเทพมหานคร",
-        "salary_range": "",
-        "description": "รับสมัครเจ้าหน้าที่บริหารงานทั่วไป ทำหน้าที่ประสานงานเอกสาร งานธุรการ และงานบริการประชาชน",
-        "source_url": "https://job.ocsc.go.th/demo/auto-job-002",
-    },
-    {
-        "title": "โรงพยาบาลรัฐตัวอย่าง รับสมัครนักวิชาการคอมพิวเตอร์",
-        "agency": "โรงพยาบาลรัฐตัวอย่าง",
-        "location": "นนทบุรี",
-        "salary_range": "",
-        "description": "รับสมัครนักวิชาการคอมพิวเตอร์เพื่อดูแลระบบสารสนเทศ ฐานข้อมูล และสนับสนุนงานเทคโนโลยีของหน่วยงาน",
-        "source_url": "https://job.ocsc.go.th/demo/auto-job-003",
-    },
-    {
-        "title": "เทศบาลตัวอย่าง รับสมัครเจ้าพนักงานธุรการ",
-        "agency": "เทศบาลตัวอย่าง",
-        "location": "เชียงใหม่",
-        "salary_range": "",
-        "description": "เปิดรับสมัครเจ้าพนักงานธุรการ ปฏิบัติงานเอกสาร ประสานงานราชการ และให้บริการประชาชนในพื้นที่",
-        "source_url": "https://job.ocsc.go.th/demo/auto-job-004",
-    },
+DOE_NEWS_SOURCES = [
+    {"key": "doe-main", "province": "กรมการจัดหางาน", "phone": "0996101000", "employer": "กรมการจัดหางาน / ข่าวประกาศรับสมัครงาน", "tax_id": "DOE-SOURCE-MAIN", "url": "https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label"},
+    {"key": "phichit", "province": "พิจิตร", "phone": "0996101001", "employer": "สำนักงานจัดหางานจังหวัดพิจิตร / ข่าวงานท้องถิ่น", "tax_id": "DOE-SOURCE-PHICHIT-LIVE", "url": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label"},
+    {"key": "phitsanulok", "province": "พิษณุโลก", "phone": "0996101002", "employer": "สำนักงานจัดหางานจังหวัดพิษณุโลก / ข่าวงานท้องถิ่น", "tax_id": "DOE-SOURCE-PHITSANULOK-LIVE", "url": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label"},
+    {"key": "kamphaengphet", "province": "กำแพงเพชร", "phone": "0996101003", "employer": "สำนักงานจัดหางานจังหวัดกำแพงเพชร / ข่าวงานท้องถิ่น", "tax_id": "DOE-SOURCE-KAMPHAENGPHET-LIVE", "url": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label"},
+    {"key": "nakhonsawan", "province": "นครสวรรค์", "phone": "0996101004", "employer": "สำนักงานจัดหางานจังหวัดนครสวรรค์ / ข่าวงานท้องถิ่น", "tax_id": "DOE-SOURCE-NAKHONSAWAN-LIVE", "url": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label"},
 ]
 
 
@@ -78,8 +30,8 @@ def now_str():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def normalize_text(value):
-    return " ".join(str(value or "").split()).strip()
+def normalize_phone(value):
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
 
 
 def get_db():
@@ -90,9 +42,15 @@ def get_db():
     return conn
 
 
+def ensure_column(conn, table_name, column_name, definition):
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    existing = {row["name"] for row in rows}
+    if column_name not in existing:
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
 def ensure_tables(conn):
-    conn.executescript(
-        """
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS import_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             source_name TEXT NOT NULL,
@@ -103,268 +61,193 @@ def ensure_tables(conn):
             error_message TEXT DEFAULT '',
             created_at TEXT NOT NULL
         );
-
         CREATE INDEX IF NOT EXISTS idx_import_runs_created ON import_runs(created_at);
-        """
-    )
-    conn.execute("UPDATE employer_profiles SET tax_id = NULL WHERE tax_id = ''")
+    """)
+    ensure_column(conn, "job_posts", "view_count", "INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
-def source_key(job):
-    source_url = normalize_text(job.get("source_url"))
-    if source_url:
-        return source_url
-
-    raw = "|".join([
-        normalize_text(job.get("title")),
-        normalize_text(job.get("agency")),
-        normalize_text(job.get("location")),
-    ])
-    return "generated:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+def clean_title(value):
+    value = unescape(str(value or ""))
+    value = re.sub(r"<script.*?</script>", " ", value, flags=re.I | re.S)
+    value = re.sub(r"<style.*?</style>", " ", value, flags=re.I | re.S)
+    value = re.sub(r"<[^>]+>", " ", value)
+    value = re.sub(r"\s+", " ", value).strip(" \n\t-–—•|")
+    return value
 
 
-def ensure_government_employer(conn):
-    phone = "0000000000"
-    current_time = now_str()
+def is_useful_title(title):
+    title = clean_title(title)
+    lowered = title.lower()
 
-    user = conn.execute(
-        "SELECT id FROM users WHERE phone_number = ?",
-        (phone,),
-    ).fetchone()
+    if len(title) < 8:
+        return False
 
-    if user:
-        user_id = user["id"]
-    else:
-        conn.execute(
-            """
-            INSERT INTO users (
-                phone_number, password_hash, role, is_verified, is_banned,
-                trust_score, created_at, updated_at
-            )
-            VALUES (?, ?, 'EMPLOYER', 1, 0, 100, ?, ?)
-            """,
-            (phone, "SYSTEM_ACCOUNT_NO_LOGIN", current_time, current_time),
-        )
-        user_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    bad_terms = ['สำนักงานบริหารแรงงานไทยไปต่างประเทศ', 'สำนักบริหารแรงงานต่างด้าว', 'เว็บลิงค์หน่วยงานภายนอก', 'เว็บลิงค์หน่วยงานภายใน', 'รายงานงบทดลองเบิกจ่าย', 'ข่าวประกาศ', 'กฏหมาย', 'กฎหมาย', 'แผนงาน', 'โครงการ และงบประมาณ', 'ยุทธศาสตร์', 'แผนปฏิบัติราชการ', 'แผนพัฒนาดิจิทัล', 'นโยบายกรม', 'นโยบายกระทรวง', 'อำนาจหน้าที่', 'ภารกิจของหน่วยงาน', 'โครงสร้างหน่วยงาน', 'ข้อมูลผู้บริหาร', 'ผู้บริหารกรม', 'ผลการปฏิบัติงาน', 'คู่มือตาม', 'เกี่ยวกับบริษัทจัดหางาน', 'บทความ/งานวิเคราะห์', 'วารสาร', 'Mobile App', 'ข้อมูลการไปทำงานต่างประเทศ', 'สถานการณ์ว่างงาน', 'ศูนย์บริหารข้อมูลตลาดแรงงาน', 'การทำงานในประเทศ', 'การทำงานของคนต่างด้าว', 'การไปทำงานต่างประเทศ', 'การเดินทางไปทำงานต่างประเทศ', 'แรงงานต่างด้าว']
 
-    profile = conn.execute(
-        "SELECT id FROM employer_profiles WHERE user_id = ?",
-        (user_id,),
-    ).fetchone()
+    if any(term.lower() in lowered for term in bad_terms):
+        return False
 
-    if not profile:
-        conn.execute(
-            """
-            INSERT INTO employer_profiles (
-                user_id, company_name, tax_id, is_company_verified,
-                address, website, created_at, updated_at
-            )
-            VALUES (?, 'Government Job News', NULL, 1, 'Thailand', 'https://job.ocsc.go.th', ?, ?)
-            """,
-            (user_id, current_time, current_time),
-        )
+    good_terms = ['รับสมัคร', 'เปิดรับสมัคร', 'ประกาศรับสมัคร', 'ตำแหน่งงานว่าง', 'งานว่าง', 'นัดพบแรงงาน', 'ตลาดงาน', 'ลูกจ้าง', 'พนักงาน', 'จ้างเหมา', 'สอบคัดเลือก', 'สรรหา']
 
-    return user_id
+    return any(term in title for term in good_terms)
 
-
-def safe_extract_jobs_from_html(html, base_url, agency):
-    """
-    Lightweight extractor สำหรับ MVP:
-    - ดึง title จาก tag <title> และ heading บางส่วน
-    - ใช้เป็น smoke/live แบบปลอดภัย ไม่ถี่
-    - Production จริงควรเปลี่ยนเป็น Playwright + AI extraction
-    """
-    text = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
-    text = re.sub(r"<style.*?</style>", " ", text, flags=re.S | re.I)
-
-    title_match = re.search(r"<title[^>]*>(.*?)</title>", text, flags=re.S | re.I)
-    page_title = normalize_text(re.sub(r"<.*?>", " ", title_match.group(1))) if title_match else "ข่าวรับสมัครงานราชการ"
-
-    heading_matches = re.findall(r"<h[1-3][^>]*>(.*?)</h[1-3]>", text, flags=re.S | re.I)
-    titles = []
-    for item in heading_matches[:8]:
-        clean = normalize_text(re.sub(r"<.*?>", " ", item))
-        if clean and len(clean) >= 8:
-            titles.append(clean)
-
-    if not titles:
-        titles = [page_title]
-
-    jobs = []
-    for index, title in enumerate(titles[:5], start=1):
-        jobs.append(
-            {
-                "title": title[:160],
-                "agency": agency,
-                "location": "ทั่วประเทศ",
-                "salary_range": "",
-                "description": f"ข่าวงานราชการจาก {agency} นำเข้าด้วย Auto Job Engine โปรดกดลิงก์ต้นทางเพื่อตรวจสอบรายละเอียดล่าสุด",
-                "source_url": f"{base_url}#auto-{index}",
-            }
-        )
-
-    return jobs
-
-
-def fetch_source(source):
-    if requests is None:
-        raise RuntimeError("requests is not installed. Run: python -m pip install requests")
-
-    response = requests.get(
-        source["url"],
-        timeout=REQUEST_TIMEOUT,
-        headers={"User-Agent": USER_AGENT},
-    )
+def extract_listing_items(source, limit=15):
+    response = requests.get(source["url"], headers={"User-Agent": USER_AGENT, "Accept": "text/html,application/xhtml+xml"}, timeout=REQUEST_TIMEOUT)
     response.raise_for_status()
-    return safe_extract_jobs_from_html(response.text, source["url"], source["agency"])
+    html = response.text
+    pairs = re.findall(r'<a[^>]+href=["\\\']([^"\\\']+)["\\\'][^>]*>(.*?)</a>', html, flags=re.I | re.S)
+    items, seen = [], set()
+    for href, label_html in pairs:
+        title = clean_title(label_html)
+        if not is_useful_title(title):
+            continue
+        href = unescape(str(href or "")).strip()
+        if not href or href.startswith("#") or href.lower().startswith("javascript:"):
+            continue
+        source_url = urljoin(source["url"], href)
+        key = (title, source_url)
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({"title": title[:180], "source_url": source_url, "province": source["province"], "employer": source["employer"]})
+        if len(items) >= limit:
+            break
+    return items
 
 
-def save_jobs_to_db(jobs, source_name="manual"):
-    conn = get_db()
-    ensure_tables(conn)
-    employer_id = ensure_government_employer(conn)
-
-    inserted = 0
-    updated = 0
-    skipped = 0
+def ensure_doe_employer(conn, source):
     current_time = now_str()
+    phone = normalize_phone(source["phone"])
+    user = conn.execute("SELECT id FROM users WHERE phone_number = ?", (phone,)).fetchone()
+    if user:
+        employer_id = user["id"]
+        conn.execute("""
+            UPDATE users
+            SET role = 'EMPLOYER', is_verified = 1, is_banned = 0, trust_score = 95, updated_at = ?
+            WHERE id = ?
+        """, (current_time, employer_id))
+    else:
+        conn.execute("""
+            INSERT INTO users (phone_number, password_hash, role, is_verified, is_banned, trust_score, created_at, updated_at)
+            VALUES (?, 'DOE_SOURCE_DISABLED_LOGIN', 'EMPLOYER', 1, 0, 95, ?, ?)
+        """, (phone, current_time, current_time))
+        employer_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
 
-    for job in jobs:
-        title = normalize_text(job.get("title"))
-        description = normalize_text(job.get("description"))
-        agency = normalize_text(job.get("agency"))
-        location = normalize_text(job.get("location")) or "ทั่วประเทศ"
-        salary_range = normalize_text(job.get("salary_range"))
-        source_url = source_key(job)
+    profile = conn.execute("SELECT id FROM employer_profiles WHERE user_id = ?", (employer_id,)).fetchone()
+    if profile:
+        conn.execute("""
+            UPDATE employer_profiles
+            SET company_name = ?, tax_id = ?, is_company_verified = 1, address = ?, website = ?, updated_at = ?
+            WHERE user_id = ?
+        """, (source["employer"], source["tax_id"], source["province"], source["url"], current_time, employer_id))
+    else:
+        conn.execute("""
+            INSERT INTO employer_profiles (user_id, company_name, tax_id, is_company_verified, address, website, created_at, updated_at)
+            VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+        """, (employer_id, source["employer"], source["tax_id"], source["province"], source["url"], current_time, current_time))
+    return employer_id
 
-        if not title or not description:
+
+def save_items(conn, source, items):
+    current_time = now_str()
+    employer_id = ensure_doe_employer(conn, source)
+    inserted = updated = skipped = 0
+    for item in items:
+        title = clean_title(item["title"])
+        source_url = str(item["source_url"] or "").strip()
+        if not title or not source_url or "example.com" in source_url.lower():
             skipped += 1
             continue
-
-        full_description = description
-        if agency:
-            full_description = f"หน่วยงาน: {agency}\n\n{description}"
-        if source_url:
-            full_description = f"{full_description}\n\nลิงก์ต้นทาง: {source_url}"
-
-        exists = conn.execute(
-            "SELECT id FROM job_posts WHERE source_url = ? LIMIT 1",
-            (source_url,),
-        ).fetchone()
-
+        description = (
+            f"ข่าวประกาศรับสมัครงาน/ตำแหน่งงานว่างจาก {source['employer']}\n\n"
+            f"หัวข้อ: {title}\nพื้นที่: {source['province']}\n\n"
+            "ผู้หางานควรกดลิงก์ต้นทางเพื่อตรวจสอบรายละเอียดล่าสุด คุณสมบัติ วิธีสมัคร วันรับสมัคร และเอกสารที่ต้องใช้ก่อนสมัครทุกครั้ง"
+        )
+        exists = conn.execute("SELECT id FROM job_posts WHERE source_url = ? LIMIT 1", (source_url,)).fetchone()
         if exists:
-            conn.execute(
-                """
+            conn.execute("""
                 UPDATE job_posts
-                SET title = ?,
-                    description = ?,
-                    salary_range = ?,
-                    location = ?,
-                    is_government_news = 1,
-                    status = 'ACTIVE',
-                    ai_risk_score = 0,
-                    ai_risk_reason = 'government auto import',
-                    updated_at = ?
+                SET employer_id = ?, title = ?, description = ?, salary_range = 'ตรวจสอบตามประกาศต้นทาง', location = ?,
+                    is_government_news = 1, status = 'ACTIVE', ai_risk_score = 0,
+                    ai_risk_reason = 'DOE official live import', updated_at = ?
                 WHERE id = ?
-                """,
-                (title, full_description, salary_range, location, current_time, exists["id"]),
-            )
+            """, (employer_id, title, description, source["province"], current_time, exists["id"]))
             updated += 1
         else:
-            conn.execute(
-                """
+            conn.execute("""
                 INSERT INTO job_posts (
-                    employer_id, title, description, salary_range, location,
-                    is_government_news, source_url, status, ai_risk_score,
-                    ai_risk_reason, report_count, created_at, updated_at
+                    employer_id, title, description, salary_range, location, is_government_news, source_url,
+                    status, ai_risk_score, ai_risk_reason, report_count, created_at, updated_at, view_count
                 )
-                VALUES (?, ?, ?, ?, ?, 1, ?, 'ACTIVE', 0, 'government auto import', 0, ?, ?)
-                """,
-                (
-                    employer_id,
-                    title,
-                    full_description,
-                    salary_range,
-                    location,
-                    source_url,
-                    current_time,
-                    current_time,
-                ),
-            )
+                VALUES (?, ?, ?, 'ตรวจสอบตามประกาศต้นทาง', ?, 1, ?, 'ACTIVE', 0, 'DOE official live import', 0, ?, ?, 0)
+            """, (employer_id, title, description, source["province"], source_url, current_time, current_time))
             inserted += 1
-
-    conn.execute(
-        """
-        INSERT INTO import_runs (
-            source_name, status, inserted_count, updated_count, skipped_count,
-            error_message, created_at
-        )
-        VALUES (?, 'SUCCESS', ?, ?, ?, '', ?)
-        """,
-        (source_name, inserted, updated, skipped, current_time),
-    )
-
-    conn.commit()
-    conn.close()
-
-    return {
-        "inserted": inserted,
-        "updated": updated,
-        "skipped": skipped,
-    }
+    return inserted, updated, skipped
 
 
-def run_demo():
-    return save_jobs_to_db(DEMO_JOBS, source_name="DEMO")
+def remove_demo_jobs(conn):
+    conn.execute("""
+        DELETE FROM job_posts
+        WHERE lower(COALESCE(ai_risk_reason, '')) LIKE '%demo%'
+           OR lower(COALESCE(description, '')) LIKE '%demo%'
+           OR title LIKE '%ตัวอย่าง%'
+           OR lower(COALESCE(source_url, '')) LIKE '%example.com%'
+           OR lower(COALESCE(source_url, '')) LIKE '%/demo/%'
+           OR title IN ('Marketing Officer', 'Graphic Designer')
+    """)
+    for phone in ("0811111111", "0810000001", "0810000002"):
+        conn.execute("DELETE FROM users WHERE phone_number = ? AND role != 'ADMIN'", (phone,))
 
 
 def run_live():
-    all_jobs = []
+    conn = get_db()
+    ensure_tables(conn)
+    remove_demo_jobs(conn)
+    total_inserted = total_updated = total_skipped = scanned = 0
     errors = []
-
-    for source in SOURCES:
+    for source in DOE_NEWS_SOURCES:
         try:
-            print(f"Fetching {source['name']}...")
-            jobs = fetch_source(source)
-            print(f"  Found {len(jobs)} candidate jobs")
-            all_jobs.extend(jobs)
-            time.sleep(2)
+            print(f"Fetching {source['province']}...")
+            items = extract_listing_items(source, limit=15)
+            scanned += len(items)
+            inserted, updated, skipped = save_items(conn, source, items)
+            total_inserted += inserted
+            total_updated += updated
+            total_skipped += skipped
+            print(f"  items={len(items)} inserted={inserted} updated={updated} skipped={skipped}")
         except Exception as exc:
-            message = f"{source['name']}: {exc}"
-            print(f"  ERROR {message}")
+            message = f"{source['province']}: {exc}"
             errors.append(message)
+            print(f"  ERROR {message}")
+    status = "SUCCESS" if not errors else "PARTIAL_SUCCESS"
+    conn.execute("""
+        INSERT INTO import_runs (source_name, status, inserted_count, updated_count, skipped_count, error_message, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, ("DOE_LIVE_NO_DEMO", status, total_inserted, total_updated, total_skipped, "\n".join(errors)[:1000], now_str()))
+    conn.commit()
+    conn.close()
+    return {"inserted": total_inserted, "updated": total_updated, "skipped": total_skipped, "scanned": scanned, "errors": errors}
 
-    if not all_jobs:
-        print("No live jobs found. Falling back to demo jobs.")
-        all_jobs = DEMO_JOBS
 
-    result = save_jobs_to_db(all_jobs, source_name="LIVE_WITH_FALLBACK" if errors else "LIVE")
-    if errors:
-        print("Live warnings:")
-        for err in errors:
-            print(f"- {err}")
-    return result
+def run_demo():
+    return run_live()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Auto Job Engine for Government JobBoard")
-    parser.add_argument("--demo", action="store_true", help="Import demo government jobs")
-    parser.add_argument("--live", action="store_true", help="Try safe live import from public government/job sources")
+    parser = argparse.ArgumentParser(description="Live DOE Auto Import for JobBoard")
+    parser.add_argument("--live", action="store_true", help="Import live DOE jobs/news")
+    parser.add_argument("--demo", action="store_true", help="Disabled; will run live import")
     args = parser.parse_args()
-
-    print("Starting Auto Job Engine...")
+    print("Starting DOE live import. Demo fallback is disabled.")
     print(f"Database: {DB_PATH}")
-
-    if args.live:
-        result = run_live()
-    else:
-        result = run_demo()
-
+    result = run_live()
     print("Finished.")
     print(f"Inserted: {result['inserted']}")
     print(f"Updated: {result['updated']}")
     print(f"Skipped: {result['skipped']}")
+    print(f"Scanned: {result['scanned']}")
+    print(f"Errors: {len(result['errors'])}")
 
 
 if __name__ == "__main__":
