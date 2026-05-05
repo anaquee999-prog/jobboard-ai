@@ -1032,6 +1032,111 @@ def government_news():
 
 
 
+
+# RESTORED_CRON_IMPORT_ROUTE_V1
+def _cron_token_is_valid():
+    expected = os.environ.get("JOBBOARD_CRON_TOKEN", "").strip()
+    token = request.headers.get("X-Cron-Token", "").strip()
+    if not token:
+        token = request.args.get("token", "").strip()
+    return bool(expected) and bool(token) and hmac.compare_digest(expected, token)
+
+
+@app.route("/internal/cron/import-upper-central-jobs", methods=["GET", "POST"])
+@app.route("/internal/cron/import-doe-news", methods=["GET", "POST"])
+def cron_import_upper_central_jobs():
+    if not _cron_token_is_valid():
+        abort(403)
+
+    result = {
+        "inserted": 0,
+        "updated": 0,
+        "skipped": 0,
+        "scanned": 0,
+        "errors": [],
+    }
+
+    source = "unknown"
+
+    try:
+        if "import_latest_doe_news_to_db" in globals():
+            doe_result = import_latest_doe_news_to_db()
+            result["inserted"] += int(doe_result.get("inserted", 0) or 0)
+            result["updated"] += int(doe_result.get("updated", 0) or 0)
+            result["scanned"] += int(doe_result.get("scanned", 0) or 0)
+            result["errors"].extend(doe_result.get("errors", []) or [])
+            source = "app.import_latest_doe_news_to_db"
+        else:
+            from auto_job_engine import run_live
+            doe_result = run_live()
+            result["inserted"] += int(doe_result.get("inserted", 0) or 0)
+            result["updated"] += int(doe_result.get("updated", 0) or 0)
+            result["skipped"] += int(doe_result.get("skipped", 0) or 0)
+            result["scanned"] += int(doe_result.get("scanned", 0) or 0)
+            result["errors"].extend(doe_result.get("errors", []) or [])
+            source = "auto_job_engine.run_live"
+
+        try:
+            conn = get_db()
+            if "repair_job_source_urls_to_official" in globals():
+                fixed = repair_job_source_urls_to_official()
+                result["fixed_sources"] = int(fixed or 0)
+            if "clean_demo_and_test_data" in globals():
+                clean_demo_and_test_data(conn)
+            if "add_activity_log" in globals():
+                add_activity_log(
+                    None,
+                    "CRON_IMPORT_DOE_NEWS",
+                    "job_posts",
+                    None,
+                    f"source={source}, inserted={result['inserted']}, updated={result['updated']}, scanned={result['scanned']}, errors={len(result['errors'])}",
+                )
+            conn.commit()
+        except Exception as log_exc:
+            result["errors"].append("post_import_log: " + str(log_exc)[:200])
+
+        try:
+            if "send_discord_alert" in globals():
+                send_discord_alert(
+                    "✅ Cron Import DOE สำเร็จ\n"
+                    f"Inserted: {result['inserted']}\n"
+                    f"Updated: {result['updated']}\n"
+                    f"Scanned: {result['scanned']}\n"
+                    f"Errors: {len(result['errors'])}\n"
+                    f"Source: {source}\n"
+                    f"เวลา: {now_str()}",
+                    username="JobBoard Cron Import Bot",
+                )
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": True,
+            "source": source,
+            "inserted": result["inserted"],
+            "updated": result["updated"],
+            "skipped": result["skipped"],
+            "scanned": result["scanned"],
+            "errors": result["errors"],
+            "checked_at": now_str(),
+        })
+
+    except Exception as exc:
+        try:
+            if "add_activity_log" in globals():
+                add_activity_log(None, "CRON_IMPORT_DOE_NEWS_FAILED", "job_posts", None, str(exc)[:500])
+                get_db().commit()
+        except Exception:
+            pass
+
+        return jsonify({
+            "ok": False,
+            "error": str(exc),
+            "checked_at": now_str(),
+        }), 500
+
+
+
 @app.cli.command("init-db")
 def init_db_command():
     validate_runtime_config()
