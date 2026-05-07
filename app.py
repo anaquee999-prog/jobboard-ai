@@ -225,6 +225,207 @@ def generate_csrf_token():
     return token
 
 
+def get_current_user():
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+
+    try:
+        return get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    except Exception:
+        return None
+
+
+def job_slug(job):
+    try:
+        job_id = job["id"]
+    except Exception:
+        job_id = getattr(job, "id", "")
+    return str(job_id or "")
+
+
+def scam_risk_label(score):
+    try:
+        score = int(score or 0)
+    except (TypeError, ValueError):
+        score = 0
+    if score >= 70:
+        return "HIGH"
+    if score >= 35:
+        return "MEDIUM"
+    return "LOW"
+
+
+def get_page_view_stats(page_path=None):
+    return {"path": page_path or "", "view_count": 0}
+
+
+def get_official_doe_source_for_location(location="", title=""):
+    text = f"{location or ''} {title or ''}"
+    for source in DOE_NEWS_SOURCES:
+        if source["province"] in text:
+            return source["url"]
+    return DOE_NEWS_SOURCES[0]["url"]
+
+
+def is_bad_or_placeholder_source_url(source_url):
+    source_url = str(source_url or "").strip().lower()
+    if not source_url or source_url == "#":
+        return True
+    return any(bad in source_url for bad in ("example.com", "google.com", "localhost", "127.0.0.1"))
+
+
+def safe_source_url(source_url="", location="", title=""):
+    if is_bad_or_placeholder_source_url(source_url):
+        return get_official_doe_source_for_location(location, title)
+    return source_url
+
+
+def mask_phone_for_display(phone_number):
+    phone = normalize_phone(phone_number)
+    if len(phone) < 7:
+        return phone or "-"
+    return f"{phone[:3]}xxx{phone[-4:]}"
+
+
+def ensure_notification_schema():
+    conn = get_db()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            message TEXT DEFAULT '',
+            link_url TEXT DEFAULT '',
+            category TEXT DEFAULT 'SYSTEM',
+            is_read INTEGER NOT NULL DEFAULT 0,
+            read_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, created_at);
+        """
+    )
+    ensure_column(conn, "users", "email", "TEXT DEFAULT ''")
+    ensure_column(conn, "users", "wants_email_alerts", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "users", "wants_web_alerts", "INTEGER NOT NULL DEFAULT 1")
+    ensure_column(conn, "users", "browser_notifications_enabled", "INTEGER NOT NULL DEFAULT 0")
+    conn.commit()
+
+
+def get_unread_notifications_count(user_id=None):
+    user_id = user_id or session.get("user_id")
+    if not user_id:
+        return 0
+    try:
+        ensure_notification_schema()
+        row = get_db().execute(
+            "SELECT COUNT(*) AS count FROM notifications WHERE user_id = ? AND is_read = 0",
+            (user_id,),
+        ).fetchone()
+        return int(row["count"] or 0)
+    except Exception:
+        return 0
+
+
+def get_recent_notifications(user_id=None, limit=5):
+    user_id = user_id or session.get("user_id")
+    if not user_id:
+        return []
+    try:
+        ensure_notification_schema()
+        return get_db().execute(
+            """
+            SELECT *
+            FROM notifications
+            WHERE user_id = ?
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (user_id, int(limit or 5)),
+        ).fetchall()
+    except Exception:
+        return []
+
+
+def create_notification(user_id, title, message="", link_url="", category="SYSTEM"):
+    if not user_id:
+        return None
+    try:
+        ensure_notification_schema()
+        cur = get_db().execute(
+            """
+            INSERT INTO notifications (user_id, title, message, link_url, category, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (user_id, title, message, link_url, category, now_str()),
+        )
+        get_db().commit()
+        return cur.lastrowid
+    except Exception:
+        return None
+
+
+def add_activity_log(actor_id, action, target_type="", target_id=None, detail=""):
+    try:
+        get_db().execute(
+            """
+            INSERT INTO activity_logs (actor_id, action, target_type, target_id, detail, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (actor_id, action, target_type, target_id, str(detail or "")[:500], now_str()),
+        )
+    except Exception:
+        pass
+
+
+def analyze_job_content(title, description, salary_range="", location="", trust_score=50, report_count=0):
+    try:
+        from security_engine import calculate_scam_score
+        score, reasons = calculate_scam_score(f"{title} {description} {salary_range} {location}")
+    except Exception:
+        score, reasons = 50, ["ระบบคัดกรองทำงานไม่สมบูรณ์ จึงส่งให้ผู้ดูแลตรวจ"]
+
+    try:
+        trust_score = int(trust_score or 50)
+    except (TypeError, ValueError):
+        trust_score = 50
+
+    try:
+        report_count = int(report_count or 0)
+    except (TypeError, ValueError):
+        report_count = 0
+
+    if trust_score < 30:
+        score += 20
+        reasons.append("Trust score ต่ำ")
+    if report_count >= 3:
+        score += 20
+        reasons.append("มีรายงานจากผู้ใช้หลายครั้ง")
+
+    score = max(0, min(100, int(score or 0)))
+    if score >= 70:
+        return score, "REJECTED", " | ".join(reasons[:8])
+    if score >= 35:
+        return score, "PENDING_AI_REVIEW", " | ".join(reasons[:8])
+    return score, "ACTIVE", " | ".join(reasons[:8])
+
+
+def get_trust_level(score):
+    try:
+        score = int(score or 0)
+    except (TypeError, ValueError):
+        score = 0
+    if score >= 80:
+        return "HIGH"
+    if score >= 50:
+        return "NORMAL"
+    if score >= 20:
+        return "LOW"
+    return "RISK"
+
+
 @app.context_processor
 def inject_common_values():
     return {
@@ -894,24 +1095,96 @@ def _safe_fetch_government_rows(limit=100, q="", location=""):
     return clean_rows
 
 
+def _safe_fetch_public_job_rows(limit=100, q="", location=""):
+    conn = get_db()
+    try:
+        ensure_production_job_schema(conn)
+    except Exception:
+        pass
+
+    where = ["job_posts.status = 'ACTIVE'"]
+    params = []
+    q = str(q or "").strip().lower()
+    location = str(location or "").strip().lower()
+
+    if q:
+        like_q = f"%{q}%"
+        where.append(
+            """
+            (
+                lower(job_posts.title) LIKE ?
+                OR lower(job_posts.description) LIKE ?
+                OR lower(job_posts.location) LIKE ?
+                OR lower(employer_profiles.company_name) LIKE ?
+            )
+            """
+        )
+        params.extend([like_q, like_q, like_q, like_q])
+
+    if location:
+        where.append("lower(job_posts.location) LIKE ?")
+        params.append(f"%{location}%")
+
+    rows = conn.execute(
+        f"""
+        SELECT
+            job_posts.id,
+            job_posts.title,
+            job_posts.description,
+            job_posts.salary_range,
+            job_posts.location,
+            job_posts.source_url,
+            job_posts.created_at,
+            job_posts.updated_at,
+            job_posts.is_government_news,
+            job_posts.ai_risk_score,
+            job_posts.report_count,
+            COALESCE(job_posts.view_count, 0) AS view_count,
+            employer_profiles.company_name,
+            employer_profiles.is_company_verified
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE {" AND ".join(where)}
+        ORDER BY
+            COALESCE(job_posts.is_urgent, 0) DESC,
+            CASE WHEN job_posts.is_government_news = 1 THEN 0 ELSE 1 END,
+            datetime(job_posts.updated_at) DESC,
+            job_posts.id DESC
+        LIMIT ?
+        """,
+        tuple(params + [int(limit or 100)]),
+    ).fetchall()
+
+    clean_rows = []
+    for row in rows:
+        if row["is_government_news"] and not _safe_is_real_job_title(row["title"]):
+            continue
+        clean_rows.append(row)
+    return clean_rows
+
+
 def _safe_render_public_page(page_title, subtitle, rows, q="", location="", show_search=True):
     cards = []
 
     for row in rows:
         title = _safe_html_escape(row["title"])
         loc = _safe_html_escape(row["location"] or "ทั่วประเทศ")
-        agency = _safe_html_escape(_safe_agency_name(row["company_name"], row["location"], row["source_url"]))
+        is_government = int(row["is_government_news"] or 0) if "is_government_news" in row.keys() else 1
+        agency_name = _safe_agency_name(row["company_name"], row["location"], row["source_url"]) if is_government else (row["company_name"] or "นายจ้าง")
+        agency = _safe_html_escape(agency_name)
         salary = _safe_html_escape(row["salary_range"] or "ตรวจสอบตามประกาศต้นทาง")
         updated = _safe_html_escape(row["updated_at"] or row["created_at"] or "")
-        source_url = _safe_html_escape(row["source_url"])
+        source_url = _safe_html_escape(safe_source_url(row["source_url"], row["location"], row["title"])) if is_government else ""
         views = int(row["view_count"] or 0)
+        badge = "งานราชการ / DOE" if is_government else "ประกาศจากนายจ้าง"
+        source_action = f'<a class="btn" href="{source_url}" target="_blank" rel="noopener">เปิดต้นทาง DOE</a>' if source_url else ""
 
         detail_url = f"/job/{row['id']}"
 
         cards.append(
             f"""
             <article class="card">
-                <div class="badge">งานราชการ / DOE</div>
+                <div class="badge">{badge}</div>
                 <h2>{title}</h2>
                 <p><b>หน่วยงาน:</b> {agency}</p>
                 <p><b>พื้นที่:</b> {loc}</p>
@@ -919,7 +1192,7 @@ def _safe_render_public_page(page_title, subtitle, rows, q="", location="", show
                 <p><b>อัปเดต:</b> {updated} · <b>เข้าชม:</b> {views} ครั้ง</p>
                 <div class="actions">
                     <a class="btn primary" href="{detail_url}">ดูรายละเอียด</a>
-                    <a class="btn" href="{source_url}" target="_blank" rel="noopener">เปิดต้นทาง DOE</a>
+                    {source_action}
                 </div>
             </article>
             """
@@ -1010,10 +1283,10 @@ def home():
 def jobs_public():
     q = request.args.get("q", "").strip()
     location = request.args.get("location", "").strip()
-    rows = _safe_fetch_government_rows(limit=100, q=q, location=location)
+    rows = _safe_fetch_public_job_rows(limit=100, q=q, location=location)
     return _safe_render_public_page(
-        "งานราชการทั้งหมด",
-        "ค้นหาและดูประกาศรับสมัครงานราชการ/ตำแหน่งงานว่างจาก DOE และสำนักงานจัดหางานจังหวัด",
+        "งานทั้งหมด",
+        "ค้นหาและดูประกาศงานจากนายจ้าง พร้อมข่าวรับสมัครงานราชการ/ตำแหน่งงานว่างจาก DOE",
         rows,
         q=q,
         location=location,
@@ -1147,10 +1420,13 @@ def init_db_command():
 
 @app.before_request
 def ensure_database_ready():
+    if getattr(app, "_jobboard_database_ready", False):
+        return None
     if request.endpoint == "static":
         return None
     validate_runtime_config()
     init_db()
+    app._jobboard_database_ready = True
     return None
 
 
@@ -1462,9 +1738,6 @@ def auto_ensure_notification_schema():
 
 
 
-# NOTIFICATION_ROUTES_V1
-@app.route("/notifications")
-
 # RESTORED_AUTH_DECORATORS_V2
 def login_required(view_func):
     @wraps(view_func)
@@ -1489,6 +1762,1149 @@ def role_required(*roles):
     return decorator
 
 
+def _fetch_template_jobs(limit=20, status="ACTIVE", urgent_only=False):
+    conn = get_db()
+    ensure_production_job_schema(conn)
+    where = ["job_posts.status = ?"]
+    params = [status]
+    if urgent_only:
+        where.append("COALESCE(job_posts.is_urgent, 0) = 1")
+    return conn.execute(
+        f"""
+        SELECT
+            job_posts.*,
+            employer_profiles.company_name,
+            employer_profiles.is_company_verified
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE {" AND ".join(where)}
+        ORDER BY datetime(job_posts.updated_at) DESC, job_posts.id DESC
+        LIMIT ?
+        """,
+        tuple(params + [int(limit or 20)]),
+    ).fetchall()
+
+
+def _admin_stats():
+    conn = get_db()
+
+    def count(sql, params=()):
+        try:
+            return int(conn.execute(sql, params).fetchone()["count"] or 0)
+        except Exception:
+            return 0
+
+    return {
+        "users": count("SELECT COUNT(*) AS count FROM users"),
+        "pending_ai": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'"),
+        "active": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'"),
+        "rejected": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'"),
+        "reports": count("SELECT COUNT(*) AS count FROM reports WHERE status = 'PENDING'"),
+    }
+
+
+def _redirect_back(default_endpoint="home"):
+    return redirect(request.referrer or url_for(default_endpoint))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    # TODO: Restore the full login flow if this fallback is replaced by the original route.
+    error = ""
+    if request.method == "POST":
+        phone = normalize_phone(request.form.get("phone_number") or request.form.get("phone"))
+        password = request.form.get("password", "")
+        row = get_db().execute("SELECT * FROM users WHERE phone_number = ?", (phone,)).fetchone()
+        if row and verify_password(password, row["password_hash"]) and not row["is_banned"]:
+            session["user_id"] = row["id"]
+            session.permanent = True
+            return redirect(url_for("dashboard"))
+        error = "เบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง"
+    return render_template("login.html", error=error)
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    error = ""
+    if request.method == "POST":
+        role = request.form.get("role", "JOB_SEEKER").strip().upper()
+        phone = normalize_phone(request.form.get("phone_number"))
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        full_name = request.form.get("full_name", "").strip()
+        company_name = request.form.get("company_name", "").strip()
+
+        if role not in {"JOB_SEEKER", "EMPLOYER"}:
+            error = "ประเภทบัญชีไม่ถูกต้อง"
+        elif not request.form.get("accept_terms"):
+            error = "กรุณายอมรับเงื่อนไขการใช้งาน"
+        elif not is_valid_thai_phone(phone):
+            error = "กรุณากรอกเบอร์โทรศัพท์ไทย 10 หลัก"
+        elif email and ("@" not in email or "." not in email.split("@")[-1]):
+            error = "รูปแบบอีเมลไม่ถูกต้อง"
+        elif password != confirm_password:
+            error = "รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน"
+        else:
+            ok, message = validate_account_password(password, phone)
+            if not ok:
+                error = message
+
+        if not error:
+            label = "ชื่อผู้หางาน" if role == "JOB_SEEKER" else "ชื่อบริษัท"
+            profile_name = full_name if role == "JOB_SEEKER" else company_name
+            ok, message = validate_profile_name(profile_name, label)
+            if not ok:
+                error = message
+
+        if not error:
+            try:
+                ensure_notification_schema()
+                conn = get_db()
+                current_time = now_str()
+                cur = conn.execute(
+                    """
+                    INSERT INTO users (
+                        phone_number, password_hash, role, is_verified, is_banned,
+                        trust_score, email, wants_email_alerts, wants_web_alerts,
+                        created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, 1, 0, ?, ?, ?, 1, ?, ?)
+                    """,
+                    (
+                        phone,
+                        hash_password(password),
+                        role,
+                        55 if role == "EMPLOYER" else 50,
+                        email,
+                        1 if request.form.get("notify_consent") else 0,
+                        current_time,
+                        current_time,
+                    ),
+                )
+                user_id = cur.lastrowid
+
+                if role == "JOB_SEEKER":
+                    conn.execute(
+                        """
+                        INSERT INTO job_seeker_profiles (
+                            user_id, full_name, headline, resume_url, is_public,
+                            created_at, updated_at
+                        )
+                        VALUES (?, ?, '', '', 0, ?, ?)
+                        """,
+                        (user_id, full_name, current_time, current_time),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO employer_profiles (
+                            user_id, company_name, tax_id, is_company_verified,
+                            address, website, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, 0, '', '', ?, ?)
+                        """,
+                        (user_id, company_name, f"EMP-{user_id}", current_time, current_time),
+                    )
+
+                add_activity_log(user_id, "REGISTER", "users", user_id, f"role={role}")
+                conn.commit()
+                session["user_id"] = user_id
+                session.permanent = True
+                create_notification(
+                    user_id,
+                    "สมัครสมาชิกเรียบร้อย",
+                    "ยินดีต้อนรับเข้าสู่ระบบงานใกล้บ้าน",
+                    url_for("dashboard"),
+                    "ACCOUNT",
+                )
+                return redirect(url_for("dashboard"))
+            except sqlite3.IntegrityError:
+                error = "เบอร์โทรศัพท์นี้ถูกใช้สมัครแล้ว"
+            except Exception:
+                error = "สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+
+    return render_template("register.html", error=error)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("home"))
+
+
+@app.route("/dashboard")
+@login_required
+def dashboard():
+    user = get_current_user()
+    if user and user["role"] == "ADMIN":
+        return redirect(url_for("admin_dashboard"))
+    if user and user["role"] == "EMPLOYER":
+        return redirect(url_for("employer_dashboard"))
+    return redirect(url_for("job_seeker_dashboard"))
+
+
+@app.route("/dashboard/job-seeker")
+@login_required
+def job_seeker_dashboard():
+    user = get_current_user()
+    conn = get_db()
+    profile = conn.execute(
+        "SELECT * FROM job_seeker_profiles WHERE user_id = ?",
+        (user["id"],),
+    ).fetchone()
+    applications = conn.execute(
+        """
+        SELECT
+            applications.*,
+            job_posts.title,
+            job_posts.location,
+            employer_profiles.company_name
+        FROM applications
+        JOIN job_posts ON job_posts.id = applications.job_post_id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE applications.job_seeker_id = ?
+        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
+        """,
+        (user["id"],),
+    ).fetchall()
+    recommended_jobs = _fetch_template_jobs(limit=6, status="ACTIVE")
+    return render_template(
+        "dashboard_job_seeker.html",
+        user=user,
+        profile=profile,
+        applications=applications,
+        recommended_jobs=recommended_jobs,
+    )
+
+
+@app.route("/employer/dashboard")
+@app.route("/dashboard/employer")
+@login_required
+def employer_dashboard():
+    user = get_current_user()
+    if user["role"] != "EMPLOYER":
+        abort(403)
+    conn = get_db()
+    profile = conn.execute(
+        "SELECT * FROM employer_profiles WHERE user_id = ?",
+        (user["id"],),
+    ).fetchone()
+    jobs = conn.execute(
+        """
+        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE job_posts.employer_id = ?
+        ORDER BY datetime(job_posts.updated_at) DESC, job_posts.id DESC
+        """,
+        (user["id"],),
+    ).fetchall()
+    applications = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM applications
+        JOIN job_posts ON job_posts.id = applications.job_post_id
+        WHERE job_posts.employer_id = ?
+        """,
+        (user["id"],),
+    ).fetchone()["count"]
+    return render_template(
+        "dashboard_employer.html",
+        user=user,
+        profile=profile,
+        jobs=jobs,
+        applications=applications,
+        trust_level=get_trust_level(user["trust_score"]),
+    )
+
+
+@app.route("/post-job", methods=["GET", "POST"])
+@app.route("/employer/jobs/new", methods=["GET", "POST"])
+@login_required
+def employer_create_job():
+    user = get_current_user()
+    if user["role"] != "EMPLOYER":
+        abort(403)
+    locked = int(user["trust_score"] or 0) < 20 or int(user["is_banned"] or 0)
+    error = ""
+    preview = None
+    if request.method == "POST":
+        title = request.form.get("title", "").strip()
+        description = request.form.get("description", "").strip()
+        salary_range = request.form.get("salary_range", "").strip()
+        location = request.form.get("location", "").strip()
+        is_urgent = 1 if request.form.get("is_urgent") else 0
+        preview = {
+            "title": title,
+            "description": description,
+            "salary_range": salary_range,
+            "location": location,
+            "is_urgent": is_urgent,
+        }
+
+        if locked:
+            error = "บัญชีนี้ยังไม่พร้อมโพสต์งาน"
+        elif len(title) < 5:
+            error = "กรุณากรอกชื่อตำแหน่งงานให้ชัดเจน"
+        elif len(description) < 40:
+            error = "รายละเอียดงานควรยาวอย่างน้อย 40 ตัวอักษร"
+        else:
+            ok, message = validate_profile_name(title, "ชื่อตำแหน่งงาน", 160)
+            if not ok:
+                error = message
+
+        if not error:
+            score, status, reason = analyze_job_content(
+                title,
+                description,
+                salary_range,
+                location,
+                user["trust_score"],
+                0,
+            )
+            conn = get_db()
+            current_time = now_str()
+            cur = conn.execute(
+                """
+                INSERT INTO job_posts (
+                    employer_id, title, description, salary_range, location,
+                    is_government_news, source_url, status, ai_risk_score,
+                    ai_risk_reason, report_count, created_at, updated_at, is_urgent
+                )
+                VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?)
+                """,
+                (
+                    user["id"],
+                    title,
+                    description,
+                    salary_range,
+                    location,
+                    status,
+                    score,
+                    reason,
+                    current_time,
+                    current_time,
+                    is_urgent,
+                ),
+            )
+            job_id = cur.lastrowid
+            conn.execute(
+                """
+                INSERT INTO ai_decision_logs (job_post_id, title, risk_score, risk_reason, final_status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (job_id, title, score, reason, status, current_time),
+            )
+            add_activity_log(user["id"], "CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
+            conn.commit()
+            return redirect(url_for("job_detail", slug=str(job_id)))
+
+    return render_template("employer_job_form.html", job=None, error=error, locked=locked, preview=preview)
+
+
+@app.route("/employer/applications")
+@login_required
+def employer_applications():
+    user = get_current_user()
+    if user["role"] != "EMPLOYER":
+        abort(403)
+    applications = get_db().execute(
+        """
+        SELECT
+            applications.*,
+            applications.job_seeker_id,
+            job_posts.title AS job_title,
+            job_posts.location AS job_location,
+            users.phone_number AS applicant_phone,
+            job_seeker_profiles.full_name,
+            job_seeker_profiles.headline,
+            job_seeker_profiles.resume_url
+        FROM applications
+        JOIN job_posts ON job_posts.id = applications.job_post_id
+        JOIN users ON users.id = applications.job_seeker_id
+        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = applications.job_seeker_id
+        WHERE job_posts.employer_id = ?
+        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
+        """,
+        (user["id"],),
+    ).fetchall()
+    return render_template("employer_applications.html", applications=applications)
+
+
+@app.route("/employer/applications/<int:application_id>/<action>", methods=["POST"])
+@login_required
+def employer_update_application(application_id, action):
+    user = get_current_user()
+    if user["role"] != "EMPLOYER":
+        abort(403)
+    status_map = {
+        "review": "REVIEWING",
+        "shortlist": "SHORTLISTED",
+        "reject": "REJECTED",
+        "accept": "ACCEPTED",
+    }
+    new_status = status_map.get(action)
+    if not new_status:
+        abort(404)
+
+    row = get_db().execute(
+        """
+        SELECT applications.*, job_posts.employer_id, job_posts.title
+        FROM applications
+        JOIN job_posts ON job_posts.id = applications.job_post_id
+        WHERE applications.id = ?
+        """,
+        (application_id,),
+    ).fetchone()
+    if not row or row["employer_id"] != user["id"]:
+        abort(404)
+
+    get_db().execute(
+        "UPDATE applications SET status = ?, updated_at = ? WHERE id = ?",
+        (new_status, now_str(), application_id),
+    )
+    create_notification(
+        row["job_seeker_id"],
+        "สถานะใบสมัครอัปเดต",
+        f"ใบสมัครงาน {row['title']} เปลี่ยนเป็น {new_status}",
+        url_for("job_seeker_dashboard"),
+        "APPLICATION",
+    )
+    add_activity_log(user["id"], "UPDATE_APPLICATION", "applications", application_id, new_status)
+    get_db().commit()
+    return redirect(url_for("employer_applications"))
+
+
+@app.route("/job-seeker/post", methods=["GET", "POST"])
+@login_required
+def job_seeker_post():
+    user = get_current_user()
+    if user["role"] != "JOB_SEEKER":
+        abort(403)
+    if request.method == "POST":
+        return redirect(url_for("job_seeker_post"))
+    profile = get_db().execute(
+        "SELECT * FROM job_seeker_profiles WHERE user_id = ?",
+        (user["id"],),
+    ).fetchone()
+    applications = get_db().execute(
+        """
+        SELECT applications.*, job_posts.title, job_posts.location, employer_profiles.company_name
+        FROM applications
+        JOIN job_posts ON job_posts.id = applications.job_post_id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE applications.job_seeker_id = ?
+        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
+        """,
+        (user["id"],),
+    ).fetchall()
+    return render_template("job_seeker_post.html", profile=profile, applications=applications)
+
+
+@app.route("/applications/<int:job_id>", methods=["POST"])
+@login_required
+def apply_job(job_id):
+    user = get_current_user()
+    if user["role"] != "JOB_SEEKER":
+        abort(403)
+
+    job = get_db().execute(
+        "SELECT * FROM job_posts WHERE id = ? AND status = 'ACTIVE'",
+        (job_id,),
+    ).fetchone()
+    if not job:
+        abort(404)
+
+    message = request.form.get("message", "").strip()[:1000]
+    current_time = now_str()
+    try:
+        get_db().execute(
+            """
+            INSERT INTO applications (job_seeker_id, job_post_id, status, message, created_at, updated_at)
+            VALUES (?, ?, 'PENDING', ?, ?, ?)
+            """,
+            (user["id"], job_id, message, current_time, current_time),
+        )
+        create_notification(
+            job["employer_id"],
+            "มีผู้สมัครงานใหม่",
+            f"มีผู้สมัครงาน {job['title']}",
+            url_for("employer_applications"),
+            "APPLICATION",
+        )
+        add_activity_log(user["id"], "APPLY_JOB", "job_posts", job_id, "")
+        get_db().commit()
+    except sqlite3.IntegrityError:
+        pass
+    return redirect(url_for("job_detail_old", job_id=job_id))
+
+
+@app.route("/reports/<int:job_id>", methods=["POST"])
+@login_required
+def report_job(job_id):
+    user = get_current_user()
+    reason = request.form.get("reason", "").strip()
+    if len(reason) < 3:
+        reason = "ผู้ใช้แจ้งตรวจประกาศนี้"
+    current_time = now_str()
+    try:
+        get_db().execute(
+            """
+            INSERT INTO reports (job_post_id, reporter_id, reason, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'PENDING', ?, ?)
+            """,
+            (job_id, user["id"], reason[:500], current_time, current_time),
+        )
+        row = get_db().execute(
+            "SELECT COUNT(*) AS count FROM reports WHERE job_post_id = ?",
+            (job_id,),
+        ).fetchone()
+        report_count = int(row["count"] or 0)
+        job = get_db().execute("SELECT * FROM job_posts WHERE id = ?", (job_id,)).fetchone()
+        if job:
+            score, status, risk_reason = analyze_job_content(
+                job["title"],
+                job["description"],
+                job["salary_range"],
+                job["location"],
+                50,
+                report_count,
+            )
+            next_status = "PENDING_AI_REVIEW" if status == "ACTIVE" and report_count > 0 else status
+            get_db().execute(
+                """
+                UPDATE job_posts
+                SET report_count = ?, ai_risk_score = ?, ai_risk_reason = ?, status = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (report_count, score, risk_reason, next_status, current_time, job_id),
+            )
+            create_notification(
+                job["employer_id"],
+                "ประกาศถูกแจ้งตรวจ",
+                f"ประกาศ {job['title']} ถูกผู้ใช้แจ้งตรวจ",
+                url_for("job_detail", slug=str(job_id)),
+                "REPORT",
+            )
+        add_activity_log(user["id"], "REPORT_JOB", "job_posts", job_id, reason)
+        get_db().commit()
+    except sqlite3.IntegrityError:
+        pass
+    return redirect(url_for("job_detail_old", job_id=job_id))
+
+
+@app.route("/messages", methods=["POST"])
+@login_required
+def send_message():
+    user = get_current_user()
+    receiver_id = request.form.get("receiver_id", "").strip()
+    application_id = request.form.get("application_id", "").strip() or None
+    message = request.form.get("message", "").strip()
+    if receiver_id and message:
+        try:
+            get_db().execute(
+                """
+                INSERT INTO messages (sender_id, receiver_id, application_id, message, is_read, created_at)
+                VALUES (?, ?, ?, ?, 0, ?)
+                """,
+                (user["id"], int(receiver_id), int(application_id) if application_id else None, message[:1000], now_str()),
+            )
+            create_notification(
+                int(receiver_id),
+                "มีข้อความใหม่",
+                message[:160],
+                url_for("inbox"),
+                "MESSAGE",
+            )
+            add_activity_log(user["id"], "SEND_MESSAGE", "messages", None, f"receiver={receiver_id}")
+            get_db().commit()
+        except Exception:
+            pass
+    return _redirect_back("inbox")
+
+
+@app.route("/inbox")
+@login_required
+def inbox():
+    return render_template("inbox.html", conversations=[], messages=[], selected_application=None)
+
+
+@app.route("/api/messages/unread-count")
+@login_required
+def api_unread_messages_count():
+    row = get_db().execute(
+        "SELECT COUNT(*) AS count FROM messages WHERE receiver_id = ? AND is_read = 0",
+        (get_current_user()["id"],),
+    ).fetchone()
+    return {"ok": True, "unread": int(row["count"] or 0)}
+
+
+@app.route("/community")
+def community_board():
+    posts = get_db().execute(
+        """
+        SELECT
+            community_posts.*,
+            users.phone_number,
+            job_seeker_profiles.full_name,
+            employer_profiles.company_name
+        FROM community_posts
+        LEFT JOIN users ON users.id = community_posts.user_id
+        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = community_posts.user_id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = community_posts.user_id
+        WHERE community_posts.status = 'ACTIVE'
+        ORDER BY datetime(community_posts.created_at) DESC, community_posts.id DESC
+        LIMIT 100
+        """
+    ).fetchall()
+    stats = {
+        "active": len(posts),
+        "pending": 0,
+        "blocked": 0,
+    }
+    return render_template("community.html", posts=posts, stats=stats)
+
+
+@app.route("/community/posts", methods=["POST"])
+@login_required
+def create_community_post():
+    user = get_current_user()
+    body = request.form.get("body", "").strip() or request.form.get("content", "").strip()
+    if body:
+        result = None
+        try:
+            from security_engine import analyze_community_post
+            result = analyze_community_post(body)
+        except Exception:
+            result = {"score": 35, "status": "PENDING_REVIEW", "reason": "ระบบคัดกรองไม่สมบูรณ์"}
+
+        current_time = now_str()
+        get_db().execute(
+            """
+            INSERT INTO community_posts (
+                user_id, body, status, moderation_score, moderation_reason,
+                report_count, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+            """,
+            (
+                user["id"],
+                body[:2000],
+                result.get("status", "PENDING_REVIEW"),
+                int(result.get("score", 0) or 0),
+                result.get("reason", ""),
+                current_time,
+                current_time,
+            ),
+        )
+        add_activity_log(user["id"], "CREATE_COMMUNITY_POST", "community_posts", None, "")
+        get_db().commit()
+    return redirect(url_for("community_board"))
+
+
+@app.route("/openchat")
+def openchat():
+    messages = get_db().execute(
+        """
+        SELECT
+            openchat_messages.*,
+            users.phone_number,
+            users.role,
+            COALESCE(job_seeker_profiles.full_name, employer_profiles.company_name, '') AS author_name
+        FROM openchat_messages
+        LEFT JOIN users ON users.id = openchat_messages.user_id
+        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = openchat_messages.user_id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = openchat_messages.user_id
+        WHERE openchat_messages.status = 'ACTIVE'
+        ORDER BY datetime(openchat_messages.created_at) DESC, openchat_messages.id DESC
+        LIMIT 100
+        """
+    ).fetchall()
+    return render_template("openchat.html", messages=messages, media_by_message={})
+
+
+@app.route("/openchat/send", methods=["POST"])
+@login_required
+def openchat_send():
+    user = get_current_user()
+    message = request.form.get("message", "").strip()
+    if message:
+        try:
+            from security_engine import analyze_openchat_message
+            result = analyze_openchat_message(message)
+        except Exception:
+            result = {"score": 35, "status": "PENDING_REVIEW", "reason": "ระบบคัดกรองไม่สมบูรณ์"}
+
+        current_time = now_str()
+        get_db().execute(
+            """
+            INSERT INTO openchat_messages (
+                user_id, message, status, moderation_score, moderation_reason,
+                created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user["id"],
+                message[:1000],
+                result.get("status", "PENDING_REVIEW"),
+                int(result.get("score", 0) or 0),
+                result.get("reason", ""),
+                current_time,
+                current_time,
+            ),
+        )
+        add_activity_log(user["id"], "SEND_OPENCHAT", "openchat_messages", None, "")
+        get_db().commit()
+    return redirect(url_for("openchat"))
+
+
+@app.route("/uploads/openchat/<path:filename>")
+def uploaded_openchat_media(filename):
+    return send_from_directory(OPENCHAT_UPLOAD_DIR, filename)
+
+
+@app.route("/urgent")
+@app.route("/urgent-jobs")
+def urgent_jobs():
+    employer_jobs = _fetch_template_jobs(limit=30, urgent_only=True)
+    seeker_posts = []
+    stats = {
+        "total": len(employer_jobs) + len(seeker_posts),
+        "employer_jobs": len(employer_jobs),
+        "seeker_posts": len(seeker_posts),
+    }
+    return render_template("urgent_jobs.html", stats=stats, employer_jobs=employer_jobs, seeker_posts=seeker_posts)
+
+
+@app.route("/job/<slug>")
+def job_detail(slug):
+    try:
+        job_id = int(str(slug).split("-")[0])
+    except (TypeError, ValueError):
+        abort(404)
+
+    job = get_db().execute(
+        """
+        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE job_posts.id = ?
+        """,
+        (job_id,),
+    ).fetchone()
+    if not job:
+        abort(404)
+    already_applied = False
+    if get_current_user() and get_current_user()["role"] == "JOB_SEEKER":
+        already_applied = bool(
+            get_db().execute(
+                "SELECT id FROM applications WHERE job_seeker_id = ? AND job_post_id = ?",
+                (get_current_user()["id"], job_id),
+            ).fetchone()
+        )
+    try:
+        get_db().execute(
+            "UPDATE job_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?",
+            (job_id,),
+        )
+        get_db().commit()
+    except Exception:
+        pass
+    return render_template("job_detail.html", job=job, already_applied=already_applied)
+
+
+@app.route("/job-id/<int:job_id>")
+def job_detail_old(job_id):
+    return redirect(url_for("job_detail", slug=str(job_id)))
+
+
+@app.route("/privacy")
+def privacy_policy():
+    return render_template("privacy.html")
+
+
+@app.route("/terms")
+def terms_page():
+    return render_template("terms.html")
+
+
+@app.route("/pricing")
+def pricing_page():
+    return render_template("pricing.html")
+
+
+@app.route("/employer")
+def employer_landing():
+    return redirect(url_for("pricing_page"))
+
+
+@app.route("/setup-check")
+@role_required("ADMIN")
+def setup_check():
+    # TODO: Expand this with full system checks if the admin diagnostics page is restored.
+    conn = get_db()
+
+    def count(table_name):
+        try:
+            row = conn.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
+            return int(row["count"] or 0)
+        except Exception:
+            return 0
+
+    stats = {
+        "users": count("users"),
+        "job_posts": count("job_posts"),
+        "reports": count("reports"),
+        "checked_at": now_str(),
+    }
+    return render_template("setup_check.html", stats=stats)
+
+
+@app.route("/admin")
+@role_required("ADMIN")
+def admin_dashboard():
+    return render_template("admin_dashboard.html", stats=_admin_stats(), review_jobs=_fetch_template_jobs(limit=8, status="PENDING_AI_REVIEW"))
+
+
+@app.route("/admin/moderation")
+@role_required("ADMIN")
+def admin_moderation():
+    q = request.args.get("q", "").strip().lower()
+    status = request.args.get("status", "PENDING_AI_REVIEW").strip()
+    where = []
+    params = []
+    if status:
+        where.append("job_posts.status = ?")
+        params.append(status)
+    if q:
+        where.append(
+            "(lower(job_posts.title) LIKE ? OR lower(job_posts.description) LIKE ? OR lower(employer_profiles.company_name) LIKE ?)"
+        )
+        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    jobs = get_db().execute(
+        f"""
+        SELECT
+            job_posts.*,
+            users.phone_number,
+            users.trust_score,
+            employer_profiles.company_name,
+            employer_profiles.is_company_verified
+        FROM job_posts
+        LEFT JOIN users ON users.id = job_posts.employer_id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        {where_sql}
+        ORDER BY datetime(job_posts.updated_at) DESC, job_posts.id DESC
+        LIMIT 100
+        """,
+        tuple(params),
+    ).fetchall()
+    return render_template("admin_moderation.html", jobs=jobs, q=q, status=status)
+
+
+@app.route("/scam-check")
+@app.route("/admin/scam-center")
+@role_required("ADMIN")
+def admin_scam_center():
+    conn = get_db()
+
+    def count(sql, params=()):
+        try:
+            return int(conn.execute(sql, params).fetchone()["count"] or 0)
+        except Exception:
+            return 0
+
+    stats = {
+        "high": count("SELECT COUNT(*) AS count FROM job_posts WHERE COALESCE(ai_risk_score, 0) >= 70"),
+        "medium": count("SELECT COUNT(*) AS count FROM job_posts WHERE COALESCE(ai_risk_score, 0) >= 35 AND COALESCE(ai_risk_score, 0) < 70"),
+        "low": count("SELECT COUNT(*) AS count FROM job_posts WHERE COALESCE(ai_risk_score, 0) < 35"),
+        "pending": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'"),
+    }
+    jobs = conn.execute(
+        """
+        SELECT
+            job_posts.*,
+            users.trust_score,
+            employer_profiles.company_name
+        FROM job_posts
+        LEFT JOIN users ON users.id = job_posts.employer_id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE job_posts.status = 'PENDING_AI_REVIEW'
+           OR COALESCE(job_posts.ai_risk_score, 0) >= 35
+        ORDER BY COALESCE(job_posts.ai_risk_score, 0) DESC, datetime(job_posts.updated_at) DESC
+        LIMIT 100
+        """
+    ).fetchall()
+    logs = []
+    try:
+        logs = conn.execute(
+            """
+            SELECT scam_scan_logs.*, job_posts.title
+            FROM scam_scan_logs
+            LEFT JOIN job_posts ON job_posts.id = scam_scan_logs.job_post_id
+            ORDER BY datetime(scam_scan_logs.created_at) DESC, scam_scan_logs.id DESC
+            LIMIT 50
+            """
+        ).fetchall()
+    except Exception:
+        logs = []
+    return render_template("admin_scam_center.html", stats=stats, jobs=jobs, logs=logs)
+
+
+@app.route("/admin/users")
+@role_required("ADMIN")
+def admin_users():
+    users = get_db().execute("SELECT * FROM users ORDER BY id DESC LIMIT 100").fetchall()
+    return render_template("admin_users.html", users=users)
+
+
+@app.route("/admin/logs")
+@role_required("ADMIN")
+def admin_logs():
+    logs = get_db().execute("SELECT * FROM activity_logs ORDER BY datetime(created_at) DESC, id DESC LIMIT 100").fetchall()
+    return render_template("admin_logs.html", logs=logs)
+
+
+@app.route("/admin/import-runs")
+@role_required("ADMIN")
+def admin_import_runs():
+    return render_template("admin_import_runs.html", import_runs=[])
+
+
+@app.route("/admin/trust")
+@role_required("ADMIN")
+def admin_trust_center():
+    users = get_db().execute("SELECT * FROM users ORDER BY trust_score ASC, id DESC LIMIT 100").fetchall()
+    return render_template("admin_trust.html", users=users)
+
+
+@app.route("/admin/system-health")
+@role_required("ADMIN")
+def admin_system_health():
+    conn = get_db()
+
+    def count(sql):
+        try:
+            return int(conn.execute(sql).fetchone()["count"] or 0)
+        except Exception:
+            return 0
+
+    db_path = DB_PATH
+    health = {
+        "checked_at": now_str(),
+        "render_git_commit": os.environ.get("RENDER_GIT_COMMIT", ""),
+        "render_service_name": os.environ.get("RENDER_SERVICE_NAME", ""),
+        "render_external_url": os.environ.get("RENDER_EXTERNAL_URL", ""),
+        "database_exists": db_path.exists(),
+        "database_size": f"{db_path.stat().st_size} bytes" if db_path.exists() else "-",
+        "database_path": str(db_path),
+        "stats": {
+            "users": count("SELECT COUNT(*) AS count FROM users"),
+            "active_jobs": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'"),
+            "pending_jobs": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'"),
+            "rejected_jobs": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'"),
+            "reports": count("SELECT COUNT(*) AS count FROM reports"),
+            "activity_logs": count("SELECT COUNT(*) AS count FROM activity_logs"),
+        },
+        "env_checks": {
+            "JOBBOARD_SECRET_KEY": bool(app.secret_key),
+            "JOBBOARD_ADMIN_PHONE": bool(ADMIN_PHONE),
+            "JOBBOARD_ADMIN_PASSWORD": bool(ADMIN_PASSWORD),
+            "JOBBOARD_CRON_TOKEN": bool(JOBBOARD_CRON_TOKEN),
+        },
+    }
+    return render_template("admin_system_health.html", health=health)
+
+
+@app.route("/admin/openchat-media")
+@role_required("ADMIN")
+def admin_openchat_media_review():
+    stats = {"pending": 0, "approved": 0, "rejected": 0}
+    return render_template("admin_openchat_media_review.html", stats=stats, media_items=[])
+
+
+@app.route("/admin/backup/download")
+@role_required("ADMIN")
+def admin_backup_download():
+    # TODO: Restore full backup ZIP generation.
+    return Response("Backup route placeholder", mimetype="text/plain")
+
+
+@app.route("/admin/discord-test")
+@role_required("ADMIN")
+def admin_discord_test():
+    # TODO: Restore Discord webhook test.
+    return redirect(url_for("admin_system_health"))
+
+
+@app.route("/admin/import-upper-central-jobs")
+@role_required("ADMIN")
+def admin_import_upper_central_jobs():
+    try:
+        from auto_job_engine import run_live
+        result = run_live()
+        add_activity_log(get_current_user()["id"], "ADMIN_IMPORT_DOE_NEWS", "job_posts", None, str(result))
+        get_db().commit()
+    except Exception as exc:
+        add_activity_log(get_current_user()["id"], "ADMIN_IMPORT_DOE_NEWS_FAILED", "job_posts", None, str(exc))
+        get_db().commit()
+    return redirect(url_for("admin_import_runs"))
+
+
+@app.route("/admin/import-latest-doe-news")
+@role_required("ADMIN")
+def admin_import_latest_doe_news():
+    return admin_import_upper_central_jobs()
+
+
+@app.route("/admin/repair-doe-source-links")
+@role_required("ADMIN")
+def admin_repair_doe_source_links():
+    # TODO: Restore source link repair action.
+    return redirect(url_for("admin_import_runs"))
+
+
+@app.route("/admin/fetch-government-news", methods=["POST"])
+@role_required("ADMIN")
+def admin_fetch_government_news():
+    try:
+        from auto_job_engine import run_live
+        result = run_live()
+        add_activity_log(get_current_user()["id"], "ADMIN_FETCH_GOVERNMENT_NEWS", "job_posts", None, str(result))
+        get_db().commit()
+    except Exception as exc:
+        add_activity_log(get_current_user()["id"], "ADMIN_FETCH_GOVERNMENT_NEWS_FAILED", "job_posts", None, str(exc))
+        get_db().commit()
+    return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/scam-center/run", methods=["POST"])
+@role_required("ADMIN")
+def admin_run_scam_scanner():
+    try:
+        from scam_engine import scan_all_jobs
+        result = scan_all_jobs(apply_changes=True)
+        add_activity_log(
+            get_current_user()["id"],
+            "RUN_SCAM_SCANNER",
+            "job_posts",
+            None,
+            str(result),
+        )
+        get_db().commit()
+    except Exception as exc:
+        add_activity_log(get_current_user()["id"], "RUN_SCAM_SCANNER_FAILED", "job_posts", None, str(exc))
+        get_db().commit()
+    return redirect(url_for("admin_scam_center"))
+
+
+@app.route("/admin/jobs/<int:job_id>/<action>", methods=["POST"])
+@role_required("ADMIN")
+def admin_update_job_status(job_id, action):
+    status_map = {
+        "approve": "ACTIVE",
+        "review": "PENDING_AI_REVIEW",
+        "reject": "REJECTED",
+        "close": "CLOSED",
+    }
+    status = status_map.get(action)
+    if not status:
+        abort(404)
+    get_db().execute(
+        "UPDATE job_posts SET status = ?, updated_at = ? WHERE id = ?",
+        (status, now_str(), job_id),
+    )
+    add_activity_log(get_current_user()["id"], "ADMIN_UPDATE_JOB_STATUS", "job_posts", job_id, status)
+    get_db().commit()
+    return _redirect_back("admin_moderation")
+
+
+@app.route("/admin/jobs/<int:job_id>/delete", methods=["POST"])
+@role_required("ADMIN")
+def admin_delete_job(job_id):
+    get_db().execute("DELETE FROM job_posts WHERE id = ?", (job_id,))
+    add_activity_log(get_current_user()["id"], "ADMIN_DELETE_JOB", "job_posts", job_id, "")
+    get_db().commit()
+    return redirect(url_for("admin_moderation"))
+
+
+@app.route("/admin/users/<int:user_id>/ban", methods=["POST"])
+@role_required("ADMIN")
+def admin_ban_user(user_id):
+    get_db().execute("UPDATE users SET is_banned = 1, updated_at = ? WHERE id = ?", (now_str(), user_id))
+    add_activity_log(get_current_user()["id"], "ADMIN_BAN_USER", "users", user_id, "")
+    get_db().commit()
+    return _redirect_back("admin_users")
+
+
+@app.route("/admin/users/<int:user_id>/unban", methods=["POST"])
+@role_required("ADMIN")
+def admin_unban_user(user_id):
+    get_db().execute("UPDATE users SET is_banned = 0, updated_at = ? WHERE id = ?", (now_str(), user_id))
+    add_activity_log(get_current_user()["id"], "ADMIN_UNBAN_USER", "users", user_id, "")
+    get_db().commit()
+    return _redirect_back("admin_users")
+
+
+@app.route("/admin/users/<int:user_id>/verify-employer", methods=["POST"])
+@role_required("ADMIN")
+def admin_verify_employer(user_id):
+    get_db().execute(
+        "UPDATE employer_profiles SET is_company_verified = 1, updated_at = ? WHERE user_id = ?",
+        (now_str(), user_id),
+    )
+    get_db().execute(
+        "UPDATE users SET trust_score = min(100, trust_score + 15), updated_at = ? WHERE id = ?",
+        (now_str(), user_id),
+    )
+    add_activity_log(get_current_user()["id"], "ADMIN_VERIFY_EMPLOYER", "users", user_id, "")
+    get_db().commit()
+    return redirect(url_for("admin_trust_center"))
+
+
+@app.route("/admin/users/<int:user_id>/unverify-employer", methods=["POST"])
+@role_required("ADMIN")
+def admin_unverify_employer(user_id):
+    get_db().execute(
+        "UPDATE employer_profiles SET is_company_verified = 0, updated_at = ? WHERE user_id = ?",
+        (now_str(), user_id),
+    )
+    add_activity_log(get_current_user()["id"], "ADMIN_UNVERIFY_EMPLOYER", "users", user_id, "")
+    get_db().commit()
+    return redirect(url_for("admin_trust_center"))
+
+
+@app.route("/admin/users/<int:user_id>/trust/<action>", methods=["POST"])
+@role_required("ADMIN")
+def admin_update_trust(user_id, action):
+    delta_map = {"increase": 10, "decrease": -10, "reset": None}
+    if action not in delta_map:
+        abort(404)
+    if delta_map[action] is None:
+        get_db().execute(
+            "UPDATE users SET trust_score = 50, updated_at = ? WHERE id = ?",
+            (now_str(), user_id),
+        )
+    else:
+        get_db().execute(
+            "UPDATE users SET trust_score = max(0, min(100, trust_score + ?)), updated_at = ? WHERE id = ?",
+            (delta_map[action], now_str(), user_id),
+        )
+    add_activity_log(get_current_user()["id"], "ADMIN_UPDATE_TRUST", "users", user_id, action)
+    get_db().commit()
+    return redirect(url_for("admin_trust_center"))
+
+
+@app.route("/admin/openchat-media/<int:media_id>/<action>", methods=["POST"])
+@role_required("ADMIN")
+def admin_update_openchat_media_review(media_id, action):
+    # TODO: Restore OpenChat media moderation workflow.
+    return redirect(url_for("admin_openchat_media_review"))
+
+
+@app.route("/notifications")
 @login_required
 def notifications_page():
     user = get_current_user()

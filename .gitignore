@@ -9,6 +9,9 @@ backup_before_final_fix_*/
 _local_route_test.py
 _patch_*.py
 instance/jobboard.db
+instance/*.db
+flask_*_stdout_*.tmp.log
+flask_*_stderr_*.tmp.log
 backup_before_notifications_*/
 backup_before_remove_otp_*/
 backup_before_require_email_notify_*/
