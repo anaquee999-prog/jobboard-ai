@@ -49,6 +49,7 @@ app.config["MAX_CONTENT_LENGTH"] = 55 * 1024 * 1024
 ADMIN_PHONE = os.environ.get("JOBBOARD_ADMIN_PHONE", "").strip()
 ADMIN_PASSWORD = os.environ.get("JOBBOARD_ADMIN_PASSWORD", "").strip()
 DISCORD_SCAM_ALERT_WEBHOOK_URL = os.environ.get("DISCORD_SCAM_ALERT_WEBHOOK_URL", "").strip()
+DISCORD_BOT_API_TOKEN = os.environ.get("DISCORD_BOT_API_TOKEN", "").strip()
 DOE_NEWS_SOURCES = [
     {
         "key": "doe-main",
@@ -526,6 +527,8 @@ def csrf_protect():
         return None
     if request.path == "/api/analytics":
         return None
+    if request.path.startswith("/api/discord/"):
+        return None
 
     session_token = session.get("_csrf_token", "")
     form_token = request.form.get("csrf_token", "")
@@ -567,6 +570,68 @@ def ensure_column(conn, table_name, column_name, definition):
     existing = {row["name"] for row in rows}
     if column_name not in existing:
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+
+
+def ensure_discord_schema(conn=None):
+    conn = conn or get_db()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS discord_accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            discord_user_id TEXT NOT NULL UNIQUE,
+            discord_username TEXT DEFAULT '',
+            role TEXT NOT NULL DEFAULT 'JOB_SEEKER',
+            dm_enabled INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS job_alert_preferences (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL UNIQUE,
+            keywords TEXT DEFAULT '',
+            locations TEXT DEFAULT '',
+            job_types TEXT DEFAULT '',
+            min_salary TEXT DEFAULT '',
+            alert_frequency TEXT NOT NULL DEFAULT 'instant',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS company_follows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            employer_id INTEGER,
+            company_name TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(user_id, company_name),
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (employer_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS discord_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            discord_user_id TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'PENDING',
+            sent_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_discord_accounts_user ON discord_accounts(user_id);
+        CREATE INDEX IF NOT EXISTS idx_discord_accounts_discord ON discord_accounts(discord_user_id);
+        CREATE INDEX IF NOT EXISTS idx_job_alert_preferences_user ON job_alert_preferences(user_id);
+        CREATE INDEX IF NOT EXISTS idx_company_follows_company ON company_follows(company_name);
+        CREATE INDEX IF NOT EXISTS idx_discord_notifications_status ON discord_notifications(status, created_at);
+        """
+    )
 
 
 def init_db():
@@ -811,6 +876,7 @@ def init_db():
 
     ensure_column(conn, "job_posts", "is_urgent", "INTEGER NOT NULL DEFAULT 0")
     ensure_column(conn, "job_seeker_profiles", "is_urgent", "INTEGER NOT NULL DEFAULT 0")
+    ensure_discord_schema(conn)
 
 
     seed_admin(conn)
@@ -3595,6 +3661,695 @@ def _with_job_seo_fields(item):
         "icbm": "13.7563, 100.5018",
     }
     return item
+
+
+def _require_discord_bot_token():
+    if not DISCORD_BOT_API_TOKEN:
+        return jsonify({"ok": False, "message": "DISCORD_BOT_API_TOKEN is not configured."}), 503
+    token = request.headers.get("X-Discord-Bot-Token", "").strip()
+    auth = request.headers.get("Authorization", "").strip()
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+    if not secrets.compare_digest(token, DISCORD_BOT_API_TOKEN):
+        return jsonify({"ok": False, "message": "Invalid Discord bot token."}), 401
+    return None
+
+
+def _json_payload():
+    return request.get_json(silent=True) or {}
+
+
+def _discord_text(value, max_length=500):
+    return str(value or "").strip()[:max_length]
+
+
+def _discord_list_text(value, max_length=300):
+    if isinstance(value, (list, tuple)):
+        value = ", ".join(str(item).strip() for item in value if str(item).strip())
+    return _discord_text(value, max_length)
+
+
+def _get_or_create_discord_user(discord_user_id, discord_username="", role="JOB_SEEKER"):
+    ensure_discord_schema()
+    discord_user_id = _discord_text(discord_user_id, 80)
+    discord_username = _discord_text(discord_username, 120)
+    role = "EMPLOYER" if str(role or "").upper() == "EMPLOYER" else "JOB_SEEKER"
+    if not discord_user_id:
+        raise ValueError("discord_user_id is required")
+
+    conn = get_db()
+    account = conn.execute(
+        """
+        SELECT discord_accounts.*, users.role AS user_role
+        FROM discord_accounts
+        JOIN users ON users.id = discord_accounts.user_id
+        WHERE discord_accounts.discord_user_id = ?
+        """,
+        (discord_user_id,),
+    ).fetchone()
+    current_time = now_str()
+    if account:
+        user_id = int(account["user_id"])
+        conn.execute(
+            """
+            UPDATE discord_accounts
+            SET discord_username = ?, role = ?, updated_at = ?
+            WHERE discord_user_id = ?
+            """,
+            (discord_username, role, current_time, discord_user_id),
+        )
+        conn.execute("UPDATE users SET role = ?, updated_at = ? WHERE id = ?", (role, current_time, user_id))
+        conn.commit()
+        return get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+    phone_number = f"discord:{discord_user_id}"
+    cur = conn.execute(
+        """
+        INSERT INTO users (
+            phone_number, password_hash, role, is_verified, is_banned,
+            trust_score, created_at, updated_at
+        )
+        VALUES (?, ?, ?, 1, 0, 60, ?, ?)
+        """,
+        (phone_number, hash_password(secrets.token_urlsafe(24)), role, current_time, current_time),
+    )
+    user_id = cur.lastrowid
+    conn.execute(
+        """
+        INSERT INTO discord_accounts (
+            user_id, discord_user_id, discord_username, role, dm_enabled, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, 1, ?, ?)
+        """,
+        (user_id, discord_user_id, discord_username, role, current_time, current_time),
+    )
+    conn.commit()
+    return get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+
+
+def _discord_account_for_user(user_id):
+    ensure_discord_schema()
+    return get_db().execute("SELECT * FROM discord_accounts WHERE user_id = ?", (user_id,)).fetchone()
+
+
+def _queue_discord_notification(user_id, event_type, payload):
+    ensure_discord_schema()
+    account = _discord_account_for_user(user_id)
+    if not account or not int(account["dm_enabled"] or 0):
+        return None
+    current_time = now_str()
+    cur = get_db().execute(
+        """
+        INSERT INTO discord_notifications (
+            user_id, discord_user_id, event_type, payload, status, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, 'PENDING', ?, ?)
+        """,
+        (
+            user_id,
+            account["discord_user_id"],
+            event_type,
+            json.dumps(payload, ensure_ascii=False),
+            current_time,
+            current_time,
+        ),
+    )
+    get_db().commit()
+    return cur.lastrowid
+
+
+def _job_match_score(row, keyword="", location="", job_type="", profile=None):
+    text = " ".join(
+        [
+            str(row["title"] or ""),
+            str(row["description"] or ""),
+            str(row["location"] or ""),
+            str(row["company_name"] or ""),
+        ]
+    ).lower()
+    score = 0
+    keyword = str(keyword or "").strip().lower()
+    location = str(location or "").strip().lower()
+    job_type = str(job_type or "").strip().lower()
+    if keyword and keyword in text:
+        score += 35
+    if location and location in str(row["location"] or "").lower():
+        score += 25
+    if job_type and job_type in text:
+        score += 10
+    if profile:
+        headline = str(profile["headline"] or "").lower() if "headline" in profile.keys() else ""
+        if headline and any(part.strip() and part.strip() in text for part in re.split(r"[,/ ]+", headline)):
+            score += 15
+    if int(row["is_company_verified"] or 0):
+        score += 10
+    risk = int(row["ai_risk_score"] or 0)
+    if risk >= 70:
+        score -= 30
+    elif risk >= 35:
+        score -= 10
+    return max(0, min(100, score))
+
+
+def _discord_job_payload(row, match_score=0):
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "company_name": row["company_name"] or "Verified employer",
+        "location": row["location"] or "",
+        "salary_range": row["salary_range"] or "",
+        "risk_score": int(row["ai_risk_score"] or 0),
+        "risk_level": scam_risk_label(row["ai_risk_score"]),
+        "match_score": int(match_score or 0),
+        "is_urgent": bool(row["is_urgent"] or 0) if "is_urgent" in row.keys() else False,
+        "url": f"{SITE_URL}{url_for('job_detail', slug=job_slug(row))}",
+        "created_at": row["created_at"],
+    }
+
+
+def _notify_followers_for_job(job_id, company_name, location, title):
+    ensure_discord_schema()
+    company_name_lc = str(company_name or "").strip().lower()
+    location_lc = str(location or "").strip().lower()
+    rows = get_db().execute(
+        """
+        SELECT DISTINCT discord_accounts.user_id
+        FROM discord_accounts
+        LEFT JOIN company_follows ON company_follows.user_id = discord_accounts.user_id
+        LEFT JOIN job_alert_preferences ON job_alert_preferences.user_id = discord_accounts.user_id
+        WHERE discord_accounts.role = 'JOB_SEEKER'
+          AND discord_accounts.dm_enabled = 1
+        """
+    ).fetchall()
+    queued = 0
+    for row in rows:
+        user_id = int(row["user_id"])
+        follows = get_db().execute("SELECT company_name FROM company_follows WHERE user_id = ?", (user_id,)).fetchall()
+        prefs = get_db().execute("SELECT * FROM job_alert_preferences WHERE user_id = ?", (user_id,)).fetchone()
+        follow_match = any(company_name_lc and company_name_lc == str(f["company_name"] or "").lower() for f in follows)
+        pref_match = False
+        if prefs:
+            keywords = str(prefs["keywords"] or "").lower()
+            locations = str(prefs["locations"] or "").lower()
+            pref_match = (keywords and keywords in str(title or "").lower()) or (location_lc and location_lc in locations)
+        if follow_match or pref_match:
+            _queue_discord_notification(
+                user_id,
+                "job_match",
+                {
+                    "job_id": job_id,
+                    "title": title,
+                    "company_name": company_name,
+                    "location": location,
+                    "url": f"{SITE_URL}{url_for('job_detail', slug=str(job_id))}",
+                },
+            )
+            queued += 1
+    return queued
+
+
+@app.route("/api/discord/commands")
+def api_discord_commands():
+    return jsonify({
+        "ok": True,
+        "commands": [
+            {"name": "/profile", "description": "Create or update a job seeker profile"},
+            {"name": "/search job", "description": "Search active jobs by keyword, location, and type"},
+            {"name": "/apply", "description": "Apply to a job from Discord"},
+            {"name": "/applications", "description": "View application status"},
+            {"name": "/follow company", "description": "Follow a company for new job alerts"},
+            {"name": "/post job", "description": "Employer posts a new job"},
+            {"name": "/job applicants", "description": "Employer views applicants"},
+            {"name": "/analytics", "description": "Short analytics summary"},
+        ],
+    })
+
+
+@app.route("/api/discord/profile", methods=["POST"])
+def api_discord_profile():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    data = _json_payload()
+    try:
+        user = _get_or_create_discord_user(
+            data.get("discord_user_id"),
+            data.get("discord_username"),
+            data.get("role") or "JOB_SEEKER",
+        )
+    except ValueError as exc:
+        return jsonify({"ok": False, "message": str(exc)}), 400
+
+    conn = get_db()
+    current_time = now_str()
+    role = str(user["role"] or "JOB_SEEKER").upper()
+    if role == "EMPLOYER":
+        company_name = _discord_text(data.get("company_name") or data.get("full_name") or data.get("discord_username"), 160)
+        conn.execute(
+            """
+            INSERT INTO employer_profiles (user_id, company_name, tax_id, is_company_verified, address, website, created_at, updated_at)
+            VALUES (?, ?, ?, 0, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                company_name = excluded.company_name,
+                address = excluded.address,
+                website = excluded.website,
+                updated_at = excluded.updated_at
+            """,
+            (
+                user["id"],
+                company_name or f"Discord Employer {user['id']}",
+                f"DISCORD-{user['id']}",
+                _discord_text(data.get("address"), 240),
+                _discord_text(data.get("website"), 240),
+                current_time,
+                current_time,
+            ),
+        )
+    else:
+        full_name = _discord_text(data.get("full_name") or data.get("discord_username"), 160)
+        conn.execute(
+            """
+            INSERT INTO job_seeker_profiles (user_id, full_name, headline, resume_url, is_public, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                full_name = excluded.full_name,
+                headline = excluded.headline,
+                resume_url = excluded.resume_url,
+                is_public = excluded.is_public,
+                updated_at = excluded.updated_at
+            """,
+            (
+                user["id"],
+                full_name or f"Discord User {user['id']}",
+                _discord_text(data.get("headline") or data.get("skills"), 300),
+                _discord_text(data.get("resume_url") or data.get("cv_url"), 500),
+                1 if data.get("is_public", True) else 0,
+                current_time,
+                current_time,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO job_alert_preferences (
+                user_id, keywords, locations, job_types, min_salary, alert_frequency, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                keywords = excluded.keywords,
+                locations = excluded.locations,
+                job_types = excluded.job_types,
+                min_salary = excluded.min_salary,
+                alert_frequency = excluded.alert_frequency,
+                updated_at = excluded.updated_at
+            """,
+            (
+                user["id"],
+                _discord_list_text(data.get("keywords") or data.get("skills")),
+                _discord_list_text(data.get("locations") or data.get("location")),
+                _discord_list_text(data.get("job_types") or data.get("type")),
+                _discord_text(data.get("min_salary"), 80),
+                _discord_text(data.get("alert_frequency") or "instant", 40),
+                current_time,
+                current_time,
+            ),
+        )
+    if "dm_enabled" in data:
+        conn.execute(
+            "UPDATE discord_accounts SET dm_enabled = ?, updated_at = ? WHERE user_id = ?",
+            (1 if data.get("dm_enabled") else 0, current_time, user["id"]),
+        )
+    conn.commit()
+    return jsonify({"ok": True, "user_id": user["id"], "role": role})
+
+
+@app.route("/api/discord/search", methods=["POST"])
+def api_discord_search():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    data = _json_payload()
+    keyword = _discord_text(data.get("keyword") or data.get("q"), 120)
+    location = _discord_text(data.get("location"), 120)
+    job_type = _discord_text(data.get("type") or data.get("job_type"), 80)
+    limit = max(1, min(10, int(data.get("limit") or 5)))
+    profile = None
+    if data.get("discord_user_id"):
+        account = get_db().execute(
+            "SELECT user_id FROM discord_accounts WHERE discord_user_id = ?",
+            (_discord_text(data.get("discord_user_id"), 80),),
+        ).fetchone()
+        if account:
+            profile = get_db().execute("SELECT * FROM job_seeker_profiles WHERE user_id = ?", (account["user_id"],)).fetchone()
+
+    where = ["job_posts.status = 'ACTIVE'"]
+    params = []
+    if keyword:
+        like = f"%{keyword.lower()}%"
+        where.append("(lower(job_posts.title) LIKE ? OR lower(job_posts.description) LIKE ? OR lower(employer_profiles.company_name) LIKE ?)")
+        params.extend([like, like, like])
+    if location:
+        where.append("lower(job_posts.location) LIKE ?")
+        params.append(f"%{location.lower()}%")
+
+    rows = get_db().execute(
+        f"""
+        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE {" AND ".join(where)}
+        ORDER BY COALESCE(job_posts.is_urgent, 0) DESC, datetime(job_posts.updated_at) DESC, job_posts.id DESC
+        LIMIT 50
+        """,
+        params,
+    ).fetchall()
+    ranked = sorted(
+        [(_job_match_score(row, keyword, location, job_type, profile), row) for row in rows],
+        key=lambda item: item[0],
+        reverse=True,
+    )[:limit]
+    return jsonify({"ok": True, "count": len(ranked), "jobs": [_discord_job_payload(row, score) for score, row in ranked]})
+
+
+@app.route("/api/discord/follow", methods=["POST"])
+def api_discord_follow():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    data = _json_payload()
+    user = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "JOB_SEEKER")
+    follow_type = _discord_text(data.get("type") or "company", 40).lower()
+    value = _discord_text(data.get("value") or data.get("company_name") or data.get("keyword"), 160)
+    if not value:
+        return jsonify({"ok": False, "message": "follow value is required."}), 400
+    current_time = now_str()
+    if follow_type == "company":
+        employer = get_db().execute(
+            "SELECT user_id FROM employer_profiles WHERE lower(company_name) = ? LIMIT 1",
+            (value.lower(),),
+        ).fetchone()
+        get_db().execute(
+            """
+            INSERT OR IGNORE INTO company_follows (user_id, employer_id, company_name, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user["id"], employer["user_id"] if employer else None, value, current_time),
+        )
+    else:
+        prefs = get_db().execute("SELECT * FROM job_alert_preferences WHERE user_id = ?", (user["id"],)).fetchone()
+        keywords = prefs["keywords"] if prefs else ""
+        locations = prefs["locations"] if prefs else ""
+        job_types = prefs["job_types"] if prefs else ""
+        if follow_type == "location":
+            locations = ", ".join(filter(None, [locations, value]))
+        elif follow_type in {"category", "type", "job_type"}:
+            job_types = ", ".join(filter(None, [job_types, value]))
+        else:
+            keywords = ", ".join(filter(None, [keywords, value]))
+        get_db().execute(
+            """
+            INSERT INTO job_alert_preferences (user_id, keywords, locations, job_types, min_salary, alert_frequency, created_at, updated_at)
+            VALUES (?, ?, ?, ?, '', 'instant', ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                keywords = excluded.keywords,
+                locations = excluded.locations,
+                job_types = excluded.job_types,
+                updated_at = excluded.updated_at
+            """,
+            (user["id"], keywords, locations, job_types, current_time, current_time),
+        )
+    get_db().commit()
+    return jsonify({"ok": True, "follow_type": follow_type, "value": value})
+
+
+@app.route("/api/discord/apply", methods=["POST"])
+def api_discord_apply():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    data = _json_payload()
+    user = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "JOB_SEEKER")
+    try:
+        job_id = int(data.get("job_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "message": "job_id is required."}), 400
+    job = get_db().execute("SELECT * FROM job_posts WHERE id = ? AND status = 'ACTIVE'", (job_id,)).fetchone()
+    if not job:
+        return jsonify({"ok": False, "message": "Active job not found."}), 404
+    current_time = now_str()
+    try:
+        cur = get_db().execute(
+            """
+            INSERT INTO applications (job_seeker_id, job_post_id, status, message, created_at, updated_at)
+            VALUES (?, ?, 'PENDING', ?, ?, ?)
+            """,
+            (user["id"], job_id, _discord_text(data.get("message"), 500), current_time, current_time),
+        )
+        application_id = cur.lastrowid
+    except sqlite3.IntegrityError:
+        existing = get_db().execute(
+            "SELECT id FROM applications WHERE job_seeker_id = ? AND job_post_id = ?",
+            (user["id"], job_id),
+        ).fetchone()
+        application_id = existing["id"]
+    get_db().commit()
+    _queue_discord_notification(
+        job["employer_id"],
+        "new_application",
+        {
+            "application_id": application_id,
+            "job_id": job_id,
+            "job_title": job["title"],
+            "applicant_user_id": user["id"],
+            "url": f"{SITE_URL}{url_for('employer_applications')}",
+        },
+    )
+    return jsonify({"ok": True, "application_id": application_id, "status": "PENDING"})
+
+
+@app.route("/api/discord/applications")
+def api_discord_applications():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    discord_user_id = _discord_text(request.args.get("discord_user_id"), 80)
+    account = get_db().execute("SELECT user_id FROM discord_accounts WHERE discord_user_id = ?", (discord_user_id,)).fetchone()
+    if not account:
+        return jsonify({"ok": True, "applications": []})
+    rows = get_db().execute(
+        """
+        SELECT applications.*, job_posts.title, job_posts.location, employer_profiles.company_name
+        FROM applications
+        JOIN job_posts ON job_posts.id = applications.job_post_id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE applications.job_seeker_id = ?
+        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
+        LIMIT 20
+        """,
+        (account["user_id"],),
+    ).fetchall()
+    return jsonify({
+        "ok": True,
+        "applications": [
+            {
+                "id": row["id"],
+                "job_id": row["job_post_id"],
+                "job_title": row["title"],
+                "company_name": row["company_name"] or "",
+                "location": row["location"] or "",
+                "status": row["status"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ],
+    })
+
+
+@app.route("/api/discord/post-job", methods=["POST"])
+def api_discord_post_job():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    data = _json_payload()
+    user = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "EMPLOYER")
+    title = _discord_text(data.get("title"), 160)
+    description = _discord_text(data.get("description"), 4000)
+    salary_range = _discord_text(data.get("salary_range") or data.get("salary"), 120)
+    location = _discord_text(data.get("location"), 120)
+    company_name = _discord_text(data.get("company_name") or data.get("discord_username"), 160)
+    if len(title) < 5:
+        return jsonify({"ok": False, "message": "title must be at least 5 characters."}), 400
+    if len(description) < 40:
+        return jsonify({"ok": False, "message": "description must be at least 40 characters."}), 400
+
+    current_time = now_str()
+    get_db().execute(
+        """
+        INSERT INTO employer_profiles (user_id, company_name, tax_id, is_company_verified, address, website, created_at, updated_at)
+        VALUES (?, ?, ?, 0, '', '', ?, ?)
+        ON CONFLICT(user_id) DO UPDATE SET company_name = excluded.company_name, updated_at = excluded.updated_at
+        """,
+        (user["id"], company_name or f"Discord Employer {user['id']}", f"DISCORD-{user['id']}", current_time, current_time),
+    )
+    score, status, reason = analyze_job_content(title, description, salary_range, location, user["trust_score"], 0)
+    cur = get_db().execute(
+        """
+        INSERT INTO job_posts (
+            employer_id, title, description, salary_range, location,
+            is_government_news, source_url, status, ai_risk_score,
+            ai_risk_reason, report_count, created_at, updated_at, is_urgent
+        )
+        VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?)
+        """,
+        (
+            user["id"],
+            title,
+            description,
+            salary_range,
+            location,
+            status,
+            score,
+            reason,
+            current_time,
+            current_time,
+            1 if data.get("is_urgent") else 0,
+        ),
+    )
+    job_id = cur.lastrowid
+    get_db().execute(
+        """
+        INSERT INTO ai_decision_logs (job_post_id, title, risk_score, risk_reason, final_status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (job_id, title, score, reason, status, current_time),
+    )
+    add_activity_log(user["id"], "DISCORD_CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
+    get_db().commit()
+    queued = _notify_followers_for_job(job_id, company_name, location, title) if status == "ACTIVE" else 0
+    return jsonify({
+        "ok": True,
+        "job_id": job_id,
+        "status": status,
+        "risk_score": score,
+        "risk_reason": reason,
+        "queued_notifications": queued,
+        "url": f"{SITE_URL}{url_for('job_detail', slug=str(job_id))}",
+    })
+
+
+@app.route("/api/discord/employer/applicants")
+def api_discord_employer_applicants():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    discord_user_id = _discord_text(request.args.get("discord_user_id"), 80)
+    account = get_db().execute("SELECT user_id FROM discord_accounts WHERE discord_user_id = ?", (discord_user_id,)).fetchone()
+    if not account:
+        return jsonify({"ok": True, "applications": []})
+    params = [account["user_id"]]
+    where = ["job_posts.employer_id = ?"]
+    if request.args.get("job_id"):
+        where.append("job_posts.id = ?")
+        params.append(int(request.args.get("job_id")))
+    rows = get_db().execute(
+        f"""
+        SELECT applications.*, job_posts.title AS job_title, job_posts.location AS job_location,
+               job_seeker_profiles.full_name, job_seeker_profiles.headline, job_seeker_profiles.resume_url
+        FROM applications
+        JOIN job_posts ON job_posts.id = applications.job_post_id
+        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = applications.job_seeker_id
+        WHERE {" AND ".join(where)}
+        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
+        LIMIT 30
+        """,
+        params,
+    ).fetchall()
+    return jsonify({
+        "ok": True,
+        "applications": [
+            {
+                "id": row["id"],
+                "job_id": row["job_post_id"],
+                "job_title": row["job_title"],
+                "job_location": row["job_location"],
+                "applicant_name": row["full_name"] or f"Applicant {row['job_seeker_id']}",
+                "headline": row["headline"] or "",
+                "resume_url": row["resume_url"] or "",
+                "status": row["status"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ],
+    })
+
+
+@app.route("/api/discord/analytics")
+def api_discord_analytics():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    conn = get_db()
+    return jsonify({
+        "ok": True,
+        "summary": {
+            "discord_users": conn.execute("SELECT COUNT(*) AS count FROM discord_accounts").fetchone()["count"],
+            "discord_pending_notifications": conn.execute("SELECT COUNT(*) AS count FROM discord_notifications WHERE status = 'PENDING'").fetchone()["count"],
+            "jobs_posted": conn.execute("SELECT COUNT(*) AS count FROM job_posts").fetchone()["count"],
+            "active_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'").fetchone()["count"],
+            "applications": conn.execute("SELECT COUNT(*) AS count FROM applications").fetchone()["count"],
+        },
+        "dashboard_url": f"{SITE_URL}/admin",
+    })
+
+
+@app.route("/api/discord/notifications/pending")
+def api_discord_pending_notifications():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    limit = max(1, min(50, int(request.args.get("limit") or 20)))
+    rows = get_db().execute(
+        """
+        SELECT *
+        FROM discord_notifications
+        WHERE status = 'PENDING'
+        ORDER BY datetime(created_at) ASC, id ASC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return jsonify({
+        "ok": True,
+        "notifications": [
+            {
+                "id": row["id"],
+                "discord_user_id": row["discord_user_id"],
+                "event_type": row["event_type"],
+                "payload": json.loads(row["payload"] or "{}"),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ],
+    })
+
+
+@app.route("/api/discord/notifications/<int:notification_id>/sent", methods=["POST"])
+def api_discord_mark_notification_sent(notification_id):
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    status = _discord_text((_json_payload().get("status") or "SENT"), 40).upper()
+    if status not in {"SENT", "FAILED"}:
+        status = "SENT"
+    get_db().execute(
+        """
+        UPDATE discord_notifications
+        SET status = ?, sent_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (status, now_str(), now_str(), notification_id),
+    )
+    get_db().commit()
+    return jsonify({"ok": True, "status": status})
 
 
 @app.route("/api/jobs")

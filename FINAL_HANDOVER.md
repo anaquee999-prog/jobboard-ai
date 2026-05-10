@@ -20,6 +20,7 @@ Production is online and usable.
 - Backup ZIP download is available for admins
 - Discord webhook test route is available
 - Discord alerts are configured for scam and moderation events
+- Discord Bot API foundation is available for profile, search, follow, apply, post job, applicants, analytics, and queued DM notifications
 - Scam Center and Trust Center are available
 - GitHub, Render, and the local repository are aligned
 
@@ -32,6 +33,7 @@ Admin login is required for admin routes.
 - System Health: https://jobboard-ai-app.onrender.com/admin/system-health
 - Backup ZIP: https://jobboard-ai-app.onrender.com/admin/backup/download
 - Discord Test: https://jobboard-ai-app.onrender.com/admin/discord-test
+- Discord Bot API Docs: `DISCORD_BOT_API.md`
 - Scam Center: https://jobboard-ai-app.onrender.com/admin/scam-center
 - Moderation: https://jobboard-ai-app.onrender.com/admin/moderation
 - Logs: https://jobboard-ai-app.onrender.com/admin/logs
@@ -58,6 +60,7 @@ Do not commit real secret values. Configure these in Render:
 - `JOBBOARD_SESSION_COOKIE_SECURE`
 - `JOBBOARD_CRON_TOKEN`
 - `DISCORD_SCAM_ALERT_WEBHOOK_URL`
+- `DISCORD_BOT_API_TOKEN`
 
 Current local/example database setting:
 
