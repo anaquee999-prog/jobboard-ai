@@ -1,35 +1,33 @@
-﻿from pathlib import Path
-from datetime import datetime
+# JobBoard AI Anti-Scam Platform - Final Handover
 
-path = Path("FINAL_HANDOVER.md")
-
-content = f'''# JobBoard AI Anti-Scam Platform - Final Handover
-
-Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+Last updated: 2026-05-10
 
 ## Production
 
 - Production URL: https://jobboard-ai-app.onrender.com
 - GitHub Repo: https://github.com/anaquee999-prog/jobboard-ai
-- Render Service: jobboard-ai-app
+- Render Service: `jobboard-ai-app`
+- Main app: Flask backend served by Gunicorn
 
 ## Current Status
 
-ระบบ production ใช้งานได้แล้ว
+Production is online and usable.
 
-- หน้าเว็บหลักออนไลน์
-- Login / Register / OTP ใช้งานได้
-- Admin Dashboard ใช้งานได้
-- Admin System Health ใช้งานได้
-- Admin Backup ZIP ใช้งานได้
-- Discord Webhook เชื่อมต่อแล้ว
-- Discord Alert อัตโนมัติใช้งานได้
-- GitHub / Render / Local ทำงานตรงกันแล้ว
+- Public home page is live
+- Login, register, and OTP flows are available
+- Admin dashboard is available
+- System health page is available
+- Backup ZIP download is available for admins
+- Discord webhook test route is available
+- Discord alerts are configured for scam and moderation events
+- Scam Center and Trust Center are available
+- GitHub, Render, and the local repository are aligned
 
-## Important Admin URLs
+## Important URLs
 
-ต้อง Login เป็น Admin ก่อนใช้งาน
+Admin login is required for admin routes.
 
+- Home: https://jobboard-ai-app.onrender.com
 - Admin Dashboard: https://jobboard-ai-app.onrender.com/admin
 - System Health: https://jobboard-ai-app.onrender.com/admin/system-health
 - Backup ZIP: https://jobboard-ai-app.onrender.com/admin/backup/download
@@ -39,77 +37,50 @@ Last updated: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 - Logs: https://jobboard-ai-app.onrender.com/admin/logs
 - Trust Center: https://jobboard-ai-app.onrender.com/admin/trust
 
-## Admin Account
+## Scheduled Jobs
 
-Admin phone:
+GitHub Actions runs the daily import workflow:
+
+- Workflow file: `.github/workflows/auto-import-upper-central-jobs.yml`
+- Cron URL: `https://jobboard-ai-app.onrender.com/internal/cron/import-upper-central-jobs`
+- Required secret: `JOBBOARD_CRON_TOKEN`
+
+The workflow calls the cron endpoint with the `X-Cron-Token` header.
+
+## Required Render Environment Variables
+
+Do not commit real secret values. Configure these in Render:
+
+- `JOBBOARD_SECRET_KEY`
+- `JOBBOARD_ADMIN_PHONE`
+- `JOBBOARD_ADMIN_PASSWORD`
+- `JOBBOARD_DATABASE_PATH`
+- `JOBBOARD_SESSION_COOKIE_SECURE`
+- `JOBBOARD_CRON_TOKEN`
+- `DISCORD_SCAM_ALERT_WEBHOOK_URL`
+
+Current local/example database setting:
 
 ```text
-0810382248
-$ErrorActionPreference = "Stop"
+JOBBOARD_DATABASE_PATH=instance/jobboard.db
+```
 
-Write-Host "=== FINAL HANDOVER CHECK ==="
-git --no-pager status --short
-git --no-pager log --oneline -8
+## Deployment Notes
 
-if (!(Test-Path FINAL_HANDOVER.md)) {
-@'
-# JobBoard AI Anti-Scam Platform - Final Handover
+- Render uses `Procfile` with `web: gunicorn app:app`
+- Python dependencies are listed in `requirements.txt`
+- Runtime database files and local secrets must stay out of git
+- SQLite storage on Render Free can be lost after restart or redeploy, so use the admin Backup ZIP regularly
 
-## Production
+## Final Verification
 
-- Production URL: https://jobboard-ai-app.onrender.com
-- GitHub Repo: https://github.com/anaquee999-prog/jobboard-ai
-- Render Service: jobboard-ai-app
+Latest local checks:
 
-## Completed
+- Production homepage responded successfully
+- Local git remote points to `anaquee999-prog/jobboard-ai`
+- Local git status was clean before this handover cleanup
+- Core Python files compiled successfully with the project virtual environment
 
-- Flask JobBoard production deploy
-- Login / Register / OTP
-- Admin Dashboard UI
-- Admin System Health
-- Admin Backup ZIP
-- Discord webhook test
-- Discord alerts for risky jobs
-- Discord alerts for job reports
-- Discord alerts for Community / OpenChat moderation
-- Scam Center
-- Trust Center
-- robots.txt
-- sitemap.xml
+## Handover Result
 
-## Important Admin URLs
-
-Login Admin required:
-
-- /admin
-- /admin/system-health
-- /admin/backup/download
-- /admin/discord-test
-- /admin/scam-center
-- /admin/moderation
-- /admin/logs
-- /admin/trust
-
-## Important Notes
-
-Do not commit secrets.
-
-Required Render Environment Variables:
-
-- JOBBOARD_SECRET_KEY
-- JOBBOARD_ADMIN_PHONE
-- JOBBOARD_ADMIN_PASSWORD
-- JOBBOARD_DATABASE_PATH
-- JOBBOARD_SESSION_COOKIE_SECURE
-- DISCORD_SCAM_ALERT_WEBHOOK_URL
-
-Current DB:
-
-- JOBBOARD_DATABASE_PATH=instance/jobboard.db
-
-SQLite on Render Free may be lost after restart/redeploy, so download Backup ZIP regularly.
-
-## Final Status
-
-Production checked and working.
-GitHub / Render / Local are clean.
+The production app is live, the repository is connected to GitHub, and the main operational routes are documented above.
