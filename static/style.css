@@ -74,3 +74,159 @@
 .submit-btn:hover {
   background: #1d4ed8;
 }
+
+/* Unified JobBoard AI Anti-Scam visual system */
+:root {
+  --jb-bg: #050505;
+  --jb-surface: rgba(15, 23, 42, 0.74);
+  --jb-surface-strong: rgba(2, 6, 23, 0.88);
+  --jb-border: rgba(148, 163, 184, 0.18);
+  --jb-border-bright: rgba(56, 189, 248, 0.28);
+  --jb-text: #f8fafc;
+  --jb-muted: #94a3b8;
+  --jb-blue: #38bdf8;
+  --jb-blue-deep: #0ea5e9;
+}
+
+body {
+  background:
+    radial-gradient(circle at top right, rgba(56, 189, 248, 0.14), transparent 30%),
+    radial-gradient(circle at 10% 8%, rgba(20, 184, 166, 0.10), transparent 26%),
+    var(--jb-bg) !important;
+  color: var(--jb-text);
+}
+
+.auth-form,
+.card,
+.panel,
+.dashboard-card,
+.job-card,
+.pricing-card,
+.stat-card,
+.admin-card,
+.content-card,
+.table-wrap,
+.form-card,
+.safety-box,
+.apply-box,
+.report-box,
+.job-description-box {
+  border: 1px solid var(--jb-border) !important;
+  border-radius: 22px !important;
+  background: var(--jb-surface) !important;
+  color: var(--jb-text) !important;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28) !important;
+  backdrop-filter: blur(14px);
+}
+
+.auth-form h1,
+.auth-form h2,
+.card h1,
+.card h2,
+.card h3,
+.panel h1,
+.panel h2,
+.panel h3,
+.dashboard-card h1,
+.dashboard-card h2,
+.dashboard-card h3,
+.job-card h1,
+.job-card h2,
+.job-card h3,
+.content-card h1,
+.content-card h2,
+.content-card h3,
+.form-card h1,
+.form-card h2,
+.form-card h3 {
+  color: #ffffff !important;
+  font-weight: 800;
+}
+
+.auth-form p,
+.auth-help,
+.card p,
+.panel p,
+.dashboard-card p,
+.job-card p,
+.content-card p,
+.form-card p,
+td,
+th {
+  color: var(--jb-muted);
+}
+
+.auth-field label,
+label {
+  color: #e2e8f0 !important;
+  font-weight: 800;
+}
+
+input,
+textarea,
+select,
+.auth-field input {
+  border: 1px solid rgba(148, 163, 184, 0.24) !important;
+  border-radius: 16px !important;
+  background: rgba(2, 6, 23, 0.80) !important;
+  color: #ffffff !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus,
+.auth-field input:focus {
+  border-color: rgba(56, 189, 248, 0.72) !important;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.13) !important;
+}
+
+button,
+.btn,
+.submit-btn,
+.btn-link-box,
+a.button,
+a.btn {
+  border-radius: 16px !important;
+  background: linear-gradient(135deg, var(--jb-blue-deep), var(--jb-blue)) !important;
+  color: #03131f !important;
+  font-weight: 900 !important;
+  box-shadow: 0 14px 30px rgba(56, 189, 248, 0.22);
+}
+
+button:hover,
+.btn:hover,
+.submit-btn:hover,
+.btn-link-box:hover,
+a.button:hover,
+a.btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 40px rgba(56, 189, 248, 0.28);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow: hidden;
+  border-radius: 18px;
+}
+
+thead {
+  background: rgba(56, 189, 248, 0.10);
+}
+
+th,
+td {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  padding: 12px 14px;
+}
+
+.badge,
+.pill,
+.tag,
+.job-badge {
+  border: 1px solid var(--jb-border-bright) !important;
+  background: rgba(14, 165, 233, 0.12) !important;
+  color: #bae6fd !important;
+  border-radius: 999px !important;
+  font-weight: 900 !important;
+}

@@ -1,0 +1,5 @@
+[33m(!) Experimental optimizeDeps.disabled and deps pre-bundling during build were removed in Vite 5.1.
+    To disable the deps optimizer, set optimizeDeps.noDiscovery to true and optimizeDeps.include as undefined or empty.
+    Please remove optimizeDeps.disabled from your config.
+    
+  [39m

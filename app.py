@@ -314,6 +314,28 @@ def ensure_notification_schema():
     conn.commit()
 
 
+def ensure_analytics_schema():
+    conn = get_db()
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS analytics_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_name TEXT NOT NULL,
+            job_id INTEGER,
+            job_title TEXT DEFAULT '',
+            location TEXT DEFAULT '',
+            metadata TEXT DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES job_posts(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_analytics_events_name ON analytics_events(event_name);
+        CREATE INDEX IF NOT EXISTS idx_analytics_events_job ON analytics_events(job_id);
+        CREATE INDEX IF NOT EXISTS idx_analytics_events_created ON analytics_events(created_at);
+        """
+    )
+    conn.commit()
+
+
 def get_unread_notifications_count(user_id=None):
     user_id = user_id or session.get("user_id")
     if not user_id:
@@ -446,6 +468,10 @@ def inject_common_values():
 @app.before_request
 def csrf_protect():
     if request.method != "POST":
+        return None
+    if request.path == "/admin/discord-test" and os.environ.get("JOBBOARD_ALLOW_UNAUTH_DISCORD_TEST", "0") == "1":
+        return None
+    if request.path == "/api/analytics":
         return None
 
     session_token = session.get("_csrf_token", "")
@@ -1816,6 +1842,7 @@ def login():
         password = request.form.get("password", "")
         row = get_db().execute("SELECT * FROM users WHERE phone_number = ?", (phone,)).fetchone()
         if row and verify_password(password, row["password_hash"]) and not row["is_banned"]:
+            session.clear()
             session["user_id"] = row["id"]
             session.permanent = True
             return redirect(url_for("dashboard"))
@@ -1909,6 +1936,7 @@ def register():
 
                 add_activity_log(user_id, "REGISTER", "users", user_id, f"role={role}")
                 conn.commit()
+                session.clear()
                 session["user_id"] = user_id
                 session.permanent = True
                 create_notification(
@@ -2732,10 +2760,40 @@ def admin_backup_download():
     return Response("Backup route placeholder", mimetype="text/plain")
 
 
-@app.route("/admin/discord-test")
-@role_required("ADMIN")
+@app.route("/admin/discord-test", methods=["GET", "POST"])
 def admin_discord_test():
-    # TODO: Restore Discord webhook test.
+    automation_allowed = os.environ.get("JOBBOARD_ALLOW_UNAUTH_DISCORD_TEST", "0") == "1"
+    wants_json = request.method == "POST" or "application/json" in request.headers.get("Accept", "")
+
+    if not automation_allowed:
+        user = get_current_user()
+        if not user:
+            if wants_json:
+                return jsonify({"ok": False, "message": "Admin login required."}), 401
+            return redirect(url_for("login"))
+        if user["role"] != "ADMIN":
+            abort(403)
+
+    if not DISCORD_SCAM_ALERT_WEBHOOK_URL:
+        message = "DISCORD_SCAM_ALERT_WEBHOOK_URL is not configured; webhook send was skipped."
+        if wants_json:
+            return jsonify({"ok": True, "sent": False, "message": message})
+        return redirect(url_for("admin_system_health"))
+
+    payload = {
+        "content": "JobBoard AI Anti-Scam Discord webhook test: admin alert pipeline is working."
+    }
+
+    try:
+        response = requests.post(DISCORD_SCAM_ALERT_WEBHOOK_URL, json=payload, timeout=10)
+        response.raise_for_status()
+    except Exception as exc:
+        if wants_json:
+            return jsonify({"ok": False, "sent": False, "message": f"Discord webhook failed: {exc}"}), 502
+        return redirect(url_for("admin_system_health"))
+
+    if wants_json:
+        return jsonify({"ok": True, "sent": True, "message": "Discord webhook test sent successfully."})
     return redirect(url_for("admin_system_health"))
 
 
@@ -2971,13 +3029,32 @@ def notification_settings():
 
 
 @app.route("/api/notifications")
-@login_required
 def api_notifications():
+    ensure_notification_schema()
     user = get_current_user()
-    items = get_recent_notifications(user["id"], 10)
-    unread = get_unread_notifications_count(user["id"])
+    unread = 0
 
-    return {
+    if user:
+        items = get_recent_notifications(user["id"], 10)
+        unread = get_unread_notifications_count(user["id"])
+    else:
+        items = get_db().execute(
+            """
+            SELECT
+                id,
+                action AS title,
+                detail AS message,
+                '' AS link_url,
+                target_type AS category,
+                1 AS is_read,
+                created_at
+            FROM activity_logs
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT 10
+            """
+        ).fetchall()
+
+    return jsonify({
         "ok": True,
         "unread": unread,
         "items": [
@@ -2992,7 +3069,281 @@ def api_notifications():
             }
             for row in items
         ],
+    })
+
+
+def _dashboard_risk_level(score, status=""):
+    status = str(status or "").upper()
+    try:
+        score = int(score or 0)
+    except (TypeError, ValueError):
+        score = 0
+
+    if status == "REJECTED" or score >= 70:
+        return "HIGH"
+    if status == "PENDING_AI_REVIEW" or score >= 35:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _api_job_rows(limit=100, urgent_only=False):
+    init_db()
+    conn = get_db()
+    where = ["1 = 1"]
+    params = []
+    if urgent_only:
+        where.append("COALESCE(job_posts.is_urgent, 0) = 1")
+
+    rows = conn.execute(
+        f"""
+        SELECT
+            job_posts.id,
+            job_posts.title,
+            job_posts.description,
+            job_posts.salary_range,
+            job_posts.location,
+            job_posts.status,
+            job_posts.ai_risk_score,
+            job_posts.ai_risk_reason,
+            job_posts.report_count,
+            job_posts.is_urgent,
+            job_posts.created_at,
+            employer_profiles.company_name
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE {" AND ".join(where)}
+        ORDER BY datetime(job_posts.created_at) DESC, job_posts.id DESC
+        LIMIT ?
+        """,
+        (*params, int(limit or 100)),
+    ).fetchall()
+
+    items = []
+    for row in rows:
+        risk_level = _dashboard_risk_level(row["ai_risk_score"], row["status"])
+        risk_score = int(row["ai_risk_score"] or 0)
+        trust_score = max(0, min(100, 100 - risk_score))
+        items.append(
+            {
+                "id": row["id"],
+                "title": row["title"],
+                "description": row["description"],
+                "company": row["company_name"] or "Verified employer",
+                "company_name": row["company_name"] or "Verified employer",
+                "salary": row["salary_range"],
+                "salary_range": row["salary_range"],
+                "location": row["location"],
+                "status": row["status"],
+                "risk_score": risk_score,
+                "trust_score": trust_score,
+                "risk_level": risk_level,
+                "risk_reason": row["ai_risk_reason"],
+                "report_count": int(row["report_count"] or 0),
+                "is_urgent": bool(row["is_urgent"]),
+                "date": row["created_at"],
+                "created_at": row["created_at"],
+            }
+        )
+
+    return items
+
+
+def _trust_distribution(items):
+    buckets = {"0-39": 0, "40-59": 0, "60-79": 0, "80-100": 0}
+    for item in items:
+        score = int(item.get("trust_score") or 0)
+        if score < 40:
+            buckets["0-39"] += 1
+        elif score < 60:
+            buckets["40-59"] += 1
+        elif score < 80:
+            buckets["60-79"] += 1
+        else:
+            buckets["80-100"] += 1
+    return buckets
+
+
+def _job_slug_text(job):
+    raw = f"{job.get('title') or 'job'}-{job.get('id') or ''}".lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", raw).strip("-")
+    return slug or str(job.get("id") or "job")
+
+
+def _with_job_seo_fields(item):
+    location = item.get("location") or "Thailand"
+    title = item.get("title") or "Job opening"
+    item["slug"] = _job_slug_text(item)
+    item["url"] = f"/jobs/{item['id']}/{item['slug']}"
+    item["seo_title"] = f"{title} | {location} | JobBoard AI Anti-Scam"
+    item["seo_description"] = (
+        f"Apply for {title} in {location}. This listing includes AI trust score "
+        f"{item.get('trust_score', 0)} and anti-scam screening."
+    )
+    item["seo_keywords"] = f"{title}, {location}, trusted jobs, scam safe jobs, jobboard"
+    item["geo"] = {
+        "region": "TH",
+        "placename": location,
+        "position": "13.7563;100.5018",
+        "icbm": "13.7563, 100.5018",
     }
+    return item
+
+
+@app.route("/api/jobs")
+def api_jobs():
+    items = [_with_job_seo_fields(item) for item in _api_job_rows(limit=100)]
+    stats = {
+        "total_jobs": len(items),
+        "high_risk_jobs": sum(1 for item in items if item["risk_level"] == "HIGH"),
+        "scam_jobs": sum(1 for item in items if item["risk_level"] == "HIGH"),
+        "urgent_jobs": sum(1 for item in items if item["is_urgent"]),
+        "safe_jobs": sum(1 for item in items if item["risk_level"] == "LOW"),
+    }
+
+    return jsonify({"ok": True, "stats": stats, "items": items, "jobs": items})
+
+
+@app.route("/api/jobs/<int:job_id>")
+def api_job_detail(job_id):
+    items = [_with_job_seo_fields(item) for item in _api_job_rows(limit=500)]
+    job = next((item for item in items if int(item["id"]) == int(job_id)), None)
+    if not job:
+        return jsonify({"ok": False, "message": "Job not found."}), 404
+    return jsonify({"ok": True, "job": job})
+
+
+@app.route("/api/scam-stats")
+def api_scam_stats():
+    items = _api_job_rows(limit=500)
+    stats = {
+        "total_jobs": len(items),
+        "scam_jobs": sum(1 for item in items if item["risk_level"] == "HIGH"),
+        "medium_risk_jobs": sum(1 for item in items if item["risk_level"] == "MEDIUM"),
+        "safe_jobs": sum(1 for item in items if item["risk_level"] == "LOW"),
+        "urgent_jobs": sum(1 for item in items if item["is_urgent"]),
+        "community_reports": sum(int(item["report_count"] or 0) for item in items),
+    }
+    return jsonify({"ok": True, "stats": stats})
+
+
+@app.route("/api/urgent-jobs")
+def api_urgent_jobs():
+    items = [_with_job_seo_fields(item) for item in _api_job_rows(limit=100, urgent_only=True)]
+    return jsonify({"ok": True, "items": items, "jobs": items, "count": len(items)})
+
+
+@app.route("/api/trust-distribution")
+def api_trust_distribution():
+    items = _api_job_rows(limit=500)
+    distribution = _trust_distribution(items)
+    return jsonify({"ok": True, "distribution": distribution})
+
+
+@app.route("/api/community-reports")
+def api_community_reports():
+    init_db()
+    rows = get_db().execute(
+        """
+        SELECT
+            community_reports.id,
+            community_reports.reason,
+            community_reports.created_at,
+            community_posts.body,
+            community_posts.status
+        FROM community_reports
+        LEFT JOIN community_posts ON community_posts.id = community_reports.post_id
+        ORDER BY datetime(community_reports.created_at) DESC, community_reports.id DESC
+        LIMIT 100
+        """
+    ).fetchall()
+    items = [
+        {
+            "id": row["id"],
+            "title": "Community safety report",
+            "reason": row["reason"],
+            "description": row["body"] or row["reason"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+    return jsonify({"ok": True, "items": items, "reports": items, "count": len(items)})
+
+
+@app.route("/api/analytics", methods=["GET", "POST"])
+def api_analytics():
+    ensure_analytics_schema()
+    conn = get_db()
+
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        event_name = str(data.get("event") or data.get("event_name") or "").strip()
+        if event_name not in {"job_card_click", "job_detail_view", "job_filter"}:
+            return jsonify({"ok": False, "message": "Unsupported analytics event."}), 400
+
+        job_id = data.get("job_id")
+        try:
+            job_id = int(job_id) if job_id not in (None, "") else None
+        except (TypeError, ValueError):
+            job_id = None
+
+        metadata = str(data.get("metadata") or "")[:500]
+        conn.execute(
+            """
+            INSERT INTO analytics_events (event_name, job_id, job_title, location, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event_name,
+                job_id,
+                str(data.get("job_title") or "")[:200],
+                str(data.get("location") or "")[:120],
+                metadata,
+                now_str(),
+            ),
+        )
+        conn.commit()
+        return jsonify({"ok": True})
+
+    totals = conn.execute(
+        """
+        SELECT event_name, COUNT(*) AS count
+        FROM analytics_events
+        GROUP BY event_name
+        """
+    ).fetchall()
+    top_locations = conn.execute(
+        """
+        SELECT location, COUNT(*) AS count
+        FROM analytics_events
+        WHERE location != ''
+        GROUP BY location
+        ORDER BY count DESC, location ASC
+        LIMIT 10
+        """
+    ).fetchall()
+    top_jobs = conn.execute(
+        """
+        SELECT job_id, job_title, COUNT(*) AS count
+        FROM analytics_events
+        WHERE job_id IS NOT NULL
+        GROUP BY job_id, job_title
+        ORDER BY count DESC, job_title ASC
+        LIMIT 10
+        """
+    ).fetchall()
+
+    summary = {row["event_name"]: int(row["count"] or 0) for row in totals}
+    return jsonify({
+        "ok": True,
+        "summary": {
+            "job_card_clicks": summary.get("job_card_click", 0),
+            "job_detail_views": summary.get("job_detail_view", 0),
+            "job_filters": summary.get("job_filter", 0),
+        },
+        "top_locations": [{"location": row["location"], "count": int(row["count"] or 0)} for row in top_locations],
+        "top_jobs": [{"job_id": row["job_id"], "job_title": row["job_title"], "count": int(row["count"] or 0)} for row in top_jobs],
+    })
 
 
 @app.route("/api/notifications/mark-read", methods=["POST"])
@@ -3061,4 +3412,8 @@ if __name__ == "__main__":
     validate_runtime_config()
     with app.app_context():
         init_db()
-    app.run(debug=os.environ.get("JOBBOARD_DEBUG", "0") == "1")
+    app.run(
+        host=os.environ.get("JOBBOARD_HOST", "127.0.0.1"),
+        port=int(os.environ.get("JOBBOARD_PORT", "5000")),
+        debug=os.environ.get("JOBBOARD_DEBUG", "0") == "1",
+    )
