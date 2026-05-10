@@ -4,6 +4,12 @@ __pycache__/
 *.pyc
 *.db
 .venv/
+venv/
+node_modules/
+dashboard_frontend/node_modules/
+dashboard_frontend/*.log
+dashboard_frontend/.vite/
+dashboard_frontend/dist/
 backup_before_*/
 backup_before_final_fix_*/
 _local_route_test.py
