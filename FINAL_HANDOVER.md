@@ -20,7 +20,7 @@ Production is online and usable.
 - Backup ZIP download is available for admins
 - Discord webhook test route is available
 - Discord alerts are configured for scam and moderation events
-- Discord Bot API foundation is available for profile, search, follow, apply, post job, applicants, analytics, and queued DM notifications
+- Discord Bot API foundation is available for profile, search, follow, apply, post job, applicants, two-way matching, analytics, and queued DM notifications
 - Scam Center and Trust Center are available
 - GitHub, Render, and the local repository are aligned
 

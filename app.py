@@ -625,11 +625,33 @@ def ensure_discord_schema(conn=None):
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS match_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            job_seeker_id INTEGER NOT NULL,
+            employer_id INTEGER NOT NULL,
+            match_score INTEGER NOT NULL DEFAULT 0,
+            match_reason TEXT DEFAULT '',
+            canonical_position TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'NEW',
+            notified_job_seeker INTEGER NOT NULL DEFAULT 0,
+            notified_employer INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(job_id, job_seeker_id),
+            FOREIGN KEY (job_id) REFERENCES job_posts(id) ON DELETE CASCADE,
+            FOREIGN KEY (job_seeker_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (employer_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_discord_accounts_user ON discord_accounts(user_id);
         CREATE INDEX IF NOT EXISTS idx_discord_accounts_discord ON discord_accounts(discord_user_id);
         CREATE INDEX IF NOT EXISTS idx_job_alert_preferences_user ON job_alert_preferences(user_id);
         CREATE INDEX IF NOT EXISTS idx_company_follows_company ON company_follows(company_name);
         CREATE INDEX IF NOT EXISTS idx_discord_notifications_status ON discord_notifications(status, created_at);
+        CREATE INDEX IF NOT EXISTS idx_match_events_seeker ON match_events(job_seeker_id, match_score);
+        CREATE INDEX IF NOT EXISTS idx_match_events_employer ON match_events(employer_id, match_score);
+        CREATE INDEX IF NOT EXISTS idx_match_events_job ON match_events(job_id, match_score);
         """
     )
 
@@ -875,7 +897,16 @@ def init_db():
     """)
 
     ensure_column(conn, "job_posts", "is_urgent", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "job_posts", "canonical_position", "TEXT DEFAULT ''")
+    ensure_column(conn, "job_posts", "required_skills", "TEXT DEFAULT ''")
+    ensure_column(conn, "job_posts", "job_type", "TEXT DEFAULT ''")
     ensure_column(conn, "job_seeker_profiles", "is_urgent", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "job_seeker_profiles", "desired_position", "TEXT DEFAULT ''")
+    ensure_column(conn, "job_seeker_profiles", "canonical_position", "TEXT DEFAULT ''")
+    ensure_column(conn, "job_seeker_profiles", "skills", "TEXT DEFAULT ''")
+    ensure_column(conn, "job_seeker_profiles", "preferred_location", "TEXT DEFAULT ''")
+    ensure_column(conn, "job_seeker_profiles", "job_type", "TEXT DEFAULT ''")
+    ensure_column(conn, "job_seeker_profiles", "expected_salary", "TEXT DEFAULT ''")
     ensure_discord_schema(conn)
 
 
@@ -2470,14 +2501,17 @@ def employer_create_job():
             )
             conn = get_db()
             current_time = now_str()
+            canonical_position = _canonical_job_position(title, description)
+            required_skills = _extract_skill_tags(title, description)
             cur = conn.execute(
                 """
                 INSERT INTO job_posts (
                     employer_id, title, description, salary_range, location,
                     is_government_news, source_url, status, ai_risk_score,
-                    ai_risk_reason, report_count, created_at, updated_at, is_urgent
+                    ai_risk_reason, report_count, created_at, updated_at, is_urgent,
+                    canonical_position, required_skills, job_type
                 )
-                VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?, ?, ?, '')
                 """,
                 (
                     user["id"],
@@ -2491,6 +2525,8 @@ def employer_create_job():
                     current_time,
                     current_time,
                     is_urgent,
+                    canonical_position,
+                    required_skills,
                 ),
             )
             job_id = cur.lastrowid
@@ -2503,6 +2539,8 @@ def employer_create_job():
             )
             add_activity_log(user["id"], "CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
             conn.commit()
+            if status == "ACTIVE":
+                _run_matching_for_job(job_id)
             return redirect(url_for("job_detail", slug=str(job_id)))
 
     return render_template("employer_job_form.html", job=None, error=error, locked=locked, preview=preview)
@@ -3689,6 +3727,180 @@ def _discord_list_text(value, max_length=300):
     return _discord_text(value, max_length)
 
 
+POSITION_SYNONYMS = {
+    "software_developer": [
+        "โปรแกรมเมอร์",
+        "นักพัฒนา",
+        "นักพัฒนาเว็บ",
+        "developer",
+        "web developer",
+        "software engineer",
+        "programmer",
+        "coder",
+        "python",
+        "flask",
+        "frontend",
+        "backend",
+    ],
+    "sales": ["พนักงานขาย", "ฝ่ายขาย", "เซลส์", "sales", "telesales", "sale admin"],
+    "admin_officer": ["ธุรการ", "แอดมิน", "admin", "office admin", "ประสานงาน", "coordinator"],
+    "accounting": ["บัญชี", "การเงิน", "accounting", "accountant", "finance"],
+    "customer_service": ["บริการลูกค้า", "ลูกค้าสัมพันธ์", "call center", "customer service", "support"],
+    "driver": ["ขับรถ", "พนักงานขับรถ", "driver", "delivery", "ไรเดอร์"],
+    "warehouse": ["คลังสินค้า", "แพ็คสินค้า", "warehouse", "stock", "inventory"],
+    "marketing": ["การตลาด", "marketing", "digital marketing", "content", "seo"],
+    "hr": ["บุคคล", "ทรัพยากรบุคคล", "hr", "recruiter", "สรรหา"],
+    "technician": ["ช่าง", "technician", "maintenance", "ซ่อมบำรุง"],
+}
+
+SKILL_KEYWORDS = [
+    "python",
+    "flask",
+    "django",
+    "javascript",
+    "react",
+    "vue",
+    "sql",
+    "excel",
+    "บัญชี",
+    "ขาย",
+    "sales",
+    "seo",
+    "marketing",
+    "แอดมิน",
+    "admin",
+    "customer service",
+    "call center",
+    "ขับรถ",
+    "คลังสินค้า",
+]
+
+
+def _row_value(row, key, default=""):
+    try:
+        if key in row.keys():
+            return row[key]
+    except Exception:
+        pass
+    try:
+        return row.get(key, default)
+    except Exception:
+        return getattr(row, key, default)
+
+
+def _canonical_job_position(*values):
+    text = " ".join(str(value or "") for value in values).lower()
+    text = re.sub(r"\s+", " ", text)
+    best_key = ""
+    best_hits = 0
+    for key, synonyms in POSITION_SYNONYMS.items():
+        hits = sum(1 for synonym in synonyms if synonym.lower() in text)
+        if hits > best_hits:
+            best_key = key
+            best_hits = hits
+    return best_key
+
+
+def _extract_skill_tags(*values):
+    text = " ".join(str(value or "") for value in values).lower()
+    found = []
+    for skill in SKILL_KEYWORDS:
+        if skill.lower() in text and skill not in found:
+            found.append(skill)
+    return ", ".join(found)
+
+
+def _split_match_terms(value):
+    return [part.strip().lower() for part in re.split(r"[,/| ]+", str(value or "")) if part.strip()]
+
+
+def _salary_numbers(value):
+    numbers = re.findall(r"\d+(?:,\d{3})*|\d+k", str(value or "").lower())
+    result = []
+    for number in numbers:
+        if number.endswith("k"):
+            result.append(int(float(number[:-1] or 0) * 1000))
+        else:
+            result.append(int(number.replace(",", "")))
+    return result
+
+
+def _salary_overlap(job_salary, expected_salary):
+    job_numbers = _salary_numbers(job_salary)
+    expected_numbers = _salary_numbers(expected_salary)
+    if not job_numbers or not expected_numbers:
+        return False
+    job_min, job_max = min(job_numbers), max(job_numbers)
+    expected = min(expected_numbers)
+    return job_min <= expected <= job_max or expected <= job_max
+
+
+def _profile_job_match(job_row, profile_row):
+    job_position = _row_value(job_row, "canonical_position") or _canonical_job_position(
+        _row_value(job_row, "title"),
+        _row_value(job_row, "description"),
+    )
+    seeker_position = _row_value(profile_row, "canonical_position") or _canonical_job_position(
+        _row_value(profile_row, "desired_position"),
+        _row_value(profile_row, "headline"),
+        _row_value(profile_row, "skills"),
+    )
+    job_text = " ".join(
+        [
+            str(_row_value(job_row, "title")),
+            str(_row_value(job_row, "description")),
+            str(_row_value(job_row, "required_skills")),
+            str(_row_value(job_row, "location")),
+        ]
+    ).lower()
+    seeker_skills = _split_match_terms(_row_value(profile_row, "skills") or _row_value(profile_row, "headline"))
+    matched_skills = [skill for skill in seeker_skills if len(skill) > 1 and skill in job_text]
+
+    score = 0
+    reasons = []
+    if job_position and seeker_position and job_position == seeker_position:
+        score += 40
+        reasons.append(f"position:{job_position}")
+    elif seeker_position and seeker_position in job_text:
+        score += 20
+        reasons.append(f"related_position:{seeker_position}")
+
+    if matched_skills:
+        score += min(25, 10 + len(matched_skills) * 5)
+        reasons.append("skills:" + ", ".join(matched_skills[:5]))
+
+    seeker_location = str(_row_value(profile_row, "preferred_location") or "").lower()
+    job_location = str(_row_value(job_row, "location") or "").lower()
+    if seeker_location and (seeker_location in job_location or job_location in seeker_location):
+        score += 20
+        reasons.append("location")
+
+    seeker_job_type = str(_row_value(profile_row, "job_type") or "").lower()
+    job_type = str(_row_value(job_row, "job_type") or "").lower()
+    if seeker_job_type and job_type and seeker_job_type == job_type:
+        score += 5
+        reasons.append("job_type")
+
+    if _salary_overlap(_row_value(job_row, "salary_range"), _row_value(profile_row, "expected_salary")):
+        score += 10
+        reasons.append("salary")
+
+    if int(_row_value(job_row, "is_company_verified", 0) or 0):
+        score += 5
+        reasons.append("verified_company")
+
+    risk = int(_row_value(job_row, "ai_risk_score", 0) or 0)
+    if risk >= 70:
+        score -= 30
+        reasons.append("high_risk_penalty")
+    elif risk >= 35:
+        score -= 10
+        reasons.append("medium_risk_penalty")
+
+    canonical = job_position or seeker_position
+    return max(0, min(100, score)), " | ".join(reasons[:8]), canonical
+
+
 def _get_or_create_discord_user(discord_user_id, discord_username="", role="JOB_SEEKER"):
     ensure_discord_schema()
     discord_user_id = _discord_text(discord_user_id, 80)
@@ -3779,6 +3991,13 @@ def _queue_discord_notification(user_id, event_type, payload):
 
 
 def _job_match_score(row, keyword="", location="", job_type="", profile=None):
+    if profile:
+        score, _, _ = _profile_job_match(row, profile)
+        keyword = str(keyword or "").strip().lower()
+        if keyword and keyword in " ".join([str(row["title"] or ""), str(row["description"] or "")]).lower():
+            score = min(100, score + 5)
+        return score
+
     text = " ".join(
         [
             str(row["title"] or ""),
@@ -3797,10 +4016,9 @@ def _job_match_score(row, keyword="", location="", job_type="", profile=None):
         score += 25
     if job_type and job_type in text:
         score += 10
-    if profile:
-        headline = str(profile["headline"] or "").lower() if "headline" in profile.keys() else ""
-        if headline and any(part.strip() and part.strip() in text for part in re.split(r"[,/ ]+", headline)):
-            score += 15
+    canonical = _canonical_job_position(keyword)
+    if canonical and canonical == (_row_value(row, "canonical_position") or _canonical_job_position(row["title"], row["description"])):
+        score += 25
     if int(row["is_company_verified"] or 0):
         score += 10
     risk = int(row["ai_risk_score"] or 0)
@@ -3868,6 +4086,156 @@ def _notify_followers_for_job(job_id, company_name, location, title):
     return queued
 
 
+def _record_match_event(job_row, profile_row, match_score, match_reason, canonical_position):
+    if match_score < 70:
+        return False
+    job_id = int(_row_value(job_row, "id"))
+    job_seeker_id = int(_row_value(profile_row, "user_id"))
+    employer_id = int(_row_value(job_row, "employer_id"))
+    current_time = now_str()
+    conn = get_db()
+    cur = conn.execute(
+        """
+        INSERT OR IGNORE INTO match_events (
+            job_id, job_seeker_id, employer_id, match_score, match_reason,
+            canonical_position, status, notified_job_seeker, notified_employer,
+            created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 'NEW', 0, 0, ?, ?)
+        """,
+        (
+            job_id,
+            job_seeker_id,
+            employer_id,
+            int(match_score),
+            match_reason,
+            canonical_position or "",
+            current_time,
+            current_time,
+        ),
+    )
+    inserted = cur.rowcount > 0
+    if not inserted:
+        conn.execute(
+            """
+            UPDATE match_events
+            SET match_score = max(match_score, ?),
+                match_reason = CASE WHEN ? > match_score THEN ? ELSE match_reason END,
+                canonical_position = CASE WHEN ? != '' THEN ? ELSE canonical_position END,
+                updated_at = ?
+            WHERE job_id = ? AND job_seeker_id = ?
+            """,
+            (
+                int(match_score),
+                int(match_score),
+                match_reason,
+                canonical_position or "",
+                canonical_position or "",
+                current_time,
+                job_id,
+                job_seeker_id,
+            ),
+        )
+        conn.commit()
+        return False
+
+    job_payload = {
+        "job_id": job_id,
+        "job_title": _row_value(job_row, "title"),
+        "company_name": _row_value(job_row, "company_name") or "Verified employer",
+        "location": _row_value(job_row, "location"),
+        "salary_range": _row_value(job_row, "salary_range"),
+        "match_score": int(match_score),
+        "match_reason": match_reason,
+        "url": f"{SITE_URL}{url_for('job_detail', slug=str(job_id))}",
+    }
+    seeker_payload = {
+        "job_id": job_id,
+        "job_title": _row_value(job_row, "title"),
+        "applicant_user_id": job_seeker_id,
+        "applicant_name": _row_value(profile_row, "full_name") or f"Applicant {job_seeker_id}",
+        "headline": _row_value(profile_row, "headline"),
+        "skills": _row_value(profile_row, "skills"),
+        "match_score": int(match_score),
+        "match_reason": match_reason,
+        "url": f"{SITE_URL}{url_for('employer_applications')}",
+    }
+    seeker_notice = _queue_discord_notification(job_seeker_id, "job_match", job_payload)
+    employer_notice = _queue_discord_notification(employer_id, "candidate_match", seeker_payload)
+    conn.execute(
+        """
+        UPDATE match_events
+        SET notified_job_seeker = ?, notified_employer = ?, status = 'NOTIFIED', updated_at = ?
+        WHERE job_id = ? AND job_seeker_id = ?
+        """,
+        (1 if seeker_notice else 0, 1 if employer_notice else 0, now_str(), job_id, job_seeker_id),
+    )
+    conn.commit()
+    return True
+
+
+def _run_matching_for_job(job_id, limit=20):
+    ensure_discord_schema()
+    job = get_db().execute(
+        """
+        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE job_posts.id = ? AND job_posts.status = 'ACTIVE' AND COALESCE(job_posts.ai_risk_score, 0) < 70
+        """,
+        (job_id,),
+    ).fetchone()
+    if not job:
+        return 0
+    profiles = get_db().execute(
+        """
+        SELECT job_seeker_profiles.*
+        FROM job_seeker_profiles
+        JOIN discord_accounts ON discord_accounts.user_id = job_seeker_profiles.user_id
+        WHERE discord_accounts.role = 'JOB_SEEKER'
+          AND discord_accounts.dm_enabled = 1
+        ORDER BY datetime(job_seeker_profiles.updated_at) DESC, job_seeker_profiles.id DESC
+        LIMIT 200
+        """
+    ).fetchall()
+    created = 0
+    ranked = []
+    for profile in profiles:
+        score, reason, canonical = _profile_job_match(job, profile)
+        ranked.append((score, reason, canonical, profile))
+    for score, reason, canonical, profile in sorted(ranked, key=lambda item: item[0], reverse=True)[:limit]:
+        if _record_match_event(job, profile, score, reason, canonical):
+            created += 1
+    return created
+
+
+def _run_matching_for_profile(user_id, limit=20):
+    ensure_discord_schema()
+    profile = get_db().execute("SELECT * FROM job_seeker_profiles WHERE user_id = ?", (user_id,)).fetchone()
+    if not profile:
+        return 0
+    jobs = get_db().execute(
+        """
+        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
+        FROM job_posts
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
+        WHERE job_posts.status = 'ACTIVE'
+          AND COALESCE(job_posts.ai_risk_score, 0) < 70
+        ORDER BY datetime(job_posts.updated_at) DESC, job_posts.id DESC
+        LIMIT 300
+        """
+    ).fetchall()
+    created = 0
+    ranked = []
+    for job in jobs:
+        score, reason, canonical = _profile_job_match(job, profile)
+        ranked.append((score, reason, canonical, job))
+    for score, reason, canonical, job in sorted(ranked, key=lambda item: item[0], reverse=True)[:limit]:
+        if _record_match_event(job, profile, score, reason, canonical):
+            created += 1
+    return created
+
+
 @app.route("/api/discord/commands")
 def api_discord_commands():
     return jsonify({
@@ -3877,6 +4245,7 @@ def api_discord_commands():
             {"name": "/search job", "description": "Search active jobs by keyword, location, and type"},
             {"name": "/apply", "description": "Apply to a job from Discord"},
             {"name": "/applications", "description": "View application status"},
+            {"name": "/matches", "description": "View two-way job and candidate matches"},
             {"name": "/follow company", "description": "Follow a company for new job alerts"},
             {"name": "/post job", "description": "Employer posts a new job"},
             {"name": "/job applicants", "description": "Employer views applicants"},
@@ -3927,23 +4296,45 @@ def api_discord_profile():
         )
     else:
         full_name = _discord_text(data.get("full_name") or data.get("discord_username"), 160)
+        desired_position = _discord_text(data.get("desired_position") or data.get("position") or data.get("headline"), 160)
+        skills = _discord_list_text(data.get("skills"), 500)
+        preferred_location = _discord_text(data.get("preferred_location") or data.get("location"), 160)
+        job_type = _discord_text(data.get("job_type") or data.get("type"), 80)
+        expected_salary = _discord_text(data.get("expected_salary") or data.get("salary"), 80)
+        canonical_position = _canonical_job_position(desired_position, skills, data.get("headline"))
         conn.execute(
             """
-            INSERT INTO job_seeker_profiles (user_id, full_name, headline, resume_url, is_public, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO job_seeker_profiles (
+                user_id, full_name, headline, resume_url, is_public,
+                desired_position, canonical_position, skills, preferred_location,
+                job_type, expected_salary, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 full_name = excluded.full_name,
                 headline = excluded.headline,
                 resume_url = excluded.resume_url,
                 is_public = excluded.is_public,
+                desired_position = excluded.desired_position,
+                canonical_position = excluded.canonical_position,
+                skills = excluded.skills,
+                preferred_location = excluded.preferred_location,
+                job_type = excluded.job_type,
+                expected_salary = excluded.expected_salary,
                 updated_at = excluded.updated_at
             """,
-            (
-                user["id"],
-                full_name or f"Discord User {user['id']}",
-                _discord_text(data.get("headline") or data.get("skills"), 300),
-                _discord_text(data.get("resume_url") or data.get("cv_url"), 500),
+                (
+                    user["id"],
+                    full_name or f"Discord User {user['id']}",
+                    _discord_text(data.get("headline") or skills, 300),
+                    _discord_text(data.get("resume_url") or data.get("cv_url"), 500),
                 1 if data.get("is_public", True) else 0,
+                desired_position,
+                canonical_position,
+                skills,
+                preferred_location,
+                job_type,
+                expected_salary,
                 current_time,
                 current_time,
             ),
@@ -3979,7 +4370,8 @@ def api_discord_profile():
             (1 if data.get("dm_enabled") else 0, current_time, user["id"]),
         )
     conn.commit()
-    return jsonify({"ok": True, "user_id": user["id"], "role": role})
+    new_matches = _run_matching_for_profile(user["id"]) if role == "JOB_SEEKER" else 0
+    return jsonify({"ok": True, "user_id": user["id"], "role": role, "new_matches": new_matches})
 
 
 @app.route("/api/discord/search", methods=["POST"])
@@ -4176,6 +4568,9 @@ def api_discord_post_job():
     salary_range = _discord_text(data.get("salary_range") or data.get("salary"), 120)
     location = _discord_text(data.get("location"), 120)
     company_name = _discord_text(data.get("company_name") or data.get("discord_username"), 160)
+    required_skills = _discord_list_text(data.get("required_skills") or data.get("skills") or _extract_skill_tags(title, description), 500)
+    job_type = _discord_text(data.get("job_type") or data.get("type"), 80)
+    canonical_position = _canonical_job_position(title, description, required_skills)
     if len(title) < 5:
         return jsonify({"ok": False, "message": "title must be at least 5 characters."}), 400
     if len(description) < 40:
@@ -4196,9 +4591,10 @@ def api_discord_post_job():
         INSERT INTO job_posts (
             employer_id, title, description, salary_range, location,
             is_government_news, source_url, status, ai_risk_score,
-            ai_risk_reason, report_count, created_at, updated_at, is_urgent
+            ai_risk_reason, report_count, created_at, updated_at, is_urgent,
+            canonical_position, required_skills, job_type
         )
-        VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
         """,
         (
             user["id"],
@@ -4212,6 +4608,9 @@ def api_discord_post_job():
             current_time,
             current_time,
             1 if data.get("is_urgent") else 0,
+            canonical_position,
+            required_skills,
+            job_type,
         ),
     )
     job_id = cur.lastrowid
@@ -4224,14 +4623,18 @@ def api_discord_post_job():
     )
     add_activity_log(user["id"], "DISCORD_CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
     get_db().commit()
-    queued = _notify_followers_for_job(job_id, company_name, location, title) if status == "ACTIVE" else 0
+    follower_notifications = _notify_followers_for_job(job_id, company_name, location, title) if status == "ACTIVE" else 0
+    match_notifications = _run_matching_for_job(job_id) if status == "ACTIVE" else 0
     return jsonify({
         "ok": True,
         "job_id": job_id,
         "status": status,
         "risk_score": score,
         "risk_reason": reason,
-        "queued_notifications": queued,
+        "queued_notifications": follower_notifications + match_notifications,
+        "follower_notifications": follower_notifications,
+        "match_notifications": match_notifications,
+        "canonical_position": canonical_position,
         "url": f"{SITE_URL}{url_for('job_detail', slug=str(job_id))}",
     })
 
@@ -4282,6 +4685,80 @@ def api_discord_employer_applicants():
     })
 
 
+@app.route("/api/discord/matches")
+def api_discord_matches():
+    auth_error = _require_discord_bot_token()
+    if auth_error:
+        return auth_error
+    discord_user_id = _discord_text(request.args.get("discord_user_id"), 80)
+    account = get_db().execute(
+        "SELECT user_id, role FROM discord_accounts WHERE discord_user_id = ?",
+        (discord_user_id,),
+    ).fetchone()
+    if not account:
+        return jsonify({"ok": True, "matches": []})
+
+    if str(account["role"] or "").upper() == "EMPLOYER":
+        rows = get_db().execute(
+            """
+            SELECT match_events.*, job_posts.title AS job_title, job_posts.location AS job_location,
+                   job_seeker_profiles.full_name, job_seeker_profiles.headline, job_seeker_profiles.skills
+            FROM match_events
+            JOIN job_posts ON job_posts.id = match_events.job_id
+            JOIN job_seeker_profiles ON job_seeker_profiles.user_id = match_events.job_seeker_id
+            WHERE match_events.employer_id = ?
+            ORDER BY match_events.match_score DESC, datetime(match_events.created_at) DESC
+            LIMIT 20
+            """,
+            (account["user_id"],),
+        ).fetchall()
+        matches = [
+            {
+                "id": row["id"],
+                "job_id": row["job_id"],
+                "job_title": row["job_title"],
+                "applicant_user_id": row["job_seeker_id"],
+                "applicant_name": row["full_name"],
+                "headline": row["headline"] or "",
+                "skills": row["skills"] or "",
+                "match_score": row["match_score"],
+                "match_reason": row["match_reason"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    else:
+        rows = get_db().execute(
+            """
+            SELECT match_events.*, job_posts.title AS job_title, job_posts.location AS job_location,
+                   job_posts.salary_range, employer_profiles.company_name
+            FROM match_events
+            JOIN job_posts ON job_posts.id = match_events.job_id
+            LEFT JOIN employer_profiles ON employer_profiles.user_id = match_events.employer_id
+            WHERE match_events.job_seeker_id = ?
+            ORDER BY match_events.match_score DESC, datetime(match_events.created_at) DESC
+            LIMIT 20
+            """,
+            (account["user_id"],),
+        ).fetchall()
+        matches = [
+            {
+                "id": row["id"],
+                "job_id": row["job_id"],
+                "job_title": row["job_title"],
+                "company_name": row["company_name"] or "",
+                "location": row["job_location"] or "",
+                "salary_range": row["salary_range"] or "",
+                "match_score": row["match_score"],
+                "match_reason": row["match_reason"],
+                "url": f"{SITE_URL}{url_for('job_detail', slug=str(row['job_id']))}",
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+    return jsonify({"ok": True, "matches": matches})
+
+
 @app.route("/api/discord/analytics")
 def api_discord_analytics():
     auth_error = _require_discord_bot_token()
@@ -4296,6 +4773,8 @@ def api_discord_analytics():
             "jobs_posted": conn.execute("SELECT COUNT(*) AS count FROM job_posts").fetchone()["count"],
             "active_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'").fetchone()["count"],
             "applications": conn.execute("SELECT COUNT(*) AS count FROM applications").fetchone()["count"],
+            "matches": conn.execute("SELECT COUNT(*) AS count FROM match_events").fetchone()["count"],
+            "high_matches": conn.execute("SELECT COUNT(*) AS count FROM match_events WHERE match_score >= 85").fetchone()["count"],
         },
         "dashboard_url": f"{SITE_URL}/admin",
     })
