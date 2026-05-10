@@ -5,6 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}งานใกล้บ้าน | JobBoard AI{% endblock %}</title>
   <meta name="description" content="{% block meta_description %}แพลตฟอร์มหางานใกล้บ้านที่ช่วยคัดกรองประกาศเสี่ยงด้วยระบบ AI Anti-Scam และ Trust Score{% endblock %}">
+  <link rel="canonical" href="{% block canonical_url %}{{ canonical_url }}{% endblock %}">
+  <link rel="alternate" hreflang="th-TH" href="{{ canonical_url }}">
+  <meta name="geo.region" content="TH">
+  <meta name="geo.placename" content="Thailand">
+  <meta name="robots" content="{% block robots_meta %}index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1{% endblock %}">
+  <meta property="og:type" content="{% block og_type %}website{% endblock %}">
+  <meta property="og:site_name" content="งานใกล้บ้าน">
+  <meta property="og:title" content="{% block og_title %}งานใกล้บ้าน | JobBoard AI{% endblock %}">
+  <meta property="og:description" content="{% block og_description %}หางานใกล้บ้านพร้อมระบบ AI Anti-Scam, Trust Score และ Community Report{% endblock %}">
+  <meta property="og:url" content="{{ canonical_url }}">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "งานใกล้บ้าน",
+    "url": {{ site_url|tojson }},
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": {{ (site_url ~ "/jobs?q={search_term_string}")|tojson }},
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "งานใกล้บ้าน",
+    "url": {{ site_url|tojson }},
+    "description": "แพลตฟอร์มหางานใกล้บ้านพร้อมระบบคัดกรองประกาศเสี่ยง"
+  }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -289,6 +322,45 @@
       <div class="footer-bottom">© {{ current_year }} งานใกล้บ้าน</div>
     </footer>
   </div>
+  <script>
+  (function () {
+    function send(eventName, payload) {
+      try {
+        var body = JSON.stringify(Object.assign({ event: eventName, path: location.pathname }, payload || {}));
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon("/api/analytics", new Blob([body], { type: "application/json" }));
+          return;
+        }
+        fetch("/api/analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: body
+        });
+      } catch (error) {}
+    }
+
+    send("page_view", {
+      title: document.title,
+      referrer: document.referrer ? new URL(document.referrer).hostname : ""
+    });
+
+    document.addEventListener("click", function (event) {
+      var link = event.target.closest("a");
+      if (!link) return;
+      var href = link.getAttribute("href") || "";
+      if (href.indexOf("/job/") === 0) {
+        send("job_card_click", { metadata: href });
+      }
+      if (href.indexOf("/register") === 0) {
+        send("signup_click", { metadata: location.pathname });
+      }
+      if (href.indexOf("/jobs") === 0) {
+        send("search_navigation", { metadata: location.pathname });
+      }
+    });
+  })();
+  </script>
   {% block extra_body %}{% endblock %}
 </body>
 </html>

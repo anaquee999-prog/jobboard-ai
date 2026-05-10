@@ -250,6 +250,56 @@
   }
 }
 </script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "หน้าแรก",
+      "item": {{ site_url|tojson }}
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "ค้นหางาน",
+      "item": {{ (site_url ~ url_for('jobs_public'))|tojson }}
+    },
+    {
+      "@type": "ListItem",
+      "position": 3,
+      "name": {{ job.title|tojson }},
+      "item": {{ (site_url ~ url_for('job_detail', slug=job_slug(job)))|tojson }}
+    }
+  ]
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "สมัครงานนี้ต้องจ่ายเงินก่อนหรือไม่",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "ไม่ควรจ่ายเงิน ค่าประกัน ค่าสมัคร หรือค่าดำเนินการก่อนเริ่มงาน หากมีการเรียกเก็บเงินควรกดรายงานประกาศทันที"
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "AI Risk Score คืออะไร",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "AI Risk Score เป็นคะแนนคัดกรองเบื้องต้นจากระบบ เพื่อช่วยให้ผู้สมัครมองเห็นสัญญาณเสี่ยง แต่ไม่ใช่การรับรองแบบสมบูรณ์"
+      }
+    }
+  ]
+}
+</script>
 
 <div class="detail-page">
   <div class="detail-layout">
@@ -357,4 +407,25 @@
     </aside>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_body %}
+<script>
+(function () {
+  try {
+    fetch("/api/analytics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        event: "job_detail_view",
+        job_id: {{ job.id|tojson }},
+        job_title: {{ job.title|tojson }},
+        location: {{ (job.location or "")|tojson }},
+        metadata: location.pathname
+      })
+    });
+  } catch (error) {}
+})();
+</script>
 {% endblock %}
