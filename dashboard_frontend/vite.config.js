@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ command }) => ({
   plugins: [react()],
+  base: "/jobboard-ai/",
   optimizeDeps:
     command === "serve"
       ? {

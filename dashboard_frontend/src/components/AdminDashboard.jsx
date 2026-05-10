@@ -32,8 +32,42 @@ const endpoints = {
   discordTest: "/admin/discord-test",
 };
 
+const demoDashboardData = {
+  scamStats: {
+    scam_jobs: 7,
+    total_jobs: 80,
+    urgent_jobs: 12,
+    community_reports: 18,
+  },
+  urgentJobs: {
+    count: 12,
+    jobs: [
+      { id: 1, title: "Urgent Frontend Developer", trust_score: 92 },
+      { id: 2, title: "Customer Support Officer", trust_score: 84 },
+      { id: 3, title: "Warehouse Coordinator", trust_score: 79 },
+    ],
+  },
+  trustDistribution: [
+    { range: "0-39", count: 7 },
+    { range: "40-59", count: 11 },
+    { range: "60-79", count: 24 },
+    { range: "80-100", count: 38 },
+  ],
+  communityReports: {
+    reports: [
+      { status: "pending", count: 8 },
+      { status: "reviewed", count: 6 },
+      { status: "resolved", count: 4 },
+    ],
+  },
+};
+
 const trustColors = ["#ef4444", "#f59e0b", "#14b8a6", "#22c55e", "#3b82f6"];
 const reportColors = ["#ef4444", "#f59e0b", "#6366f1", "#14b8a6"];
+
+function isStaticGitHubPages() {
+  return window.location.hostname.endsWith("github.io");
+}
 
 async function fetchJson(url, errorMessage, options) {
   const response = await fetch(url, options);
@@ -148,6 +182,7 @@ export default function AdminDashboard() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [demoMode, setDemoMode] = useState(false);
   const [discordState, setDiscordState] = useState({
     loading: false,
     status: "",
@@ -157,6 +192,7 @@ export default function AdminDashboard() {
   async function loadDashboard() {
     setLoading(true);
     setError("");
+    setDemoMode(false);
 
     try {
       const [scamStats, urgentJobs, trustDistribution, communityReports] = await Promise.all([
@@ -173,7 +209,12 @@ export default function AdminDashboard() {
         communityReports,
       });
     } catch (dashboardError) {
-      setError(dashboardError.message);
+      if (isStaticGitHubPages()) {
+        setDemoMode(true);
+        setDashboardData(demoDashboardData);
+      } else {
+        setError(dashboardError.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -219,6 +260,15 @@ export default function AdminDashboard() {
 
   async function testDiscordWebhook() {
     setDiscordState({ loading: true, status: "", message: "" });
+
+    if (isStaticGitHubPages()) {
+      setDiscordState({
+        loading: false,
+        status: "DEMO",
+        message: "Static GitHub Pages demo mode. Run the Flask backend to send a real Discord alert.",
+      });
+      return;
+    }
 
     try {
       const result = await fetchJson(endpoints.discordTest, "Discord webhook test failed", {
@@ -279,11 +329,19 @@ export default function AdminDashboard() {
             className={`rounded-2xl border px-4 py-3 text-sm font-medium shadow-sm ${
               discordState.status === "OK"
                 ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : discordState.status === "DEMO"
+                  ? "border-cyan-200 bg-cyan-50 text-cyan-800"
                 : "border-rose-200 bg-rose-50 text-rose-800"
             }`}
           >
             Discord webhook: {discordState.status}
             {discordState.message ? <span className="ml-2 font-normal">{discordState.message}</span> : null}
+          </div>
+        ) : null}
+
+        {demoMode ? (
+          <div className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-medium text-cyan-800 shadow-sm">
+            Static demo mode: GitHub Pages cannot run Flask API endpoints. The dashboard is showing sample data.
           </div>
         ) : null}
 
