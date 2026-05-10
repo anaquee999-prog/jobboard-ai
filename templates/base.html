@@ -1,733 +1,294 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="th">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}JobBoard | งานใกล้บ้าน.com{% endblock %}</title>
-    <meta name="description" content="{% block meta_description %}หางานใกล้บ้าน สมัครง่าย ปลอดภัยขึ้น พร้อมระบบช่วยคัดกรองงานน่าสงสัย{% endblock %}">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}งานใกล้บ้าน | JobBoard AI{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}แพลตฟอร์มหางานใกล้บ้านที่ช่วยคัดกรองประกาศเสี่ยงด้วยระบบ AI Anti-Scam และ Trust Score{% endblock %}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --ink: #101828;
+      --muted: #667085;
+      --line: #d9e2ec;
+      --panel: #ffffff;
+      --blue: #1769e0;
+      --blue-dark: #104ca5;
+      --green: #15803d;
+      --amber: #b45309;
+      --red: #b42318;
+      --shadow: 0 18px 50px rgba(16, 24, 40, .08);
+    }
 
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;500;600;700;800&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+    * { box-sizing: border-box; }
 
-    <style>
-        :root {
-            --blue: #38bdf8;
-            --blue-deep: #0ea5e9;
-            --orange: #ff650f;
-            --black: #050505;
-            --white: #ffffff;
-        }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Noto Sans Thai", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        linear-gradient(180deg, #eef5ff 0, #f7f8fb 380px),
+        var(--bg);
+    }
 
-        * { box-sizing: border-box; }
+    a { color: inherit; text-decoration: none; }
 
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            min-height: 100%;
-            font-family: "Prompt", "Sarabun", sans-serif;
-            background: #050505;
-            color: #ffffff;
-            font-weight: 500;
-        }
+    .site-shell {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
 
-        a {
-            color: inherit;
-            text-decoration: none;
-        }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--line);
+    }
 
-        .site-shell {
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            background:
-                radial-gradient(circle at top right, rgba(56,189,248,.12), transparent 28%),
-                #050505;
-        }
+    .nav {
+      width: min(1180px, calc(100% - 32px));
+      min-height: 70px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
 
-        .premium-navbar {
-            position: sticky;
-            top: 0;
-            z-index: 999;
-            background: rgba(5,5,5,.72);
-            backdrop-filter: blur(18px);
-            border-bottom: 1px solid rgba(56,189,248,.24);
-            box-shadow: 0 16px 48px rgba(0,0,0,.45);
-        }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 210px;
+    }
 
-        .nav-inner {
-            max-width: 1240px;
-            margin: 0 auto;
-            min-height: 72px;
-            padding: 10px 22px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 24px;
-        }
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      background: #e8f1ff;
+      border: 1px solid #c8dcff;
+      color: var(--blue);
+      font-weight: 900;
+    }
 
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: white;
-        }
+    .brand strong {
+      display: block;
+      font-size: 18px;
+      line-height: 1.1;
+    }
 
-        .brand-logo {
-            width: 46px;
-            height: 46px;
-            border-radius: 17px;
-            background: linear-gradient(135deg, #0ea5e9, #38bdf8);
-            display: grid;
-            place-items: center;
-            box-shadow: 0 0 0 4px rgba(56,189,248,.12), 0 14px 34px rgba(56,189,248,.34);
-            position: relative;
-        }
+    .brand span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
 
-        .brand-logo::before {
-            content: "";
-            width: 20px;
-            height: 20px;
-            border: 4px solid #050505;
-            border-radius: 50% 50% 50% 0;
-            transform: rotate(-45deg);
-            position: absolute;
-        }
+    .brand .brand-mark {
+      display: grid;
+      margin-top: 0;
+      color: var(--blue);
+      font-size: 15px;
+      font-weight: 900;
+    }
 
-        .brand-logo::after {
-            content: "";
-            width: 8px;
-            height: 8px;
-            background: #050505;
-            border-radius: 999px;
-            position: absolute;
-        }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
 
-        .brand-main {
-            display: block;
-            color: white;
-            font-size: 22px;
-            line-height: 1;
-            font-weight: 800;
-            letter-spacing: -.03em;
-        }
+    .nav-links a,
+    .nav-links button {
+      min-height: 38px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      border-radius: 999px;
+      padding: 0 13px;
+      background: transparent;
+      color: #344054;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
 
-        .brand-main span { color: var(--blue); }
+    .nav-links a:hover,
+    .nav-links button:hover {
+      background: #eef5ff;
+      color: var(--blue);
+    }
 
-        .brand-sub {
-            display: block;
-            margin-top: 4px;
-            color: rgba(255,255,255,.72);
-            font-size: 12px;
-            font-weight: 500;
-        }
+    .nav-links .primary {
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 10px 22px rgba(23,105,224,.18);
+    }
 
-        .nav-links {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
+    .nav-links .outline {
+      border: 1px solid #b9cff7;
+      color: var(--blue);
+      background: #f6f9ff;
+    }
 
-        .nav-links a,
-        .nav-links button {
-            font-family: inherit;
-            border: 0;
-            background: transparent;
-            color: #ffffff;
-            padding: 10px 14px;
-            border-radius: 999px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: .22s ease;
-        }
+    main { flex: 1; }
 
-        .nav-links a:hover,
-        .nav-links button:hover {
-            color: var(--blue);
-            background: rgba(56,189,248,.10);
-            transform: translateY(-1px);
-        }
+    .footer {
+      margin-top: auto;
+      background: #101828;
+      color: #e4e7ec;
+    }
 
-        .nav-links .active-link {
-            color: var(--blue);
-            background: rgba(56,189,248,.10);
-            border: 1px solid rgba(56,189,248,.22);
-        }
+    .footer-inner {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 38px 0;
+      display: grid;
+      grid-template-columns: 1.4fr 1fr 1fr 1fr;
+      gap: 28px;
+    }
 
-        .nav-login {
-            background: rgba(255,255,255,.08) !important;
-            border: 1px solid rgba(255,255,255,.12) !important;
-        }
+    .footer h3,
+    .footer h4 {
+      margin: 0 0 10px;
+      color: #fff;
+    }
 
-        .nav-cta {
-            background: linear-gradient(135deg, #0ea5e9, #38bdf8) !important;
-            color: #03131f !important;
-            box-shadow: 0 12px 28px rgba(56,189,248,.32);
-        }
+    .footer p,
+    .footer a {
+      margin: 7px 0;
+      color: #cdd5df;
+      font-size: 14px;
+      line-height: 1.7;
+    }
 
-        .nav-openchat {
-            border: 1px solid rgba(34,197,94,.22) !important;
-            background: rgba(34,197,94,.10) !important;
-            color: #86efac !important;
-        }
+    .footer a:hover { color: #fff; }
 
-        .nav-message-link {
-            position: relative;
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-        }
+    .footer-bottom {
+      border-top: 1px solid rgba(255,255,255,.10);
+      padding: 14px 0;
+      text-align: center;
+      color: #98a2b3;
+      font-size: 13px;
+    }
 
-        .message-badge {
-            min-width: 19px;
-            height: 19px;
-            padding: 0 6px;
-            border-radius: 999px;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #ef4444, #f97316);
-            color: #fff;
-            font-size: 11px;
-            font-weight: 800;
-            box-shadow: 0 0 0 3px rgba(239,68,68,.18), 0 10px 22px rgba(239,68,68,.34);
-        }
+    @media (max-width: 900px) {
+      .nav {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 12px 0;
+      }
 
-        main {
-            flex: 1;
-            width: 100%;
-            max-width: none;
-            margin: 0;
-            padding: 0;
-            background: #050505;
-        }
+      .nav-links {
+        width: 100%;
+        justify-content: flex-start;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 4px;
+      }
 
-        button, .btn, .btn-link-box {
-            font-family: inherit;
-            border: none;
-            border-radius: 16px;
-            padding: 12px 18px;
-            font-weight: 700;
-            cursor: pointer;
-            color: #03131f;
-            background: linear-gradient(135deg, var(--blue-deep), var(--blue));
-            transition: .22s ease;
-        }
+      .nav-links a,
+      .nav-links button {
+        white-space: nowrap;
+        flex: 0 0 auto;
+      }
 
-        input, textarea, select {
-            width: 100%;
-            font-family: inherit;
-            border: 1px solid rgba(255,255,255,.12);
-            border-radius: 16px;
-            padding: 13px 15px;
-            outline: none;
-            background: #101010;
-            color: #ffffff;
-            font-weight: 500;
-        }
+      .footer-inner { grid-template-columns: 1fr 1fr; }
+    }
 
-        .footer {
-            margin-top: auto;
-            background:
-                radial-gradient(circle at top right, rgba(56,189,248,.10), transparent 30%),
-                linear-gradient(135deg, #050505, #090909);
-            color: white;
-            border-top: 1px solid rgba(56,189,248,.22);
-        }
-
-        .footer-inner {
-            max-width: 1240px;
-            margin: 0 auto;
-            padding: 34px 22px;
-            display: grid;
-            grid-template-columns: 1.4fr 1fr 1fr 1fr;
-            gap: 26px;
-        }
-
-        .footer h3, .footer h4 {
-            margin: 0 0 10px;
-            color: white;
-            font-weight: 700;
-        }
-
-        .footer p, .footer a {
-            color: rgba(255,255,255,.72);
-            font-size: 14px;
-            line-height: 1.75;
-            font-weight: 500;
-        }
-
-        .footer a:hover { color: var(--blue); }
-
-        .footer-bottom {
-            border-top: 1px solid rgba(255,255,255,.08);
-            color: rgba(255,255,255,.56);
-            font-size: 13px;
-            padding: 14px 22px;
-            text-align: center;
-        }
-
-        @media (max-width: 860px) {
-            .nav-inner {
-                align-items: flex-start;
-                flex-direction: column;
-            }
-
-            .nav-links { justify-content: flex-start; }
-
-            .footer-inner { grid-template-columns: 1fr; }
-        }
-    
-        .notify-bell {
-            position: relative;
-            display: inline-flex;
-            align-items: center;
-            gap: 7px;
-            border: 1px solid rgba(56,189,248,.34);
-            background: rgba(14,165,233,.12);
-            color: #e0f2fe;
-            border-radius: 999px;
-            padding: 9px 12px;
-            font-weight: 950;
-            text-decoration: none;
-        }
-
-        .notify-badge {
-            min-width: 20px;
-            height: 20px;
-            border-radius: 999px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            background: #ef4444;
-            color: white;
-            font-size: 12px;
-            font-weight: 950;
-            padding: 0 6px;
-        }
-
-        .notify-panel {
-            position: fixed;
-            right: 18px;
-            bottom: 18px;
-            width: min(380px, calc(100% - 36px));
-            z-index: 9999;
-            display: none;
-            padding: 14px;
-            border-radius: 22px;
-            background: rgba(15,23,42,.96);
-            border: 1px solid rgba(56,189,248,.28);
-            box-shadow: 0 24px 70px rgba(0,0,0,.42);
-        }
-
-        .notify-panel.show { display: block; }
-        .notify-panel strong { color: #fff; display:block; margin-bottom:4px; }
-        .notify-panel p { margin:0; color:#cbd5e1; font-weight:800; }
-        .notify-panel a { color:#7dd3fc; font-weight:950; }
-
-    
-/* FINAL BUSINESS POLISH */
-.final-business-band{
-  margin:26px auto 0;
-  width:min(1180px,calc(100% - 30px));
-  border:1px solid rgba(56,189,248,.20);
-  border-radius:30px;
-  padding:24px;
-  background:
-    radial-gradient(circle at top left,rgba(14,165,233,.16),transparent 34%),
-    linear-gradient(135deg,rgba(15,23,42,.88),rgba(2,6,23,.94));
-  box-shadow:0 24px 70px rgba(0,0,0,.26);
-}
-.final-business-band h2{margin:0;color:#fff;font-size:clamp(26px,4vw,42px);}
-.final-business-band p{color:#cbd5e1;line-height:1.75;font-weight:800;}
-.final-revenue-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:16px;}
-.final-revenue-card{
-  border:1px solid rgba(148,163,184,.16);
-  border-radius:24px;
-  padding:18px;
-  background:rgba(2,6,23,.58);
-}
-.final-revenue-card strong{display:block;color:#fff;font-size:19px;margin-bottom:7px;}
-.final-revenue-card span{display:block;color:#94a3b8;font-weight:800;line-height:1.65;}
-.final-soft-pill{
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  padding:7px 11px;
-  border-radius:999px;
-  background:rgba(14,165,233,.13);
-  border:1px solid rgba(56,189,248,.24);
-  color:#bae6fd;
-  font-size:12px;
-  font-weight:950;
-}
-.final-soft-pill.green{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.25);color:#bbf7d0;}
-.final-soft-pill.orange{background:rgba(249,115,22,.13);border-color:rgba(249,115,22,.25);color:#fed7aa;}
-.footer-mini-cta{
-  display:inline-flex;
-  margin-top:12px;
-  border-radius:999px;
-  padding:10px 14px;
-  background:linear-gradient(135deg,#0ea5e9,#38bdf8);
-  color:#00111f!important;
-  font-weight:950;
-}
-.nav-cta-outline{
-  border:1px solid rgba(56,189,248,.28)!important;
-  background:rgba(14,165,233,.10)!important;
-  color:#dbeafe!important;
-}
-@media(max-width:760px){.final-revenue-grid{grid-template-columns:1fr}}
-
-
-/* MOBILE_NAV_URGENT_POLISH_V1 */
-@media (max-width: 980px){
-  .premium-navbar{
-    position: sticky;
-    top: 0;
-    z-index: 50;
-  }
-
-  .nav-inner{
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .brand{
-    min-width: 210px;
-  }
-
-  .brand-main{
-    font-size: 20px;
-  }
-
-  .brand-sub{
-    max-width: 180px;
-    line-height: 1.25;
-  }
-
-  .nav-links{
-    width: 100%;
-    display: flex;
-    overflow-x: auto;
-    gap: 8px;
-    padding: 8px 2px 2px;
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .nav-links a,
-  .nav-links button{
-    white-space: nowrap;
-    flex: 0 0 auto;
-    min-height: 38px;
-    padding: 8px 12px !important;
-    font-size: 13px !important;
-    border-radius: 999px !important;
-  }
-
-  .admin-nav-link{
-    display: none !important;
-  }
-
-  .notify-bell,
-  .nav-message-link{
-    max-width: 118px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .footer{
-    padding-top: 34px;
-  }
-
-  .footer-inner{
-    grid-template-columns: 1fr 1fr;
-    gap: 22px;
-  }
-}
-
-@media (max-width: 640px){
-  .nav-inner{
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
-  .brand-logo{
-    width: 44px;
-    height: 44px;
-  }
-
-  .brand-main{
-    font-size: 18px;
-  }
-
-  .brand-sub{
-    font-size: 11px;
-  }
-
-  .nav-links{
-    gap: 7px;
-  }
-
-  .nav-links a,
-  .nav-links button{
-    min-height: 34px;
-    padding: 7px 10px !important;
-    font-size: 12px !important;
-  }
-
-  .footer-inner{
-    grid-template-columns: 1fr;
-  }
-
-  .footer-bottom,
-  .page-view-mini{
-    text-align: center;
-  }
-}
-
-</style>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
-    {% block extra_head %}{% endblock %}
+    @media (max-width: 640px) {
+      .footer-inner { grid-template-columns: 1fr; }
+    }
+  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block extra_head %}{% endblock %}
 </head>
-
 <body>
-<div class="site-shell">
+  <div class="site-shell">
+    <header class="topbar">
+      <div class="nav">
+        <a class="brand" href="{{ url_for('home') }}">
+          <span class="brand-mark">AI</span>
+          <span>
+            <strong>งานใกล้บ้าน</strong>
+            <span>JobBoard AI Anti-Scam</span>
+          </span>
+        </a>
 
-    <header class="premium-navbar">
-        <div class="nav-inner">
-            <a class="brand" href="{{ url_for('home') }}">
-                <span class="brand-logo"></span>
-                <span>
-                    <span class="brand-main">งาน<span>ใกล้บ้าน</span></span>
-                    <small class="brand-sub">หางานและจ้างงานในพื้นที่คุณ</small>
-                </span>
-            </a>
+        <nav class="nav-links" aria-label="เมนูหลัก">
+          <a href="{{ url_for('home') }}">หน้าแรก</a>
+          <a href="{{ url_for('jobs_public') }}">ค้นหางาน</a>
+          <a href="{{ url_for('urgent_jobs') }}">งานด่วน</a>
+          <a href="{{ url_for('community_board') }}">ชุมชน</a>
+          <a href="{{ url_for('pricing_page') }}">สำหรับนายจ้าง</a>
 
-            <nav class="nav-links">
-                <a class="active-link" href="{{ url_for('home') }}">หน้าแรก</a>
-                <a href="{{ url_for('jobs_public') }}">ค้นหางาน</a>
-                <a href="{{ url_for('urgent_jobs') }}">งานด่วน</a>
-                <a href="{{ url_for('community_board') }}">ชุมชน</a>
-
-                {% if current_user %}
-                    <a class="nav-openchat" href="{{ url_for('openchat') }}">ห้องคุยเรื่องงาน</a>
-                    <a href="{{ url_for('dashboard') }}">แดชบอร์ด</a>
-
-                    <a class="notify-bell" id="notificationBell" href="{{ url_for('notifications_page') }}">
-                        🔔 แจ้งเตือน
-                        {% set ncount = unread_notifications_count(current_user.id) if current_user else 0 %}
-                        <span class="notify-badge" id="notificationBadge" {% if ncount <= 0 %}style="display:none"{% endif %}>{{ ncount }}</span>
-                    </a>
-
-                    <a class="nav-message-link" href="{{ url_for('inbox') }}">
-                        ข้อความ
-                        <span id="messageBadge" class="message-badge">0</span>
-                    </a>
-
-                    {% if current_user.role == "JOB_SEEKER" %}
-                        <a class="nav-cta" href="{{ url_for('job_seeker_post') }}">ฝากโปรไฟล์หางาน</a>
-                    {% elif current_user.role == "EMPLOYER" %}
-                        <a class="nav-cta" href="{{ url_for('employer_create_job') }}">โพสต์งาน</a>
-                        <a href="{{ url_for('employer_applications') }}">ใบสมัคร</a>
-                    {% elif current_user.role == "ADMIN" %}
-                        <a class="admin-nav-link" href="{{ url_for('admin_dashboard') }}">Admin</a>
-                        <a class="admin-nav-link" href="{{ url_for('admin_trust_center') }}">Trust</a>
-                        <a class="admin-nav-link" href="{{ url_for('admin_scam_center') }}">Scam</a>
-                    {% endif %}
-
-                    <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit">ออกจากระบบ</button>
-                    </form>
-                {% else %}
-                    <a class="nav-cta-outline" href="{{ url_for('register') }}">สำหรับนายจ้าง</a>
-                    <a class="nav-login" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
-                    <a class="nav-cta" href="{{ url_for('register') }}">สมัครใช้งาน</a>
-                {% endif %}
-            </nav>
-        </div>
+          {% if current_user %}
+            <a class="outline" href="{{ url_for('openchat') }}">OpenChat</a>
+            <a href="{{ url_for('dashboard') }}">แดชบอร์ด</a>
+            {% if current_user.role == "JOB_SEEKER" %}
+              <a class="primary" href="{{ url_for('job_seeker_post') }}">ฝากโปรไฟล์</a>
+            {% elif current_user.role == "EMPLOYER" %}
+              <a class="primary" href="{{ url_for('employer_create_job') }}">โพสต์งาน</a>
+            {% elif current_user.role == "ADMIN" %}
+              <a href="{{ url_for('admin_dashboard') }}">Admin</a>
+            {% endif %}
+            <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit">ออกจากระบบ</button>
+            </form>
+          {% else %}
+            <a class="outline" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+            <a class="primary" href="{{ url_for('register') }}">สมัครใช้งาน</a>
+          {% endif %}
+        </nav>
+      </div>
     </header>
 
     <main>
-        {% block content %}{% endblock %}
+      {% block content %}{% endblock %}
     </main>
 
     <footer class="footer">
-        <div class="footer-inner">
-            <div>
-                <h3>งาน<span style="color:#38bdf8;">ใกล้บ้าน</span></h3>
-                <p>แพลตฟอร์มหางานและจ้างงานในพื้นที่ ช่วยให้ผู้หางานสมัครง่ายขึ้น นายจ้างรับสมัครเป็นระบบขึ้น และมีการคัดกรองประกาศที่น่าสงสัย</p>
-                <a class="footer-mini-cta" href="{{ url_for('register') }}">เริ่มใช้งานฟรี</a>
-            </div>
-
-            <div>
-                <h4>สำหรับผู้หางาน</h4>
-                <p><a href="{{ url_for('jobs_public') }}">ค้นหางานใกล้บ้าน</a></p>
-                <p><a href="{{ url_for('urgent_jobs') }}">งานด่วน</a></p>
-                <p><a href="{{ url_for('register') }}">สมัครและฝากโปรไฟล์</a></p>
-            </div>
-
-            <div>
-                <h4>สำหรับนายจ้าง</h4>
-                <p><a href="{{ url_for('register') }}">สมัครบัญชีนายจ้าง</a></p>
-                {% if current_user and current_user.role == "EMPLOYER" %}
-                    <p><a href="{{ url_for('employer_create_job') }}">โพสต์งานใหม่</a></p>
-                    <p><a href="{{ url_for('employer_applications') }}">ดูใบสมัคร</a></p>
-                {% else %}
-                    <p>แพ็กเกจโปรโมทงานด่วนและประกาศแนะนำจะเปิดให้ใช้ในอนาคต</p>
-                {% endif %}
-            </div>
-
-            <div>
-                <h4>รายได้ในอนาคต</h4>
-                <p>โปรโมทประกาศงาน</p>
-                <p>พื้นที่แนะนำบริษัท</p>
-                <p>โฆษณาท้องถิ่นและพันธมิตร</p>
-            </div>
-            <div>
-                <h4>ความน่าเชื่อถือ</h4>
-                <p><a href="{{ url_for('privacy_policy') }}">นโยบายความเป็นส่วนตัว</a></p>
-                <p><a href="{{ url_for('terms_page') }}">เงื่อนไขการใช้งาน</a></p>
-                <p><a href="{{ url_for('pricing_page') }}">แพ็กเกจนายจ้าง</a></p>
-            </div>
-
-        </div>
-
-        <div class="footer-bottom">
-            © {{ current_year }} งานใกล้บ้าน — หางานง่ายขึ้น จ้างงานง่ายขึ้น และปลอดภัยขึ้น
-        </div>
-
-        <div class="page-view-mini">
-          {% set pv = page_view_stats() %}
-          เข้าชมหน้านี้ {{ pv.current }} ครั้ง · เข้าชมรวม {{ pv.total }} ครั้ง
-        </div>
-        <style>
-        .page-view-mini{
-          margin:18px auto 0;
-          width:min(1180px,calc(100% - 28px));
-          padding:10px 14px;
-          border-radius:16px;
-          border:1px solid rgba(56,189,248,.16);
-          background:rgba(15,23,42,.72);
-          color:rgba(226,232,240,.68);
-          font-size:12px;
-          font-weight:800;
-          text-align:center;
-        }
-        </style>
+      <div class="footer-inner">
+        <section>
+          <h3>งานใกล้บ้าน</h3>
+          <p>แพลตฟอร์มหางานและจ้างงานในพื้นที่ พร้อมระบบช่วยคัดกรองประกาศเสี่ยงและรายงานงานน่าสงสัย</p>
+        </section>
+        <section>
+          <h4>ผู้หางาน</h4>
+          <p><a href="{{ url_for('jobs_public') }}">ค้นหางาน</a></p>
+          <p><a href="{{ url_for('urgent_jobs') }}">งานด่วน</a></p>
+          <p><a href="{{ url_for('register') }}">สมัครสมาชิก</a></p>
+        </section>
+        <section>
+          <h4>นายจ้าง</h4>
+          <p><a href="{{ url_for('pricing_page') }}">แพ็กเกจนายจ้าง</a></p>
+          <p><a href="{{ url_for('register') }}">สมัครบัญชีนายจ้าง</a></p>
+        </section>
+        <section>
+          <h4>ความปลอดภัย</h4>
+          <p><a href="{{ url_for('privacy_policy') }}">นโยบายความเป็นส่วนตัว</a></p>
+          <p><a href="{{ url_for('terms_page') }}">เงื่อนไขการใช้งาน</a></p>
+        </section>
+      </div>
+      <div class="footer-bottom">© {{ current_year }} งานใกล้บ้าน</div>
     </footer>
-
-</div>
-
-{% if current_user %}
-<script>
-(function () {
-    const badge = document.getElementById("messageBadge");
-    if (!badge) return;
-
-    async function refreshUnreadCount() {
-        try {
-            const response = await fetch("{{ url_for('api_unread_messages_count') }}", {
-                headers: { "Accept": "application/json" },
-                credentials: "same-origin"
-            });
-
-            if (!response.ok) return;
-
-            const data = await response.json();
-            const count = Number(data.unread || 0);
-
-            if (count > 0) {
-                badge.textContent = count > 99 ? "99+" : String(count);
-                badge.style.display = "inline-flex";
-            } else {
-                badge.style.display = "none";
-            }
-        } catch (error) {
-            badge.style.display = "none";
-        }
-    }
-
-    refreshUnreadCount();
-    setInterval(refreshUnreadCount, 10000);
-})();
-</script>
-{% endif %}
-
-
-{% if current_user %}
-<div class="notify-panel" id="notificationLivePanel">
-  <strong id="notificationLiveTitle">แจ้งเตือนใหม่</strong>
-  <p id="notificationLiveMessage"></p>
-  <p style="margin-top:10px;"><a href="{{ url_for('notifications_page') }}">เปิดการแจ้งเตือนทั้งหมด</a></p>
-</div>
-
-<script>
-(function(){
-  const badge = document.getElementById("notificationBadge");
-  const panel = document.getElementById("notificationLivePanel");
-  const titleEl = document.getElementById("notificationLiveTitle");
-  const msgEl = document.getElementById("notificationLiveMessage");
-  let lastTopId = null;
-
-  function showBrowserNotification(title, message) {
-    try {
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification(title || "งานใกล้บ้าน", { body: message || "มีแจ้งเตือนใหม่" });
-      }
-    } catch (err) {}
-  }
-
-  function showPanel(title, message) {
-    if (!panel || !titleEl || !msgEl) return;
-    titleEl.textContent = title || "แจ้งเตือนใหม่";
-    msgEl.textContent = message || "";
-    panel.classList.add("show");
-    setTimeout(() => panel.classList.remove("show"), 6500);
-  }
-
-  async function refreshNotifications() {
-    try {
-      const res = await fetch("{{ url_for('api_notifications') }}", {
-        headers: { "Accept": "application/json" },
-        credentials: "same-origin"
-      });
-      if (!res.ok) return;
-
-      const data = await res.json();
-      const unread = Number(data.unread || 0);
-
-      if (badge) {
-        badge.textContent = unread;
-        badge.style.display = unread > 0 ? "inline-flex" : "none";
-      }
-
-      const top = data.items && data.items.length ? data.items[0] : null;
-      if (top && !top.is_read) {
-        if (lastTopId === null) {
-          lastTopId = top.id;
-        } else if (top.id !== lastTopId) {
-          lastTopId = top.id;
-          showPanel(top.title, top.message);
-          showBrowserNotification(top.title, top.message);
-        }
-      }
-    } catch (err) {}
-  }
-
-  refreshNotifications();
-  setInterval(refreshNotifications, 30000);
-})();
-</script>
-{% endif %}
-
-{% block extra_body %}{% endblock %}
+  </div>
+  {% block extra_body %}{% endblock %}
 </body>
 </html>

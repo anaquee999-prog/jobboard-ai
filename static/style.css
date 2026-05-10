@@ -1,122 +1,34 @@
-/* ฟอร์มทั้งหมด */
-.auth-form {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 20px;
-  background: #ffffff;
-  border-radius: 16px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
-}
-
-/* ฟิลด์ของฟอร์ม */
-.auth-field {
-  margin-bottom: 20px;
-}
-
-.auth-field label {
-  font-weight: 800;
-  color: #333;
-  display: block;
-  margin-bottom: 8px;
-}
-
-/* รูปแบบ input */
-.auth-field input {
-  width: 100%;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid #e2e8f0;
-  background: #f1f5f9;
-  color: #333;
-  font-size: 16px;
-}
-
-.auth-field input:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
-}
-
-/* ข้อความช่วยเหลือ */
-.auth-help {
-  font-size: 12px;
-  color: #64748b;
-  margin-top: 4px;
-}
-
-/* สำหรับ checkbox */
-.check-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.check-row input {
-  width: auto;
-  margin-top: 6px;
-}
-
-/* ปุ่มสมัครสมาชิก */
-.submit-btn-wrapper {
-  text-align: center;
-}
-
-.submit-btn {
-  padding: 12px 20px;
-  font-size: 18px;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 14px;
-  cursor: pointer;
-  width: 100%;
-}
-
-.submit-btn:hover {
-  background: #1d4ed8;
-}
-
-/* Unified JobBoard AI Anti-Scam visual system */
+/* Shared JobBoard AI interface polish */
 :root {
-  --jb-bg: #050505;
-  --jb-surface: rgba(15, 23, 42, 0.74);
-  --jb-surface-strong: rgba(2, 6, 23, 0.88);
-  --jb-border: rgba(148, 163, 184, 0.18);
-  --jb-border-bright: rgba(56, 189, 248, 0.28);
-  --jb-text: #f8fafc;
-  --jb-muted: #94a3b8;
-  --jb-blue: #38bdf8;
-  --jb-blue-deep: #0ea5e9;
-}
-
-body {
-  background:
-    radial-gradient(circle at top right, rgba(56, 189, 248, 0.14), transparent 30%),
-    radial-gradient(circle at 10% 8%, rgba(20, 184, 166, 0.10), transparent 26%),
-    var(--jb-bg) !important;
-  color: var(--jb-text);
+  --jb-blue: #1769e0;
+  --jb-blue-soft: #e8f1ff;
+  --jb-ink: #101828;
+  --jb-muted: #667085;
+  --jb-line: #d9e2ec;
+  --jb-panel: #ffffff;
+  --jb-bg: #f7f8fb;
 }
 
 .auth-form,
 .card,
 .panel,
 .dashboard-card,
-.job-card,
 .pricing-card,
-.stat-card,
 .admin-card,
 .content-card,
 .table-wrap,
-.form-card,
-.safety-box,
-.apply-box,
-.report-box,
-.job-description-box {
-  border: 1px solid var(--jb-border) !important;
-  border-radius: 22px !important;
-  background: var(--jb-surface) !important;
-  color: var(--jb-text) !important;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28) !important;
-  backdrop-filter: blur(14px);
+.form-card {
+  border: 1px solid var(--jb-line);
+  border-radius: 24px;
+  background: var(--jb-panel);
+  color: var(--jb-ink);
+  box-shadow: 0 18px 50px rgba(16, 24, 40, .08);
+}
+
+.auth-form {
+  width: min(640px, calc(100% - 32px));
+  margin: 34px auto;
+  padding: 26px;
 }
 
 .auth-form h1,
@@ -127,19 +39,13 @@ body {
 .panel h1,
 .panel h2,
 .panel h3,
-.dashboard-card h1,
-.dashboard-card h2,
-.dashboard-card h3,
-.job-card h1,
-.job-card h2,
-.job-card h3,
 .content-card h1,
 .content-card h2,
 .content-card h3,
 .form-card h1,
 .form-card h2,
 .form-card h3 {
-  color: #ffffff !important;
+  color: var(--jb-ink);
   font-weight: 800;
 }
 
@@ -147,8 +53,6 @@ body {
 .auth-help,
 .card p,
 .panel p,
-.dashboard-card p,
-.job-card p,
 .content-card p,
 .form-card p,
 td,
@@ -156,9 +60,15 @@ th {
   color: var(--jb-muted);
 }
 
+.auth-field {
+  margin-bottom: 18px;
+}
+
 .auth-field label,
 label {
-  color: #e2e8f0 !important;
+  display: block;
+  margin-bottom: 7px;
+  color: #344054;
   font-weight: 800;
 }
 
@@ -166,18 +76,22 @@ input,
 textarea,
 select,
 .auth-field input {
-  border: 1px solid rgba(148, 163, 184, 0.24) !important;
-  border-radius: 16px !important;
-  background: rgba(2, 6, 23, 0.80) !important;
-  color: #ffffff !important;
+  width: 100%;
+  border: 1px solid #cdd5df;
+  border-radius: 14px;
+  background: #fff;
+  color: var(--jb-ink);
+  padding: 12px 13px;
+  font: inherit;
 }
 
 input:focus,
 textarea:focus,
 select:focus,
 .auth-field input:focus {
-  border-color: rgba(56, 189, 248, 0.72) !important;
-  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.13) !important;
+  outline: none;
+  border-color: var(--jb-blue);
+  box-shadow: 0 0 0 4px rgba(23, 105, 224, .12);
 }
 
 button,
@@ -186,47 +100,55 @@ button,
 .btn-link-box,
 a.button,
 a.btn {
-  border-radius: 16px !important;
-  background: linear-gradient(135deg, var(--jb-blue-deep), var(--jb-blue)) !important;
-  color: #03131f !important;
-  font-weight: 900 !important;
-  box-shadow: 0 14px 30px rgba(56, 189, 248, 0.22);
+  border-radius: 14px;
+  background: var(--jb-blue);
+  color: #fff;
+  font-weight: 800;
+  border: 0;
 }
 
-button:hover,
-.btn:hover,
-.submit-btn:hover,
-.btn-link-box:hover,
-a.button:hover,
-a.btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 18px 40px rgba(56, 189, 248, 0.28);
+.submit-btn {
+  width: 100%;
+  min-height: 46px;
+  cursor: pointer;
+}
+
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.check-row input {
+  width: auto;
+  margin-top: 4px;
 }
 
 table {
   width: 100%;
   border-collapse: collapse;
-  overflow: hidden;
-  border-radius: 18px;
-}
-
-thead {
-  background: rgba(56, 189, 248, 0.10);
 }
 
 th,
 td {
-  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  border-bottom: 1px solid #eef2f6;
   padding: 12px 14px;
+}
+
+thead {
+  background: var(--jb-blue-soft);
 }
 
 .badge,
 .pill,
-.tag,
-.job-badge {
-  border: 1px solid var(--jb-border-bright) !important;
-  background: rgba(14, 165, 233, 0.12) !important;
-  color: #bae6fd !important;
-  border-radius: 999px !important;
-  font-weight: 900 !important;
+.tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: var(--jb-blue-soft);
+  color: var(--jb-blue);
+  font-size: 12px;
+  font-weight: 800;
 }

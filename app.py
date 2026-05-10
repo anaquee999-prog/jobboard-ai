@@ -1332,6 +1332,224 @@ def government_news():
 
 
 
+def _render_redesigned_public_page(page_title, subtitle, rows, q="", location="", show_search=True):
+    cards = []
+    for row in rows:
+        title = _safe_html_escape(row["title"])
+        loc = _safe_html_escape(row["location"] or "ทั่วประเทศ")
+        is_government = int(row["is_government_news"] or 0) if "is_government_news" in row.keys() else 1
+        agency_name = _safe_agency_name(row["company_name"], row["location"], row["source_url"]) if is_government else (row["company_name"] or "นายจ้าง")
+        agency = _safe_html_escape(agency_name)
+        salary = _safe_html_escape(row["salary_range"] or "ไม่ระบุเงินเดือน")
+        updated = _safe_html_escape(row["updated_at"] or row["created_at"] or "ล่าสุด")
+        source_url = _safe_html_escape(safe_source_url(row["source_url"], row["location"], row["title"])) if is_government else ""
+        views = int(row["view_count"] or 0)
+        risk_score = int(row["ai_risk_score"] or 0) if "ai_risk_score" in row.keys() else 0
+        report_count = int(row["report_count"] or 0) if "report_count" in row.keys() else 0
+        badge = "งานราชการ / DOE" if is_government else "ประกาศจากนายจ้าง"
+        badge_class = "official" if is_government else "employer"
+        source_action = f'<a class="secondary-action" href="{source_url}" target="_blank" rel="noopener">เปิดแหล่งทางการ</a>' if source_url else ""
+        detail_url = f"/job/{row['id']}"
+
+        cards.append(
+            f"""
+            <article class="job-card">
+              <div class="card-topline">
+                <span class="badge {badge_class}">{badge}</span>
+                <span class="trust-pill">AI Risk {risk_score}/100</span>
+              </div>
+              <h2>{title}</h2>
+              <p class="agency">{agency}</p>
+              <div class="meta-grid">
+                <span><b>พื้นที่</b>{loc}</span>
+                <span><b>เงินเดือน</b>{salary}</span>
+                <span><b>อัปเดต</b>{updated}</span>
+                <span><b>เข้าชม</b>{views} ครั้ง</span>
+              </div>
+              <p class="safety-line">ระบบช่วยคัดกรองเบื้องต้นแล้ว ผู้สมัครควรตรวจสอบนายจ้างและห้ามโอนเงินก่อนเริ่มงาน</p>
+              <div class="actions">
+                <a class="primary-action" href="{detail_url}">ดูรายละเอียด</a>
+                {source_action}
+                <span class="report-note">รายงาน {report_count} ครั้ง</span>
+              </div>
+            </article>
+            """
+        )
+
+    if not cards:
+        cards.append(
+            """
+            <article class="empty-card">
+              <h2>ยังไม่พบประกาศที่ตรงกับเงื่อนไข</h2>
+              <p>ลองเปลี่ยนคำค้นหา จังหวัด หรือกลับไปดูงานทั้งหมด</p>
+              <a href="/jobs">ดูงานทั้งหมด</a>
+            </article>
+            """
+        )
+
+    search_html = ""
+    if show_search:
+        search_html = f"""
+        <form class="search" method="get" action="/jobs">
+          <label>
+            <span>ตำแหน่งหรือคำค้นหา</span>
+            <input name="q" value="{_safe_html_escape(q)}" placeholder="เช่น พนักงานขาย บัญชี ขับรถ">
+          </label>
+          <label>
+            <span>จังหวัดหรือพื้นที่</span>
+            <input name="location" value="{_safe_html_escape(location)}" placeholder="เช่น พิจิตร พิษณุโลก นครสวรรค์">
+          </label>
+          <button type="submit">ค้นหางาน</button>
+          <a href="/jobs">ล้างคำค้น</a>
+        </form>
+        """
+
+    return f"""
+    <!doctype html>
+    <html lang="th">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>{_safe_html_escape(page_title)} | งานใกล้บ้าน</title>
+      <meta name="description" content="{_safe_html_escape(subtitle)}">
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        :root{{--blue:#1769e0;--ink:#101828;--muted:#667085;--line:#d9e2ec;--green:#15803d;--amber:#b45309}}
+        *{{box-sizing:border-box}}
+        body{{margin:0;font-family:"Noto Sans Thai",system-ui,sans-serif;background:linear-gradient(180deg,#eef5ff 0,#f7f8fb 420px);color:var(--ink);line-height:1.65}}
+        a{{color:inherit;text-decoration:none}}
+        .topbar{{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}}
+        .topbar-inner{{width:min(1180px,calc(100% - 32px));min-height:70px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px}}
+        .brand{{display:flex;align-items:center;gap:12px;font-weight:800}}
+        .brand-mark{{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:#e8f1ff;color:var(--blue);border:1px solid #c8dcff}}
+        .brand small{{display:block;color:var(--muted);font-size:12px;font-weight:600}}
+        .nav{{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}}
+        .nav a{{min-height:38px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;color:#344054;font-weight:700;font-size:14px}}
+        .nav a:hover{{background:#eef5ff;color:var(--blue)}}
+        .nav .primary{{background:var(--blue);color:#fff}}
+        .wrap{{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:34px 0 70px}}
+        .hero{{display:grid;grid-template-columns:1.3fr .7fr;gap:22px;align-items:stretch;margin-bottom:18px}}
+        .hero-main{{background:#fff;border:1px solid var(--line);border-radius:28px;padding:34px;box-shadow:0 18px 50px rgba(16,24,40,.08)}}
+        .eyebrow{{display:inline-flex;border-radius:999px;padding:6px 10px;background:#e8f1ff;color:var(--blue);font-size:13px;font-weight:800}}
+        h1{{margin:14px 0 10px;font-size:clamp(34px,6vw,62px);line-height:1.05;letter-spacing:0}}
+        .hero-main p{{margin:0;color:var(--muted);font-size:17px}}
+        .hero-side{{border-radius:28px;padding:24px;background:#101828;color:#fff;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 18px 50px rgba(16,24,40,.14)}}
+        .hero-side strong{{display:block;font-size:42px;line-height:1}}
+        .hero-side span,.hero-side p{{color:#cdd5df}}
+        .search{{display:grid;grid-template-columns:1fr 1fr auto auto;gap:12px;background:#fff;padding:16px;border-radius:24px;border:1px solid var(--line);box-shadow:0 12px 34px rgba(16,24,40,.06);margin:18px 0 26px}}
+        .search label span{{display:block;margin:0 0 6px;color:#475467;font-size:13px;font-weight:700}}
+        .search input{{width:100%;min-height:46px;border-radius:14px;border:1px solid #cdd5df;padding:0 13px;font:inherit}}
+        .search button,.search a{{min-height:46px;align-self:end;border:0;border-radius:14px;padding:0 16px;font:inherit;font-weight:800;display:inline-flex;align-items:center;justify-content:center}}
+        .search button{{background:var(--blue);color:#fff;cursor:pointer}}
+        .search a{{border:1px solid #cdd5df;color:#344054;background:#fff}}
+        .section-head{{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:26px 0 14px}}
+        .section-head h2{{margin:0;font-size:28px}}
+        .section-head p{{margin:4px 0 0;color:var(--muted)}}
+        .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}}
+        .job-card,.empty-card{{background:#fff;border:1px solid var(--line);border-radius:24px;padding:20px;box-shadow:0 12px 34px rgba(16,24,40,.06)}}
+        .card-topline{{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}}
+        .badge,.trust-pill{{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;padding:0 10px;font-size:12px;font-weight:800}}
+        .badge.official{{background:#ecfdf3;color:var(--green)}}
+        .badge.employer{{background:#e8f1ff;color:var(--blue)}}
+        .trust-pill{{background:#fff7ed;color:var(--amber)}}
+        .job-card h2{{margin:14px 0 6px;font-size:21px;line-height:1.35}}
+        .agency{{margin:0 0 14px;color:var(--muted);font-weight:700}}
+        .meta-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}
+        .meta-grid span{{border:1px solid #eef2f6;border-radius:14px;padding:10px 12px;color:#475467;background:#fbfcfe;font-size:14px}}
+        .meta-grid b{{display:block;color:#101828;font-size:12px}}
+        .safety-line{{margin:14px 0 0;color:#667085;font-size:14px}}
+        .actions{{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:16px}}
+        .primary-action,.secondary-action{{min-height:40px;display:inline-flex;align-items:center;border-radius:14px;padding:0 13px;font-weight:800}}
+        .primary-action{{background:var(--blue);color:#fff}}
+        .secondary-action{{border:1px solid #cdd5df;color:#344054;background:#fff}}
+        .report-note{{margin-left:auto;color:#98a2b3;font-size:13px;font-weight:700}}
+        .empty-card a{{display:inline-flex;margin-top:12px;background:var(--blue);color:#fff;border-radius:14px;padding:10px 14px;font-weight:800}}
+        @media(max-width:820px){{.topbar-inner,.hero,.section-head{{display:block}}.nav{{justify-content:flex-start;margin-top:12px;overflow-x:auto;flex-wrap:nowrap}}.nav a{{white-space:nowrap}}.search{{grid-template-columns:1fr}}.meta-grid{{grid-template-columns:1fr}}}}
+      </style>
+    </head>
+    <body>
+      <header class="topbar">
+        <div class="topbar-inner">
+          <a class="brand" href="/"><span class="brand-mark">AI</span><span>งานใกล้บ้าน<small>JobBoard AI Anti-Scam</small></span></a>
+          <nav class="nav">
+            <a href="/">หน้าแรก</a>
+            <a href="/jobs">ค้นหางาน</a>
+            <a href="/urgent">งานด่วน</a>
+            <a href="/community">ชุมชน</a>
+            <a href="/pricing">สำหรับนายจ้าง</a>
+            <a href="/login">เข้าสู่ระบบ</a>
+            <a class="primary" href="/register">สมัครใช้งาน</a>
+          </nav>
+        </div>
+      </header>
+      <main class="wrap">
+        <section class="hero">
+          <div class="hero-main">
+            <span class="eyebrow">หางานอย่างปลอดภัยกว่าเดิม</span>
+            <h1>{_safe_html_escape(page_title)}</h1>
+            <p>{_safe_html_escape(subtitle)}</p>
+          </div>
+          <aside class="hero-side">
+            <div>
+              <strong>{len(rows)}</strong>
+              <span>ประกาศที่แสดงในหน้านี้</span>
+            </div>
+            <p>ทุกประกาศควรอ่านรายละเอียด ตรวจสอบนายจ้าง และหลีกเลี่ยงการโอนเงินก่อนเริ่มงาน</p>
+          </aside>
+        </section>
+        {search_html}
+        <div class="section-head">
+          <div>
+            <h2>ประกาศล่าสุด</h2>
+            <p>เรียงจากข้อมูลที่ระบบนำเข้าและอัปเดตล่าสุด</p>
+          </div>
+        </div>
+        <section class="grid">{''.join(cards)}</section>
+      </main>
+    </body>
+    </html>
+    """
+
+
+def redesigned_home():
+    rows = _safe_fetch_government_rows(limit=12)
+    return _render_redesigned_public_page(
+        "งานใกล้บ้าน",
+        "รวมงานใกล้บ้าน งานราชการ ข่าวกรมแรงงาน และประกาศจากนายจ้าง พร้อมระบบช่วยคัดกรองประกาศเสี่ยง",
+        rows,
+    )
+
+
+def redesigned_jobs_public():
+    q = request.args.get("q", "").strip()
+    location = request.args.get("location", "").strip()
+    rows = _safe_fetch_public_job_rows(limit=100, q=q, location=location)
+    return _render_redesigned_public_page(
+        "ค้นหางานทั้งหมด",
+        "ค้นหางานตามตำแหน่ง จังหวัด หรือแหล่งงาน พร้อมข้อมูลความปลอดภัยก่อนสมัคร",
+        rows,
+        q=q,
+        location=location,
+    )
+
+
+def redesigned_government_news():
+    rows = _safe_fetch_government_rows(limit=100)
+    return _render_redesigned_public_page(
+        "ข่าวกรมแรงงาน / งานราชการ",
+        "รวมข่าวประกาศรับสมัครงานและตำแหน่งงานว่างจากแหล่งข้อมูลราชการ",
+        rows,
+        show_search=False,
+    )
+
+
+app.view_functions["home"] = redesigned_home
+app.view_functions["jobs_public"] = redesigned_jobs_public
+app.view_functions["government_news"] = redesigned_government_news
+
+
 # RESTORED_CRON_IMPORT_ROUTE_V1
 def _cron_token_is_valid():
     expected = os.environ.get("JOBBOARD_CRON_TOKEN", "").strip()
