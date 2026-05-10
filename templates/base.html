@@ -268,7 +268,6 @@
           <a href="{{ url_for('jobs_public') }}">ค้นหางาน</a>
           <a href="{{ url_for('urgent_jobs') }}">งานด่วน</a>
           <a href="{{ url_for('community_board') }}">ชุมชน</a>
-          <a href="{{ url_for('pricing_page') }}">สำหรับนายจ้าง</a>
 
           {% if current_user %}
             <a class="outline" href="{{ url_for('openchat') }}">OpenChat</a>
@@ -310,7 +309,6 @@
         </section>
         <section>
           <h4>นายจ้าง</h4>
-          <p><a href="{{ url_for('pricing_page') }}">แพ็กเกจนายจ้าง</a></p>
           <p><a href="{{ url_for('register') }}">สมัครบัญชีนายจ้าง</a></p>
         </section>
         <section>

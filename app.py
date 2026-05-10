@@ -1668,7 +1668,6 @@ def _render_redesigned_public_page(page_title, subtitle, rows, q="", location=""
             <a href="/jobs">ค้นหางาน</a>
             <a href="/urgent">งานด่วน</a>
             <a href="/community">ชุมชน</a>
-            <a href="/pricing">สำหรับนายจ้าง</a>
             <a href="/login">เข้าสู่ระบบ</a>
             <a class="primary" href="/register">สมัครใช้งาน</a>
           </nav>
@@ -2975,12 +2974,12 @@ def terms_page():
 
 @app.route("/pricing")
 def pricing_page():
-    return render_template("pricing.html")
+    return redirect(url_for("register"), code=301)
 
 
 @app.route("/employer")
 def employer_landing():
-    return redirect(url_for("pricing_page"))
+    return redirect(url_for("register"), code=301)
 
 
 @app.route("/setup-check")
@@ -3042,7 +3041,6 @@ def sitemap_xml():
         ("/news", "0.85", "daily"),
         ("/urgent", "0.8", "daily"),
         ("/community", "0.65", "weekly"),
-        ("/pricing", "0.7", "monthly"),
         ("/privacy", "0.3", "yearly"),
         ("/terms", "0.3", "yearly"),
     ]
@@ -3087,7 +3085,6 @@ Important pages:
 - Job search: {SITE_URL}/jobs
 - Government and DOE job news: {SITE_URL}/news
 - Urgent jobs: {SITE_URL}/urgent
-- Employer pricing: {SITE_URL}/pricing
 - Privacy: {SITE_URL}/privacy
 - Terms: {SITE_URL}/terms
 
