@@ -21,6 +21,7 @@ Production is online and usable.
 - Discord webhook test route is available
 - Discord alerts are configured for scam and moderation events
 - Discord Bot API foundation is available for profile, search, follow, apply, post job, applicants, two-way matching, analytics, and queued DM notifications
+- Community safety has rate limiting, duplicate-post checks, AI moderation, user reports, and admin review actions
 - Scam Center and Trust Center are available
 - GitHub, Render, and the local repository are aligned
 

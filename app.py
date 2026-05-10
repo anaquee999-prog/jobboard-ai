@@ -907,6 +907,9 @@ def init_db():
     ensure_column(conn, "job_seeker_profiles", "preferred_location", "TEXT DEFAULT ''")
     ensure_column(conn, "job_seeker_profiles", "job_type", "TEXT DEFAULT ''")
     ensure_column(conn, "job_seeker_profiles", "expected_salary", "TEXT DEFAULT ''")
+    ensure_column(conn, "community_posts", "category", "TEXT DEFAULT 'GENERAL'")
+    ensure_column(conn, "community_reports", "status", "TEXT NOT NULL DEFAULT 'PENDING'")
+    ensure_column(conn, "community_reports", "updated_at", "TEXT")
     ensure_discord_schema(conn)
 
 
@@ -2782,6 +2785,30 @@ def api_unread_messages_count():
     return {"ok": True, "unread": int(row["count"] or 0)}
 
 
+COMMUNITY_CATEGORIES = {"GENERAL", "SCAM_ALERT", "QUESTION", "EXPERIENCE", "LOCAL_NEWS"}
+
+
+def _community_status_counts():
+    rows = get_db().execute(
+        """
+        SELECT status, COUNT(*) AS count
+        FROM community_posts
+        GROUP BY status
+        """
+    ).fetchall()
+    counts = {row["status"]: int(row["count"] or 0) for row in rows}
+    return {
+        "active": counts.get("ACTIVE", 0),
+        "pending": counts.get("PENDING_REVIEW", 0),
+        "blocked": counts.get("BLOCKED", 0),
+    }
+
+
+def _normalize_community_category(value):
+    category = str(value or "GENERAL").strip().upper()
+    return category if category in COMMUNITY_CATEGORIES else "GENERAL"
+
+
 @app.route("/community")
 def community_board():
     posts = get_db().execute(
@@ -2800,11 +2827,7 @@ def community_board():
         LIMIT 100
         """
     ).fetchall()
-    stats = {
-        "active": len(posts),
-        "pending": 0,
-        "blocked": 0,
-    }
+    stats = _community_status_counts()
     return render_template("community.html", posts=posts, stats=stats)
 
 
@@ -2812,8 +2835,35 @@ def community_board():
 @login_required
 def create_community_post():
     user = get_current_user()
+    if int(user["is_banned"] or 0):
+        abort(403)
+
+    ok, message = security_guard(request, "community")
+    if not ok:
+        add_activity_log(user["id"], "COMMUNITY_RATE_LIMITED", "community_posts", None, message)
+        get_db().commit()
+        return redirect(url_for("community_board"))
+
     body = request.form.get("body", "").strip() or request.form.get("content", "").strip()
+    category = _normalize_community_category(request.form.get("category"))
     if body:
+        body = re.sub(r"\s+", " ", body).strip()
+        if len(body) < 10 or len(body) > 1000:
+            return redirect(url_for("community_board"))
+
+        duplicate = get_db().execute(
+            """
+            SELECT id
+            FROM community_posts
+            WHERE user_id = ? AND lower(body) = lower(?)
+              AND datetime(created_at) >= datetime('now', '-30 minutes')
+            LIMIT 1
+            """,
+            (user["id"], body[:1000]),
+        ).fetchone()
+        if duplicate:
+            return redirect(url_for("community_board"))
+
         result = None
         try:
             from security_engine import analyze_community_post
@@ -2825,14 +2875,15 @@ def create_community_post():
         get_db().execute(
             """
             INSERT INTO community_posts (
-                user_id, body, status, moderation_score, moderation_reason,
+                user_id, body, category, status, moderation_score, moderation_reason,
                 report_count, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
             """,
             (
                 user["id"],
-                body[:2000],
+                body[:1000],
+                category,
                 result.get("status", "PENDING_REVIEW"),
                 int(result.get("score", 0) or 0),
                 result.get("reason", ""),
@@ -2842,6 +2893,52 @@ def create_community_post():
         )
         add_activity_log(user["id"], "CREATE_COMMUNITY_POST", "community_posts", None, "")
         get_db().commit()
+    return redirect(url_for("community_board"))
+
+
+@app.route("/community/posts/<int:post_id>/report", methods=["POST"])
+@login_required
+def report_community_post(post_id):
+    user = get_current_user()
+    ok, message = security_guard(request, "community")
+    if not ok:
+        add_activity_log(user["id"], "COMMUNITY_REPORT_RATE_LIMITED", "community_posts", post_id, message)
+        get_db().commit()
+        return redirect(url_for("community_board"))
+
+    reason = request.form.get("reason", "").strip()[:500]
+    if len(reason) < 3:
+        reason = "ผู้ใช้แจ้งตรวจโพสต์ชุมชนนี้"
+    current_time = now_str()
+    post = get_db().execute("SELECT * FROM community_posts WHERE id = ?", (post_id,)).fetchone()
+    if not post:
+        abort(404)
+    try:
+        get_db().execute(
+            """
+            INSERT INTO community_reports (post_id, reporter_id, reason, status, created_at, updated_at)
+            VALUES (?, ?, ?, 'PENDING', ?, ?)
+            """,
+            (post_id, user["id"], reason, current_time, current_time),
+        )
+    except sqlite3.IntegrityError:
+        return redirect(url_for("community_board"))
+
+    row = get_db().execute("SELECT COUNT(*) AS count FROM community_reports WHERE post_id = ?", (post_id,)).fetchone()
+    report_count = int(row["count"] or 0)
+    next_status = "PENDING_REVIEW" if report_count >= 1 and post["status"] == "ACTIVE" else post["status"]
+    if report_count >= 3:
+        next_status = "BLOCKED"
+    get_db().execute(
+        """
+        UPDATE community_posts
+        SET report_count = ?, status = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (report_count, next_status, current_time, post_id),
+    )
+    add_activity_log(user["id"], "REPORT_COMMUNITY_POST", "community_posts", post_id, reason)
+    get_db().commit()
     return redirect(url_for("community_board"))
 
 
@@ -3138,7 +3235,26 @@ def admin_moderation():
         """,
         tuple(params),
     ).fetchall()
-    return render_template("admin_moderation.html", jobs=jobs, q=q, status=status)
+    community_posts = get_db().execute(
+        """
+        SELECT
+            community_posts.*,
+            users.phone_number,
+            COALESCE(job_seeker_profiles.full_name, employer_profiles.company_name, '') AS author_name
+        FROM community_posts
+        LEFT JOIN users ON users.id = community_posts.user_id
+        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = community_posts.user_id
+        LEFT JOIN employer_profiles ON employer_profiles.user_id = community_posts.user_id
+        WHERE community_posts.status != 'ACTIVE' OR community_posts.report_count > 0
+        ORDER BY
+            CASE community_posts.status WHEN 'PENDING_REVIEW' THEN 0 WHEN 'BLOCKED' THEN 1 ELSE 2 END,
+            community_posts.report_count DESC,
+            datetime(community_posts.updated_at) DESC,
+            community_posts.id DESC
+        LIMIT 50
+        """
+    ).fetchall()
+    return render_template("admin_moderation.html", jobs=jobs, community_posts=community_posts, q=q, status=status)
 
 
 @app.route("/scam-check")
@@ -3393,6 +3509,32 @@ def admin_update_job_status(job_id, action):
 def admin_delete_job(job_id):
     get_db().execute("DELETE FROM job_posts WHERE id = ?", (job_id,))
     add_activity_log(get_current_user()["id"], "ADMIN_DELETE_JOB", "job_posts", job_id, "")
+    get_db().commit()
+    return redirect(url_for("admin_moderation"))
+
+
+@app.route("/admin/community-posts/<int:post_id>/<action>", methods=["POST"])
+@role_required("ADMIN")
+def admin_update_community_post(post_id, action):
+    status_map = {
+        "approve": "ACTIVE",
+        "review": "PENDING_REVIEW",
+        "block": "BLOCKED",
+    }
+    if action == "delete":
+        get_db().execute("DELETE FROM community_posts WHERE id = ?", (post_id,))
+        add_activity_log(get_current_user()["id"], "ADMIN_DELETE_COMMUNITY_POST", "community_posts", post_id, "")
+        get_db().commit()
+        return redirect(url_for("admin_moderation"))
+
+    status = status_map.get(action)
+    if not status:
+        abort(404)
+    get_db().execute(
+        "UPDATE community_posts SET status = ?, updated_at = ? WHERE id = ?",
+        (status, now_str(), post_id),
+    )
+    add_activity_log(get_current_user()["id"], "ADMIN_UPDATE_COMMUNITY_POST", "community_posts", post_id, status)
     get_db().commit()
     return redirect(url_for("admin_moderation"))
 

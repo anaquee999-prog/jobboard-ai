@@ -11,6 +11,7 @@
 .community-grid{display:grid;grid-template-columns:340px 1fr;gap:18px;margin-top:20px}
 .community-card{padding:20px;border-radius:24px;border:1px solid rgba(56,189,248,.16);background:rgba(15,23,42,.76);box-shadow:0 18px 52px rgba(0,0,0,.22)}
 .community-card h2{margin:0 0 12px;color:#fff}
+.community-card select{width:100%;min-height:44px;border-radius:16px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.72);color:#fff;padding:0 12px;margin-bottom:10px}
 .community-card textarea{width:100%;min-height:140px;border-radius:18px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.72);color:#fff;padding:14px;resize:vertical}
 .community-note{padding:12px;border-radius:16px;background:rgba(251,191,36,.10);color:#fde68a;font-size:13px;line-height:1.55}
 .community-btn{width:100%;min-height:46px;border:0;border-radius:16px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;cursor:pointer;margin-top:12px}
@@ -24,6 +25,8 @@
 .community-author span{color:#7dd3fc;font-size:13px;font-weight:900}
 .community-body{white-space:pre-wrap;color:rgba(226,232,240,.82);line-height:1.65}
 .community-status{display:inline-flex;margin-top:12px;padding:6px 10px;border-radius:999px;background:rgba(251,191,36,.14);color:#fde68a;font-size:12px;font-weight:900}
+.community-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.community-actions button{border:1px solid rgba(248,113,113,.28);background:rgba(127,29,29,.24);color:#fecaca;border-radius:999px;padding:7px 11px;font-weight:900;cursor:pointer}
 .community-empty{padding:30px;text-align:center;color:rgba(226,232,240,.72)}
 @media(max-width:900px){.community-grid{grid-template-columns:1fr}.community-stats{grid-template-columns:1fr}}
 </style>
@@ -42,7 +45,14 @@
         {% if current_user %}
           <form method="post" action="{{ url_for('create_community_post') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <textarea name="body" placeholder="เขียนข้อความของคุณ..."></textarea>
+            <select name="category" aria-label="หมวดโพสต์">
+              <option value="GENERAL">พูดคุยทั่วไป</option>
+              <option value="SCAM_ALERT">เตือนภัยงาน</option>
+              <option value="QUESTION">ถาม-ตอบสมัครงาน</option>
+              <option value="EXPERIENCE">แชร์ประสบการณ์</option>
+              <option value="LOCAL_NEWS">ข่าวงานในพื้นที่</option>
+            </select>
+            <textarea name="body" minlength="10" maxlength="1000" required placeholder="เขียนข้อความของคุณ..."></textarea>
 
             <div class="community-note">
               ห้ามโพสต์คำหยาบ ลามก การพนัน หลอกลวง ข้อมูลส่วนตัว หรือเนื้อหาผิดกฎหมาย
@@ -57,9 +67,9 @@
       </div>
 
       <div class="community-stats">
-        <div class="community-stat"><strong>{{ stats.active }}</strong>Active</div>
-        <div class="community-stat"><strong>{{ stats.pending }}</strong>Pending</div>
-        <div class="community-stat"><strong>{{ stats.blocked }}</strong>Blocked</div>
+        <div class="community-stat"><strong>{{ stats.active }}</strong>เผยแพร่</div>
+        <div class="community-stat"><strong>{{ stats.pending }}</strong>รอตรวจ</div>
+        <div class="community-stat"><strong>{{ stats.blocked }}</strong>บล็อก</div>
       </div>
     </aside>
 
@@ -74,6 +84,16 @@
           </div>
 
           <div class="community-body">{{ post.body }}</div>
+
+          {% if current_user and current_user.id != post.user_id %}
+            <div class="community-actions">
+              <form method="post" action="{{ url_for('report_community_post', post_id=post.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="reason" value="โพสต์นี้อาจไม่ปลอดภัยหรือไม่เหมาะสม">
+                <button type="submit">รายงานโพสต์</button>
+              </form>
+            </div>
+          {% endif %}
 
           {% if current_user and current_user.role == 'ADMIN' and post.status != 'ACTIVE' %}
             <div class="community-status">POST: {{ post.status }} / SCORE {{ post.moderation_score }}</div>

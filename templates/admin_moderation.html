@@ -26,6 +26,42 @@
 </section>
 
 <section class="card section-space">
+    <h2>Community Safety Queue</h2>
+    <div class="table-list">
+        {% for post in community_posts %}
+            <div class="job-row moderation-row">
+                <div>
+                    <strong>{{ post.author_name or post.phone_number or 'Community user' }}</strong>
+                    <div class="muted">Status {{ post.status }} | Score {{ post.moderation_score }} | Reports {{ post.report_count }} | {{ post.category or 'GENERAL' }}</div>
+                    <div class="muted">{{ post.moderation_reason }}</div>
+                    <p>{{ post.body }}</p>
+                </div>
+                <div class="admin-actions">
+                    <form method="post" action="{{ url_for('admin_update_community_post', post_id=post.id, action='approve') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">Approve</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_update_community_post', post_id=post.id, action='review') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">Review</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_update_community_post', post_id=post.id, action='block') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit">Block</button>
+                    </form>
+                    <form method="post" action="{{ url_for('admin_update_community_post', post_id=post.id, action='delete') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="danger-btn" type="submit">Delete</button>
+                    </form>
+                </div>
+            </div>
+        {% else %}
+            <p class="muted">No community posts need review.</p>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="card section-space">
     <h2>รายการประกาศงาน</h2>
     <div class="table-list">
         {% for job in jobs %}
