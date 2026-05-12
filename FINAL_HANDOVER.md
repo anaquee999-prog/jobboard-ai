@@ -21,6 +21,7 @@ Production is online and usable.
 - Discord webhook test route is available
 - Discord alerts are configured for scam and moderation events
 - Discord Bot API foundation is available for profile, search, follow, apply, post job, applicants, two-way matching, analytics, and queued DM notifications
+- Discord Bot worker scaffold is available in `discord_bot.py` with slash commands, modals, embeds, apply buttons, and pending DM polling
 - Community safety has rate limiting, duplicate-post checks, AI moderation, user reports, and admin review actions
 - Scam Center and Trust Center are available
 - GitHub, Render, and the local repository are aligned
@@ -62,6 +63,11 @@ Do not commit real secret values. Configure these in Render:
 - `JOBBOARD_CRON_TOKEN`
 - `DISCORD_SCAM_ALERT_WEBHOOK_URL`
 - `DISCORD_BOT_API_TOKEN`
+- `DISCORD_BOT_TOKEN`
+- `JOBBOARD_API_BASE_URL`
+- `DISCORD_GUILD_ID` optional for fast guild command sync
+- `DISCORD_ADMIN_USER_IDS` optional comma-separated admin Discord user IDs
+- `DISCORD_NOTIFICATION_POLL_SECONDS` optional, defaults to 30
 
 Current local/example database setting:
 
@@ -72,8 +78,12 @@ JOBBOARD_DATABASE_PATH=instance/jobboard.db
 ## Deployment Notes
 
 - Render uses `Procfile` with `web: gunicorn app:app`
+- The Discord bot can run as a separate Render worker with `worker: python discord_bot.py`
+- `render.yaml` is available as a Render Blueprint for the web service and Discord worker
+- Render does not offer the free instance type for background workers; review the worker plan before deploying the Blueprint
 - Python dependencies are listed in `requirements.txt`
 - Runtime database files and local secrets must stay out of git
+- Rotate `DISCORD_SCAM_ALERT_WEBHOOK_URL` in Discord and Render if the webhook URL was shared anywhere
 - SQLite storage on Render Free can be lost after restart or redeploy, so use the admin Backup ZIP regularly
 
 ## Final Verification

@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: jobboard-ai-app
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: JOBBOARD_SECRET_KEY
+        sync: false
+      - key: JOBBOARD_ADMIN_PHONE
+        sync: false
+      - key: JOBBOARD_ADMIN_PASSWORD
+        sync: false
+      - key: JOBBOARD_DATABASE_PATH
+        value: instance/jobboard.db
+      - key: JOBBOARD_SESSION_COOKIE_SECURE
+        value: "1"
+      - key: JOBBOARD_CRON_TOKEN
+        sync: false
+      - key: DISCORD_SCAM_ALERT_WEBHOOK_URL
+        sync: false
+      - key: DISCORD_BOT_API_TOKEN
+        sync: false
+      - key: JOBBOARD_API_BASE_URL
+        value: https://jobboard-ai-app.onrender.com
+
+  - type: worker
+    name: jobboard-ai-discord-worker
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python discord_bot.py
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: DISCORD_BOT_API_TOKEN
+        sync: false
+      - key: DISCORD_GUILD_ID
+        sync: false
+      - key: DISCORD_ADMIN_USER_IDS
+        sync: false
+      - key: DISCORD_NOTIFICATION_POLL_SECONDS
+        value: "30"
+      - key: JOBBOARD_API_BASE_URL
+        value: https://jobboard-ai-app.onrender.com

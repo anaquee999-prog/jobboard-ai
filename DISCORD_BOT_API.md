@@ -17,6 +17,38 @@ X-Discord-Bot-Token: <token>
 Authorization: Bearer <token>
 ```
 
+## Discord Bot Worker
+
+The repository now includes `discord_bot.py`, a Discord slash-command worker using `discord.py`.
+
+Required bot worker environment variables:
+
+```text
+DISCORD_BOT_TOKEN=Discord bot token
+DISCORD_BOT_API_TOKEN=same value as the Flask backend
+JOBBOARD_API_BASE_URL=https://jobboard-ai-app.onrender.com
+```
+
+Optional variables:
+
+```text
+DISCORD_GUILD_ID=server id for fast guild command sync
+DISCORD_ADMIN_USER_IDS=comma-separated Discord user ids allowed to run /stats users
+DISCORD_NOTIFICATION_POLL_SECONDS=30
+```
+
+Render can run it as a separate worker from the `Procfile`:
+
+```text
+worker: python discord_bot.py
+```
+
+The repository also includes `render.yaml` as a Render Blueprint for a web service
+plus a separate Discord worker. All secret values in that file use `sync: false`,
+so set the real values in the Render dashboard after creating or updating services.
+Render does not support the free instance type for background workers, so review
+the worker plan before deploying the Blueprint.
+
 ## Public Command Metadata
 
 ```http
@@ -25,7 +57,31 @@ GET /api/discord/commands
 
 Returns command names and descriptions for the Discord bot UI.
 
+## Slash Command Endpoint Map
+
+- `/profile view` -> `GET /api/discord/profile?discord_user_id=123`
+- `/profile edit` -> `POST /api/discord/profile`
+- `/search job [keyword] [location] [type]` -> `POST /api/discord/search`
+- `/follow company [company_name]` -> `POST /api/discord/follow`
+- `/applications` -> `GET /api/discord/applications?discord_user_id=123`
+- `/alert job [criteria]` -> `POST /api/discord/alert-job`
+- `/post job [title] [salary] [location] [type]` -> `POST /api/discord/post-job`
+- `/list jobs` -> `GET /api/discord/jobs`
+- `/view applicants [job_id]` -> `GET /api/discord/applicants?discord_user_id=999&job_id=84`
+- `/message applicant [user_id] [message]` -> `POST /api/discord/message-applicant`
+- `/notify applicants [job_id] [message]` -> `POST /api/discord/notify-applicants`
+- `/match jobs [user_id]` -> `GET /api/discord/match-jobs?user_id=123`
+- `/match applicants [job_id]` -> `GET /api/discord/match-applicants?job_id=84`
+- `/stats users` -> `GET /api/discord/stats/users`
+- `/stats jobs` -> `GET /api/discord/stats/jobs`
+
 ## Job Seeker
+
+```http
+GET /api/discord/profile?discord_user_id=123
+```
+
+Returns the Discord-linked job seeker or employer profile.
 
 ```http
 POST /api/discord/profile
@@ -100,6 +156,24 @@ Follows a company, location, category, or keyword.
 }
 ```
 
+```http
+POST /api/discord/alert-job
+```
+
+Creates or updates job alert criteria.
+
+```json
+{
+  "discord_user_id": "123",
+  "criteria": {
+    "keywords": "Python, SQL",
+    "locations": "Bangkok",
+    "job_types": "fulltime",
+    "min_salary": "35000"
+  }
+}
+```
+
 ## Employer
 
 ```http
@@ -126,16 +200,57 @@ Creates an employer profile if needed, scans the job with AI Anti-Scam, creates 
 When an active job is created, the system matches it against Discord-linked job seeker profiles. Matching jobs queue `job_match` DMs for seekers and `candidate_match` DMs for employers.
 
 ```http
+GET /api/discord/jobs?keyword=IT&location=Bangkok&type=fulltime
+```
+
+Returns active posted jobs. This powers `/list jobs`.
+
+```http
+GET /api/discord/applicants?discord_user_id=999&job_id=84
 GET /api/discord/employer/applicants?discord_user_id=999
 GET /api/discord/employer/applicants?discord_user_id=999&job_id=84
 ```
 
 Returns recent applicants for that employer.
 
+```http
+POST /api/discord/message-applicant
+```
+
+Queues a Discord DM and stores an internal message for an applicant.
+
+```json
+{
+  "discord_user_id": "999",
+  "applicant_user_id": 123,
+  "message": "We would like to schedule an interview."
+}
+```
+
+```http
+POST /api/discord/notify-applicants
+```
+
+Queues a Discord announcement for all applicants on a job.
+
+```json
+{
+  "discord_user_id": "999",
+  "job_id": 84,
+  "message": "Interview shortlist will be updated tomorrow."
+}
+```
+
 ## Two-Way Matching
 
 ```http
 GET /api/discord/matches?discord_user_id=123
+```
+
+```http
+GET /api/discord/match-jobs?discord_user_id=123
+GET /api/discord/match-jobs?user_id=123
+GET /api/discord/match-applicants?job_id=84
 ```
 
 Returns the latest matches for a job seeker or employer. The matching engine scores:
@@ -154,6 +269,8 @@ Matches with score 70 or higher are stored in `match_events` and queued for both
 
 ```http
 GET /api/discord/analytics
+GET /api/discord/stats/users
+GET /api/discord/stats/jobs
 ```
 
 Returns a short dashboard summary for bot responses.
