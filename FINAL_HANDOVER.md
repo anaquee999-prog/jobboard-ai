@@ -80,6 +80,7 @@ JOBBOARD_DATABASE_PATH=instance/jobboard.db
 - Render uses `Procfile` with `web: gunicorn app:app`
 - The Discord bot can run as a separate Render worker with `worker: python discord_bot.py`
 - `render.yaml` is available as a Render Blueprint for the web service and Discord worker
+- `.python-version` pins Render to Python 3.12 because `discord.py==2.4.0` is not compatible with Python 3.14
 - Render does not offer the free instance type for background workers; review the worker plan before deploying the Blueprint
 - Python dependencies are listed in `requirements.txt`
 - Runtime database files and local secrets must stay out of git

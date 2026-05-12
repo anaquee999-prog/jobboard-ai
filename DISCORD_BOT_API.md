@@ -48,6 +48,8 @@ plus a separate Discord worker. All secret values in that file use `sync: false`
 so set the real values in the Render dashboard after creating or updating services.
 Render does not support the free instance type for background workers, so review
 the worker plan before deploying the Blueprint.
+The repo pins Python with `.python-version` to avoid the current Render default
+Python 3.14, which is not compatible with `discord.py==2.4.0`.
 
 ## Public Command Metadata
 
