@@ -37,6 +37,20 @@ DISCORD_ADMIN_USER_IDS=comma-separated Discord user ids allowed to run /stats us
 DISCORD_NOTIFICATION_POLL_SECONDS=30
 ```
 
+For the free worker deployment path, use Koyeb and follow:
+
+```text
+KOYEB_DISCORD_WORKER.md
+```
+
+Koyeb service settings:
+
+```text
+Service type: Worker
+Builder: Buildpack
+Run command: python discord_bot.py
+```
+
 Render can run it as a separate worker from the `Procfile`:
 
 ```text

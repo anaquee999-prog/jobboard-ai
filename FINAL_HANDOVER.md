@@ -22,6 +22,8 @@ Production is online and usable.
 - Discord alerts are configured for scam and moderation events
 - Discord Bot API foundation is available for profile, search, follow, apply, post job, applicants, two-way matching, analytics, and queued DM notifications
 - Discord Bot worker scaffold is available in `discord_bot.py` with slash commands, modals, embeds, apply buttons, and pending DM polling
+- Discord bot token and `DISCORD_BOT_API_TOKEN` have been rotated and verified locally/backend-side
+- Slash commands still require a running worker process, such as a Koyeb Worker running `python discord_bot.py`
 - Community safety has rate limiting, duplicate-post checks, AI moderation, user reports, and admin review actions
 - Scam Center and Trust Center are available
 - GitHub, Render, and the local repository are aligned
@@ -36,6 +38,7 @@ Admin login is required for admin routes.
 - Backup ZIP: https://jobboard-ai-app.onrender.com/admin/backup/download
 - Discord Test: https://jobboard-ai-app.onrender.com/admin/discord-test
 - Discord Bot API Docs: `DISCORD_BOT_API.md`
+- Koyeb Discord Worker Deploy: `KOYEB_DISCORD_WORKER.md`
 - Scam Center: https://jobboard-ai-app.onrender.com/admin/scam-center
 - Moderation: https://jobboard-ai-app.onrender.com/admin/moderation
 - Logs: https://jobboard-ai-app.onrender.com/admin/logs
@@ -82,6 +85,7 @@ JOBBOARD_DATABASE_PATH=instance/jobboard.db
 - `render.yaml` is available as a Render Blueprint for the web service and Discord worker
 - `.python-version` pins Render to Python 3.12 because `discord.py==2.4.0` is not compatible with Python 3.14
 - Render does not offer the free instance type for background workers; review the worker plan before deploying the Blueprint
+- Recommended free worker path: deploy `discord_bot.py` as a Koyeb Worker using `KOYEB_DISCORD_WORKER.md`
 - Python dependencies are listed in `requirements.txt`
 - Runtime database files and local secrets must stay out of git
 - Rotate `DISCORD_SCAM_ALERT_WEBHOOK_URL` in Discord and Render if the webhook URL was shared anywhere

@@ -77,16 +77,19 @@ class JobBoardApi:
         await self.start()
         assert self.session is not None
         url = f"{JOBBOARD_API_BASE_URL}{path}"
-        async with self.session.request(method, url, **kwargs) as response:
-            text = await response.text()
-            try:
-                data = json.loads(text or "{}")
-            except json.JSONDecodeError:
-                data = {"ok": False, "message": text[:500]}
-            if response.status >= 400:
-                data.setdefault("ok", False)
-                data.setdefault("message", f"API error {response.status}")
-            return data
+        try:
+            async with self.session.request(method, url, **kwargs) as response:
+                text = await response.text()
+                try:
+                    data = json.loads(text or "{}")
+                except json.JSONDecodeError:
+                    data = {"ok": False, "message": text[:500]}
+                if response.status >= 400:
+                    data.setdefault("ok", False)
+                    data.setdefault("message", f"API error {response.status}")
+                return data
+        except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
+            return {"ok": False, "message": f"Cannot reach JobBoard API: {exc}"}
 
     async def get(self, path: str, **params: Any) -> dict[str, Any]:
         clean = {key: value for key, value in params.items() if value not in (None, "")}
@@ -271,9 +274,11 @@ class JobBoardBot(commands.Bot):
         if DISCORD_GUILD_ID:
             guild = discord.Object(id=int(DISCORD_GUILD_ID))
             self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+            print(f"Synced {len(synced)} Discord slash command groups to guild {DISCORD_GUILD_ID}", flush=True)
         else:
-            await self.tree.sync()
+            synced = await self.tree.sync()
+            print(f"Synced {len(synced)} global Discord slash command groups", flush=True)
         notification_poller.change_interval(seconds=NOTIFICATION_POLL_SECONDS)
         notification_poller.start()
 
@@ -284,6 +289,19 @@ class JobBoardBot(commands.Bot):
 
 
 bot = JobBoardBot()
+
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    print(f"Discord command error: {error!r}", flush=True)
+    message = "คำสั่งทำงานไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(message, ephemeral=True)
+        else:
+            await interaction.response.send_message(message, ephemeral=True)
+    except Exception as exc:
+        print(f"Failed to send command error response: {exc!r}", flush=True)
 
 profile_group = app_commands.Group(name="profile", description="โปรไฟล์ผู้หางาน")
 search_group = app_commands.Group(name="search", description="ค้นหา")

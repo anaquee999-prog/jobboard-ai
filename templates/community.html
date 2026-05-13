@@ -2,107 +2,253 @@
 
 {% block title %}ชุมชนงาน | JobBoard{% endblock %}
 
+{% block meta_description %}พื้นที่ชุมชนสำหรับถามตอบเรื่องงาน แชร์ประสบการณ์ และแจ้งเตือนงานเสี่ยง พร้อมระบบตรวจข้อความและรายงานโพสต์{% endblock %}
+
 {% block content %}
 <style>
-.community-page{width:min(1050px,calc(100% - 28px));margin:0 auto;padding:28px 0 42px}
-.community-hero{padding:30px;border-radius:28px;border:1px solid rgba(56,189,248,.22);background:linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));box-shadow:0 24px 70px rgba(0,0,0,.30)}
-.community-hero h1{margin:0 0 8px;color:#fff;font-size:clamp(34px,5vw,52px)}
-.community-hero p{margin:0;color:rgba(226,232,240,.72);font-size:17px}
-.community-grid{display:grid;grid-template-columns:340px 1fr;gap:18px;margin-top:20px}
-.community-card{padding:20px;border-radius:24px;border:1px solid rgba(56,189,248,.16);background:rgba(15,23,42,.76);box-shadow:0 18px 52px rgba(0,0,0,.22)}
-.community-card h2{margin:0 0 12px;color:#fff}
-.community-card select{width:100%;min-height:44px;border-radius:16px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.72);color:#fff;padding:0 12px;margin-bottom:10px}
-.community-card textarea{width:100%;min-height:140px;border-radius:18px;border:1px solid rgba(148,163,184,.22);background:rgba(2,6,23,.72);color:#fff;padding:14px;resize:vertical}
-.community-note{padding:12px;border-radius:16px;background:rgba(251,191,36,.10);color:#fde68a;font-size:13px;line-height:1.55}
-.community-btn{width:100%;min-height:46px;border:0;border-radius:16px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;font-weight:950;cursor:pointer;margin-top:12px}
-.community-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px}
-.community-stat{padding:14px;border-radius:18px;background:rgba(2,6,23,.56);border:1px solid rgba(56,189,248,.12);color:#fff}
-.community-stat strong{display:block;font-size:26px}
+.community-page{width:min(1120px,calc(100% - 28px));margin:0 auto;padding:28px 0 46px}
+.community-hero{display:grid;grid-template-columns:1fr 300px;gap:18px;align-items:stretch;padding:28px;border-radius:28px;border:1px solid #c8dcff;background:linear-gradient(135deg,#ffffff,#eef5ff);box-shadow:0 18px 50px rgba(16,24,40,.08)}
+.community-hero h1{margin:0;color:#101828;font-size:clamp(34px,5vw,56px);line-height:1.05}
+.community-hero p{margin:10px 0 0;max-width:720px;color:#475467;font-size:17px;line-height:1.75}
+.community-hero-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.community-action{min-height:42px;display:inline-flex;align-items:center;justify-content:center;border-radius:14px;padding:0 14px;font-weight:900;text-decoration:none}
+.community-action.primary{background:#1769e0;color:#fff}
+.community-action.secondary{border:1px solid #b9cff7;background:#fff;color:#1769e0}
+.community-safety{padding:18px;border-radius:20px;background:#101828;color:#e4e7ec}
+.community-safety strong{display:block;margin-bottom:8px;color:#fff;font-size:18px}
+.community-safety ul{margin:0;padding-left:18px;color:#cdd5df;line-height:1.65;font-size:14px}
+.community-alert{margin-top:16px;padding:13px 15px;border-radius:16px;border:1px solid #c8dcff;background:#fff;color:#344054;font-weight:800}
+.community-alert.good{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
+.community-alert.warn{border-color:#fde68a;background:#fffbeb;color:#92400e}
+.community-layout{display:grid;grid-template-columns:340px 1fr;gap:18px;margin-top:18px;align-items:start}
+.community-panel{border:1px solid #d9e2ec;border-radius:24px;background:#fff;box-shadow:0 18px 50px rgba(16,24,40,.08)}
+.community-panel-inner{padding:20px}
+.community-panel h2{margin:0 0 12px;color:#101828;font-size:22px}
+.community-panel p{color:#667085;line-height:1.65}
+.community-field{margin-bottom:12px}
+.community-field label{display:block;margin-bottom:7px;color:#344054;font-weight:900}
+.community-field select,.community-field textarea,.community-filter input{width:100%;border:1px solid #cdd5df;border-radius:14px;background:#fff;color:#101828;padding:12px 13px;font:inherit}
+.community-field textarea{min-height:150px;resize:vertical;line-height:1.6}
+.community-help{display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:#667085;font-size:12px}
+.community-note{padding:12px;border-radius:16px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:13px;line-height:1.55}
+.community-btn{width:100%;min-height:46px;border:0;border-radius:14px;background:#1769e0;color:#fff;font-weight:950;cursor:pointer}
+.community-btn:disabled{opacity:.62;cursor:not-allowed}
+.community-login-actions{display:grid;gap:10px}
+.community-stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
+.community-stat{padding:14px;border-radius:18px;background:#f6f9ff;border:1px solid #dbe7ff;color:#344054}
+.community-stat strong{display:block;color:#101828;font-size:30px;line-height:1}
+.community-filter{display:grid;grid-template-columns:1fr auto;gap:10px;margin-bottom:12px}
+.community-filter button{border:0;border-radius:14px;background:#101828;color:#fff;font-weight:900;padding:0 16px;cursor:pointer}
+.community-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.community-tabs a{min-height:36px;display:inline-flex;align-items:center;border-radius:999px;border:1px solid #cdd5df;background:#fff;color:#344054;padding:0 12px;font-size:13px;font-weight:900}
+.community-tabs a.active{background:#1769e0;border-color:#1769e0;color:#fff}
 .community-feed{display:grid;gap:14px}
-.community-post{padding:18px;border-radius:24px;border:1px solid rgba(148,163,184,.14);background:rgba(15,23,42,.78)}
-.community-author{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:10px}
-.community-author strong{color:#fff}
-.community-author span{color:#7dd3fc;font-size:13px;font-weight:900}
-.community-body{white-space:pre-wrap;color:rgba(226,232,240,.82);line-height:1.65}
-.community-status{display:inline-flex;margin-top:12px;padding:6px 10px;border-radius:999px;background:rgba(251,191,36,.14);color:#fde68a;font-size:12px;font-weight:900}
-.community-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.community-actions button{border:1px solid rgba(248,113,113,.28);background:rgba(127,29,29,.24);color:#fecaca;border-radius:999px;padding:7px 11px;font-weight:900;cursor:pointer}
-.community-empty{padding:30px;text-align:center;color:rgba(226,232,240,.72)}
-@media(max-width:900px){.community-grid{grid-template-columns:1fr}.community-stats{grid-template-columns:1fr}}
+.community-post{padding:18px;border-radius:22px;border:1px solid #d9e2ec;background:#fff;box-shadow:0 12px 34px rgba(16,24,40,.06)}
+.community-author{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:10px}
+.community-author strong{display:block;color:#101828;font-size:17px}
+.community-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:7px}
+.community-pill{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;padding:0 10px;background:#e8f1ff;color:#1769e0;font-size:12px;font-weight:900}
+.community-pill.pending{background:#fffbeb;color:#92400e}
+.community-pill.blocked{background:#fef3f2;color:#b42318}
+.community-date{color:#667085;font-size:13px;font-weight:800;white-space:nowrap}
+.community-body{white-space:pre-wrap;color:#344054;line-height:1.75}
+.community-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #eef2f6}
+.community-actions select{width:auto;min-width:220px;border:1px solid #cdd5df;border-radius:999px;padding:8px 10px;color:#344054}
+.community-actions button{border:1px solid #fecaca;background:#fff5f5;color:#b42318;border-radius:999px;padding:8px 12px;font-weight:900;cursor:pointer}
+.community-empty{padding:32px;text-align:center}
+.community-empty strong{display:block;color:#101828;font-size:20px}
+.community-empty p{margin:8px auto 0;max-width:520px;color:#667085}
+@media(max-width:940px){.community-hero,.community-layout{grid-template-columns:1fr}.community-safety{order:-1}}
+@media(max-width:640px){.community-page{width:min(100% - 20px,1120px)}.community-hero{padding:20px}.community-filter{grid-template-columns:1fr}.community-stat-grid{grid-template-columns:1fr}.community-author{display:block}.community-date{display:block;margin-top:8px}.community-actions select{width:100%}.community-actions button{width:100%}}
 </style>
 
 <section class="community-page">
   <div class="community-hero">
-    <h1>กระดานพูดคุย</h1>
-    <p>พื้นที่โพสต์ข้อความสำหรับชุมชน ระบบจะตรวจคำไม่เหมาะสมและข้อความเสี่ยงโดยอัตโนมัติ</p>
+    <div>
+      <h1>กระดานพูดคุยเรื่องงาน</h1>
+      <p>ถาม-ตอบเรื่องสมัครงาน แชร์ประสบการณ์จริง และช่วยกันเตือนภัยประกาศงานที่น่าสงสัย ระบบจะคัดกรองข้อความก่อนเผยแพร่เพื่อให้พื้นที่นี้ปลอดภัยขึ้นสำหรับทุกคน</p>
+      <div class="community-hero-actions">
+        {% if current_user %}
+          <a class="community-action primary" href="#community-post-form">เขียนโพสต์</a>
+        {% else %}
+          <a class="community-action primary" href="{{ url_for('login') }}">เข้าสู่ระบบเพื่อโพสต์</a>
+          <a class="community-action secondary" href="{{ url_for('register') }}">สมัครสมาชิก</a>
+        {% endif %}
+        <a class="community-action secondary" href="{{ url_for('jobs_public') }}">ค้นหางาน</a>
+      </div>
+    </div>
+
+    <aside class="community-safety" aria-label="แนวทางความปลอดภัย">
+      <strong>โพสต์ได้ แต่ช่วยกันรักษาความปลอดภัย</strong>
+      <ul>
+        <li>อย่าโพสต์เลขบัตร ประวัติส่วนตัว หรือข้อมูลบัญชี</li>
+        <li>รายงานโพสต์ที่ชวนโอนเงินหรือขอเอกสารผิดปกติ</li>
+        <li>โพสต์เสี่ยงจะถูกพักไว้ให้ตรวจสอบก่อน</li>
+      </ul>
+    </aside>
   </div>
 
-  <div class="community-grid">
+  {% if posted %}
+    {% if posted == "active" %}
+      <div class="community-alert good">โพสต์เผยแพร่แล้ว ขอบคุณที่ช่วยให้ชุมชนมีข้อมูลที่เป็นประโยชน์</div>
+    {% elif posted == "pending_review" %}
+      <div class="community-alert warn">รับโพสต์แล้ว และกำลังรอตรวจสอบ คุณจะเห็นโพสต์ของตัวเองในหน้านี้ระหว่างรอตรวจ</div>
+    {% elif posted == "duplicate" %}
+      <div class="community-alert warn">พบว่าโพสต์นี้ซ้ำกับข้อความล่าสุด จึงยังไม่ได้บันทึกซ้ำ</div>
+    {% elif posted == "rate_limited" %}
+      <div class="community-alert warn">โพสต์เร็วเกินไป กรุณารอสักครู่แล้วลองใหม่</div>
+    {% elif posted == "blocked" %}
+      <div class="community-alert warn">โพสต์นี้ถูกระบบบล็อกไว้เพราะมีสัญญาณเสี่ยงหรือเนื้อหาไม่เหมาะสม</div>
+    {% else %}
+      <div class="community-alert warn">โพสต์ไม่สำเร็จ กรุณาเขียนข้อความอย่างน้อย 10 ตัวอักษร และไม่เกิน 1,000 ตัวอักษร</div>
+    {% endif %}
+  {% endif %}
+
+  {% if reported %}
+    {% if reported == "ok" %}
+      <div class="community-alert good">รับรายงานแล้ว ทีมงานจะตรวจสอบโพสต์นี้ต่อ</div>
+    {% elif reported == "duplicate" %}
+      <div class="community-alert warn">คุณเคยรายงานโพสต์นี้แล้ว ระบบจึงไม่บันทึกซ้ำ</div>
+    {% else %}
+      <div class="community-alert warn">ส่งรายงานเร็วเกินไป กรุณารอสักครู่แล้วลองใหม่</div>
+    {% endif %}
+  {% endif %}
+
+  <div class="community-layout">
     <aside>
-      <div class="community-card">
-        <h2>สร้างโพสต์</h2>
+      <div class="community-panel" id="community-post-form">
+        <div class="community-panel-inner">
+          <h2>สร้างโพสต์</h2>
 
-        {% if current_user %}
-          <form method="post" action="{{ url_for('create_community_post') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <select name="category" aria-label="หมวดโพสต์">
-              <option value="GENERAL">พูดคุยทั่วไป</option>
-              <option value="SCAM_ALERT">เตือนภัยงาน</option>
-              <option value="QUESTION">ถาม-ตอบสมัครงาน</option>
-              <option value="EXPERIENCE">แชร์ประสบการณ์</option>
-              <option value="LOCAL_NEWS">ข่าวงานในพื้นที่</option>
-            </select>
-            <textarea name="body" minlength="10" maxlength="1000" required placeholder="เขียนข้อความของคุณ..."></textarea>
+          {% if current_user %}
+            <form method="post" action="{{ url_for('create_community_post') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-            <div class="community-note">
-              ห้ามโพสต์คำหยาบ ลามก การพนัน หลอกลวง ข้อมูลส่วนตัว หรือเนื้อหาผิดกฎหมาย
+              <div class="community-field">
+                <label for="community-category">หมวดโพสต์</label>
+                <select id="community-category" name="category">
+                  {% for value, label in categories.items() %}
+                    <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+
+              <div class="community-field">
+                <label for="community-body">ข้อความ</label>
+                <textarea id="community-body" name="body" minlength="10" maxlength="1000" required placeholder="เล่าเรื่องที่อยากถาม แชร์ประสบการณ์ หรือเตือนภัยงานที่น่าสงสัย..."></textarea>
+                <div class="community-help">
+                  <span>ขั้นต่ำ 10 ตัวอักษร</span>
+                  <span><span id="community-count">0</span>/1000</span>
+                </div>
+              </div>
+
+              <div class="community-note">
+                ห้ามโพสต์คำหยาบ เนื้อหาลามก การพนัน หลอกลวง ข้อมูลส่วนตัว หรือเนื้อหาผิดกฎหมาย
+              </div>
+
+              <button class="community-btn" type="submit">โพสต์เข้าชุมชน</button>
+            </form>
+          {% else %}
+            <p>เข้าสู่ระบบเพื่อโพสต์คำถาม แชร์ประสบการณ์ หรือแจ้งเตือนงานที่น่าสงสัย</p>
+            <div class="community-login-actions">
+              <a class="community-action primary" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
+              <a class="community-action secondary" href="{{ url_for('register') }}">สมัครสมาชิก</a>
             </div>
-
-            <button class="community-btn" type="submit">โพสต์</button>
-          </form>
-        {% else %}
-          <p>กรุณาเข้าสู่ระบบก่อนโพสต์</p>
-          <a class="community-btn" href="{{ url_for('login') }}">เข้าสู่ระบบ</a>
-        {% endif %}
+          {% endif %}
+        </div>
       </div>
 
-      <div class="community-stats">
+      <div class="community-stat-grid">
         <div class="community-stat"><strong>{{ stats.active }}</strong>เผยแพร่</div>
         <div class="community-stat"><strong>{{ stats.pending }}</strong>รอตรวจ</div>
         <div class="community-stat"><strong>{{ stats.blocked }}</strong>บล็อก</div>
       </div>
     </aside>
 
-    <main class="community-feed">
-      {% for post in posts %}
-        <article class="community-post">
-          <div class="community-author">
-            <strong>
-              {{ post.company_name or post.full_name or post.phone_number[:3] ~ '****' ~ post.phone_number[-3:] }}
-            </strong>
-            <span>{{ post.created_at }}</span>
-          </div>
+    <main>
+      <form class="community-filter" method="get" action="{{ url_for('community_board') }}">
+        {% if selected_category != "ALL" %}
+          <input type="hidden" name="category" value="{{ selected_category }}">
+        {% endif %}
+        <input name="q" value="{{ q }}" placeholder="ค้นหาในชุมชน เช่น สัมภาษณ์, เตือนภัย, เอกสาร">
+        <button type="submit">ค้นหา</button>
+      </form>
 
-          <div class="community-body">{{ post.body }}</div>
+      <nav class="community-tabs" aria-label="กรองหมวดโพสต์">
+        <a class="{% if selected_category == 'ALL' %}active{% endif %}" href="{{ url_for('community_board', q=q) }}">ทั้งหมด</a>
+        {% for value, label in categories.items() %}
+          <a class="{% if selected_category == value %}active{% endif %}" href="{{ url_for('community_board', category=value, q=q) }}">{{ label }}</a>
+        {% endfor %}
+      </nav>
 
-          {% if current_user and current_user.id != post.user_id %}
-            <div class="community-actions">
-              <form method="post" action="{{ url_for('report_community_post', post_id=post.id) }}">
+      <div class="community-feed">
+        {% for post in posts %}
+          <article class="community-post">
+            <div class="community-author">
+              <div>
+                <strong>{{ post.company_name or post.full_name or post.phone_number[:3] ~ '****' ~ post.phone_number[-3:] }}</strong>
+                <div class="community-meta">
+                  <span class="community-pill">{{ categories.get(post.category, "พูดคุยทั่วไป") }}</span>
+                  {% if post.status == "PENDING_REVIEW" %}
+                    <span class="community-pill pending">รอตรวจ</span>
+                  {% elif post.status == "BLOCKED" %}
+                    <span class="community-pill blocked">ถูกบล็อก</span>
+                  {% endif %}
+                  {% if current_user and current_user.id == post.user_id %}
+                    <span class="community-pill">โพสต์ของคุณ</span>
+                  {% endif %}
+                </div>
+              </div>
+              <span class="community-date">{{ post.created_at }}</span>
+            </div>
+
+            <div class="community-body">{{ post.body }}</div>
+
+            {% if current_user and current_user.id != post.user_id and post.status == "ACTIVE" %}
+              <form class="community-actions" method="post" action="{{ url_for('report_community_post', post_id=post.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="reason" value="โพสต์นี้อาจไม่ปลอดภัยหรือไม่เหมาะสม">
+                <select name="reason" aria-label="เหตุผลในการรายงาน">
+                  <option value="โพสต์นี้อาจไม่ปลอดภัยหรือไม่เหมาะสม">โพสต์นี้อาจไม่ปลอดภัย</option>
+                  <option value="ชวนโอนเงินหรือเก็บค่ามัดจำ">ชวนโอนเงินหรือเก็บค่ามัดจำ</option>
+                  <option value="ขอข้อมูลส่วนตัวเกินจำเป็น">ขอข้อมูลส่วนตัวเกินจำเป็น</option>
+                  <option value="เนื้อหาไม่เกี่ยวกับงาน">เนื้อหาไม่เกี่ยวกับงาน</option>
+                </select>
                 <button type="submit">รายงานโพสต์</button>
               </form>
-            </div>
-          {% endif %}
-
-          {% if current_user and current_user.role == 'ADMIN' and post.status != 'ACTIVE' %}
-            <div class="community-status">POST: {{ post.status }} / SCORE {{ post.moderation_score }}</div>
-          {% endif %}
-        </article>
-      {% else %}
-        <div class="community-card community-empty">ยังไม่มีโพสต์ในชุมชน</div>
-      {% endfor %}
+            {% endif %}
+          </article>
+        {% else %}
+          <div class="community-panel community-empty">
+            <strong>ยังไม่มีโพสต์ที่ตรงกับเงื่อนไข</strong>
+            <p>เริ่มถามคำถามเรื่องสมัครงาน แชร์ประสบการณ์ หรือเตือนภัยประกาศงานที่น่าสงสัยได้เลย</p>
+            {% if current_user %}
+              <div class="community-hero-actions" style="justify-content:center">
+                <a class="community-action primary" href="#community-post-form">เขียนโพสต์แรก</a>
+              </div>
+            {% else %}
+              <div class="community-hero-actions" style="justify-content:center">
+                <a class="community-action primary" href="{{ url_for('login') }}">เข้าสู่ระบบเพื่อโพสต์</a>
+              </div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
     </main>
   </div>
 </section>
+{% endblock %}
+
+{% block extra_body %}
+<script>
+(function () {
+  var body = document.getElementById("community-body");
+  var count = document.getElementById("community-count");
+  if (!body || !count) return;
+  function updateCount() {
+    count.textContent = body.value.length;
+  }
+  body.addEventListener("input", updateCount);
+  updateCount();
+})();
+</script>
 {% endblock %}
