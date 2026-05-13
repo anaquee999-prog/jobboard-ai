@@ -529,6 +529,8 @@ def csrf_protect():
         return None
     if request.path.startswith("/api/discord/"):
         return None
+    if request.path.startswith("/internal/cron/"):
+        return None
 
     session_token = session.get("_csrf_token", "")
     form_token = request.form.get("csrf_token", "")
