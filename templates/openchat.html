@@ -32,6 +32,86 @@
 @media(max-width:700px){.openchat-head{display:grid}.openchat-form form{grid-template-columns:1fr}.openchat-file-label,.openchat-submit{width:100%}}
 </style>
 
+<style>
+/* OpenChat refresh: light community room. */
+.openchat-wrap{
+  width:var(--container);
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.openchat-head{
+  border-color:var(--line);
+  background:#fff;
+}
+.openchat-head h1{
+  color:var(--ink);
+  letter-spacing:0;
+}
+.openchat-head p,
+.openchat-note{
+  color:var(--muted);
+}
+.openchat-badge{
+  background:#e8f1ff;
+  border-color:#c8dcff;
+  color:var(--brand);
+}
+.openchat-badge.live{
+  background:#ecfdf3;
+  border-color:#bbf7d0;
+  color:var(--green);
+}
+.chat-avatar{
+  border-radius:8px;
+  background:var(--brand);
+  color:#fff;
+}
+.chat-bubble{
+  border-radius:8px;
+  background:#fbfcfe;
+  border:1px solid var(--line);
+}
+.chat-meta{
+  color:var(--brand);
+}
+.chat-meta span{
+  background:#eef5ff;
+  color:#344054;
+}
+.chat-message{
+  color:var(--ink);
+}
+.chat-media img,
+.chat-media video{
+  border-radius:8px;
+}
+.openchat-form{
+  border-color:var(--line);
+  background:#fbfcfe;
+}
+.openchat-file-label,
+.openchat-input,
+.openchat-submit{
+  border-radius:8px;
+}
+.openchat-file-label{
+  background:#fff;
+  border:1px solid #cdd5df;
+  color:#344054;
+}
+.openchat-input{
+  border:1px solid #cdd5df;
+  background:#fff;
+  color:var(--ink);
+}
+.openchat-submit{
+  background:var(--brand);
+  color:#fff;
+}
+</style>
+
 <section class="openchat-wrap">
   <div class="openchat-head">
     <div>

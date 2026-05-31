@@ -25,7 +25,7 @@
                         {{ "BANNED" if user.is_banned else "ACTIVE" }}
                     </div>
                     <div class="muted">
-                        {{ user.company_name or user.full_name or "-" }} |
+                        {{ user.company_name or user.seeker_full_name or user.full_name or "-" }} |
                         Jobs {{ user.job_count }}
                     </div>
                 </div>

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block title %}แหล่งข้อมูลงาน | JobBoard AI{% endblock %}
+{% block meta_description %}แหล่งข้อมูลงานทางการที่ใช้ต่อยอดข่าวงาน งานราชการ และบทความตลาดแรงงาน{% endblock %}
+
+{% block extra_head %}
+<style>
+  .sources-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+  .source-card{padding:20px}
+  .source-card h2{margin:10px 0 8px;font-size:22px;line-height:1.25}
+  .source-card p{margin:0;color:var(--muted)}
+  .source-meta{display:grid;gap:10px;margin-top:14px}
+  .source-meta div{padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-alt)}
+  .source-meta b{display:block;margin-bottom:4px;color:var(--ink);font-size:12px}
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="page-wrap">
+  <section class="page-hero compact">
+    <div class="hero-layout">
+      <div>
+        <span class="eyebrow">Official job data</span>
+        <h1>แหล่งข้อมูลงานที่ใช้ต่อยอดได้</h1>
+        <p class="lead">รวมแหล่งทางการที่เหมาะสำหรับข่าวงาน งานราชการ งานรายจังหวัด และบทความแนวโน้มตลาดแรงงาน</p>
+      </div>
+      <ul class="hero-notes">
+        <li><span></span><div>เหมาะกับการทำ index ข่าวงานและลิงก์กลับไปยังต้นทาง</div></li>
+        <li><span></span><div>ใช้สำหรับหน้าแยกจังหวัด งานราชการ และบทความ market insight</div></li>
+        <li><span></span><div>ควรเก็บแหล่งที่มาและวันที่ดึงทุกครั้งเมื่อเผยแพร่ข้อมูล</div></li>
+      </ul>
+    </div>
+  </section>
+
+  <div class="toolbar">
+    <div>
+      <h2>แหล่งข้อมูลแนะนำ</h2>
+      <p>ใช้เป็น registry กลางสำหรับการลงข้อมูลหรือพัฒนาระบบ import ต่อได้</p>
+    </div>
+  </div>
+
+  <section class="sources-grid">
+    {% for source in sources %}
+      <article class="card source-card">
+        <span class="badge blue">{{ source.type }}</span>
+        <h2>{{ source.name }}</h2>
+        <p>{{ source.coverage }}</p>
+        <div class="source-meta">
+          <div>
+            <b>เหมาะกับ</b>
+            {{ source.usage }}
+          </div>
+          <div>
+            <b>ลิงก์ต้นทาง</b>
+            <a href="{{ source.url }}" target="_blank" rel="noopener noreferrer">{{ source.url }}</a>
+          </div>
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+</section>
+{% endblock %}

@@ -29,6 +29,71 @@
 @media(max-width:720px){.apps-hero,.app-card{padding:20px}.app-actions button,.app-message button{width:100%}}
 </style>
 
+<style>
+/* Applications refresh: light review cards. */
+.apps-page{
+  width:var(--container);
+  color:var(--ink);
+}
+.apps-hero,
+.app-card,
+.empty-apps{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.apps-hero h1,
+.app-title{
+  color:var(--ink);
+  letter-spacing:0;
+}
+.apps-hero p,
+.app-box{
+  color:var(--muted);
+}
+.app-pill{
+  background:#e8f1ff;
+  border-color:#c8dcff;
+  color:var(--brand);
+}
+.app-pill.green{background:#ecfdf3;border-color:#bbf7d0;color:var(--green)}
+.app-pill.orange{background:#fff7ed;border-color:#fed7aa;color:var(--amber)}
+.app-box{
+  border-radius:8px;
+  background:#fbfcfe;
+  border:1px solid var(--line);
+}
+.app-actions button,
+.app-message button{
+  border-radius:8px;
+  background:var(--brand);
+  color:#fff;
+}
+.app-actions .soft{
+  background:#fff;
+  color:#344054;
+  border:1px solid #cdd5df;
+}
+.app-actions .reject{
+  background:#fff7ed;
+  color:var(--amber);
+  border:1px solid #fed7aa;
+}
+.app-message label{
+  color:#344054;
+}
+.app-message textarea{
+  border-radius:8px;
+  background:#fff;
+  border:1px solid #cdd5df;
+  color:var(--ink);
+}
+.empty-apps{
+  color:var(--muted);
+}
+</style>
+
 <section class="apps-page">
   <div class="apps-hero">
     <span class="final-soft-pill green">กล่องใบสมัครนายจ้าง</span>

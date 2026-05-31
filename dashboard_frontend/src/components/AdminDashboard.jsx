@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
   BellRing,
+  BriefcaseBusiness,
   Loader2,
   MessageSquareWarning,
   RefreshCw,
@@ -24,8 +25,11 @@ import {
   YAxis,
 } from "recharts";
 
+const AnimatedSphere = lazy(() => import("./AnimatedSphere"));
+
 const endpoints = {
   scamStats: "/api/scam-stats",
+  jobs: "/api/jobs",
   urgentJobs: "/api/urgent-jobs",
   trustDistribution: "/api/trust-distribution",
   communityReports: "/api/community-reports",
@@ -60,6 +64,7 @@ const demoDashboardData = {
       { status: "resolved", count: 4 },
     ],
   },
+  jobs: [],
 };
 
 const trustColors = ["#ef4444", "#f59e0b", "#14b8a6", "#22c55e", "#3b82f6"];
@@ -141,6 +146,21 @@ function normalizeCommunityReports(payload) {
   }));
 }
 
+function normalizeJobs(payload) {
+  const source = payload?.items || payload?.jobs || payload?.data || payload || [];
+  return Array.isArray(source) ? source : [];
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("th-TH", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function MetricCard({ title, value, icon: Icon, tone, loading }) {
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-soft">
@@ -173,9 +193,70 @@ function ChartCard({ title, icon: Icon, children }) {
   );
 }
 
+function RecentJobsTable({ jobs }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-soft">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950 sm:text-lg">Recent Jobs</h2>
+          <p className="mt-1 text-sm text-slate-500">{jobs.length} latest listings from Flask API</p>
+        </div>
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-700">
+          <BriefcaseBusiness className="h-5 w-5" aria-hidden="true" />
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-slate-200">
+          <thead className="bg-slate-50">
+            <tr>
+              {["Job", "Company", "Location", "Trust", "Risk", "Date"].map((heading) => (
+                <th
+                  key={heading}
+                  className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500"
+                >
+                  {heading}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 bg-white">
+            {jobs.map((job) => (
+              <tr key={job.id || job.slug || job.title} className="transition hover:bg-slate-50">
+                <td className="min-w-80 px-5 py-4">
+                  <p className="line-clamp-2 text-sm font-semibold text-slate-950">{job.title || "-"}</p>
+                  <p className="mt-1 text-xs text-slate-500">#{job.id || "-"}</p>
+                </td>
+                <td className="min-w-64 px-5 py-4 text-sm text-slate-600">{job.company_name || job.company || "-"}</td>
+                <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-600">{job.location || "-"}</td>
+                <td className="whitespace-nowrap px-5 py-4 text-sm font-semibold text-emerald-700">
+                  {job.trust_score ?? "-"}
+                </td>
+                <td className="whitespace-nowrap px-5 py-4">
+                  <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                    {job.risk_level || "LOW"}
+                  </span>
+                </td>
+                <td className="whitespace-nowrap px-5 py-4 text-sm text-slate-500">
+                  {formatDate(job.created_at || job.date)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {jobs.length === 0 ? (
+        <div className="px-5 py-8 text-center text-sm font-medium text-slate-500">No jobs found from /api/jobs.</div>
+      ) : null}
+    </section>
+  );
+}
+
 export default function AdminDashboard() {
   const [dashboardData, setDashboardData] = useState({
     scamStats: null,
+    jobs: [],
     urgentJobs: null,
     trustDistribution: [],
     communityReports: null,
@@ -195,8 +276,9 @@ export default function AdminDashboard() {
     setDemoMode(false);
 
     try {
-      const [scamStats, urgentJobs, trustDistribution, communityReports] = await Promise.all([
+      const [scamStats, jobs, urgentJobs, trustDistribution, communityReports] = await Promise.all([
         fetchJson(endpoints.scamStats, "Unable to load scam job stats"),
+        fetchJson(endpoints.jobs, "Unable to load jobs"),
         fetchJson(endpoints.urgentJobs, "Unable to load urgent jobs"),
         fetchJson(endpoints.trustDistribution, "Unable to load trust score distribution"),
         fetchJson(endpoints.communityReports, "Unable to load community reports"),
@@ -204,6 +286,7 @@ export default function AdminDashboard() {
 
       setDashboardData({
         scamStats,
+        jobs: normalizeJobs(jobs),
         urgentJobs,
         trustDistribution: normalizeTrustDistribution(trustDistribution),
         communityReports,
@@ -352,10 +435,31 @@ export default function AdminDashboard() {
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-3">
-          {metrics.map((metric) => (
-            <MetricCard key={metric.title} {...metric} loading={loading} />
-          ))}
+        <section className="grid gap-6 lg:grid-cols-[1.7fr,1fr]">
+          <div className="rounded-3xl border border-slate-200 bg-slate-950 p-5 shadow-soft ring-1 ring-white/10">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium uppercase tracking-[0.3em] text-cyan-300/90">
+                  Interactive 3D Insight
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-white">Trust Sphere</h2>
+              </div>
+              <span className="rounded-2xl bg-white/10 px-3 py-2 text-sm font-semibold text-white shadow-sm">
+                Live animation
+              </span>
+            </div>
+            <div className="h-[260px] w-full overflow-hidden rounded-[2rem] bg-slate-900">
+              <Suspense fallback={<div className="h-full w-full bg-slate-900" />}>
+                <AnimatedSphere />
+              </Suspense>
+            </div>
+          </div>
+
+          <section className="grid gap-4 md:grid-cols-3">
+            {metrics.map((metric) => (
+              <MetricCard key={metric.title} {...metric} loading={loading} />
+            ))}
+          </section>
         </section>
 
         {loading ? (
@@ -408,6 +512,8 @@ export default function AdminDashboard() {
             </ChartCard>
           </section>
         )}
+
+        {!loading ? <RecentJobsTable jobs={dashboardData.jobs.slice(0, 10)} /> : null}
       </div>
     </main>
   );

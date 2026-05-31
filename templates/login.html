@@ -25,6 +25,75 @@
 @media(max-width:880px){.auth-page{grid-template-columns:1fr}.auth-card{order:-1}}
 </style>
 
+<style>
+/* Auth refresh: light, consistent with the public pages. */
+.auth-page{
+  width:var(--container);
+  margin:30px auto 56px;
+  grid-template-columns:minmax(0,1fr) 420px;
+}
+.auth-hero,
+.auth-card{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.auth-hero{
+  padding:28px;
+  background:#fff;
+}
+.auth-hero h1{
+  color:var(--ink);
+  letter-spacing:0;
+}
+.auth-hero p,
+.auth-card p,
+.auth-switch{
+  color:var(--muted);
+}
+.auth-badge{
+  border:0;
+  background:#e8f1ff;
+  color:var(--brand);
+}
+.auth-list div{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fbfcfe;
+  color:#344054;
+}
+.auth-card{
+  padding:24px;
+}
+.auth-card h2{
+  color:var(--ink);
+}
+.auth-error{
+  border-radius:8px;
+  background:#fef3f2;
+  border-color:#fecaca;
+  color:var(--red);
+}
+.auth-field label{
+  color:#344054;
+}
+.auth-field input{
+  border-radius:8px;
+  border:1px solid #cdd5df;
+  background:#fff;
+  color:var(--ink);
+}
+.auth-submit{
+  border-radius:8px;
+  background:var(--brand);
+  color:#fff;
+}
+.auth-switch a{
+  color:var(--brand);
+}
+</style>
+
 <section class="auth-page">
   <div class="auth-hero">
     <div class="auth-badge">เข้าสู่ระบบปลอดภัย</div>

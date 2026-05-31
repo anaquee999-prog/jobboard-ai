@@ -73,6 +73,16 @@ GET /api/discord/commands
 
 Returns command names and descriptions for the Discord bot UI.
 
+## Smoke Check
+
+Run a protected Discord API smoke check without printing secret values:
+
+```bash
+python check_discord_integration.py
+```
+
+Use `--local` when the Flask app is running on `http://127.0.0.1:5000`.
+
 ## Slash Command Endpoint Map
 
 - `/profile view` -> `GET /api/discord/profile?discord_user_id=123`

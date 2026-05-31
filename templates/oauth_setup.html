@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}สำเร็จการลงทะเบียน | JobBoard{% endblock %}
+
+{% block content %}
+<style>
+.oauth-setup-page {
+    width: min(1080px, calc(100% - 28px));
+    margin: 30px auto 50px;
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    gap: 22px;
+}
+
+.oauth-hero, .oauth-card {
+    border-radius: 8px;
+    border: 1px solid #d9e2ec;
+    background: #fff;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, .08);
+}
+
+.oauth-hero {
+    padding: 34px;
+    background: #fff;
+}
+
+.oauth-hero h1 {
+    margin: 10px 0;
+    color: #102033;
+    font-size: clamp(38px, 6vw, 62px);
+    line-height: 1;
+}
+
+.oauth-hero p {
+    color: #5c6f82;
+    font-size: 18px;
+    line-height: 1.7;
+}
+
+.oauth-provider-info {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px;
+    border-radius: 8px;
+    background: #f7f9fc;
+    border: 1px solid #d9e2ec;
+    margin-top: 22px;
+}
+
+.oauth-provider-info img {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+}
+
+.oauth-provider-info div {
+    flex: 1;
+}
+
+.oauth-provider-info strong {
+    display: block;
+    color: #1769e0;
+    font-weight: 950;
+}
+
+.oauth-provider-info small {
+    color: #667085;
+}
+
+.oauth-card {
+    padding: 26px;
+}
+
+.oauth-card h2 {
+    margin: 0 0 6px;
+    color: #102033;
+    font-size: 30px;
+}
+
+.oauth-card p {
+    margin: 0 0 16px;
+    color: #667085;
+}
+
+.oauth-error {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: #fff1f1;
+    border: 1px solid #ffc9c9;
+    color: #b42318;
+    font-weight: 900;
+    margin-bottom: 14px;
+}
+
+.oauth-field {
+    margin-bottom: 14px;
+}
+
+.oauth-field label {
+    display: block;
+    margin-bottom: 7px;
+    color: #344054;
+    font-weight: 950;
+}
+
+.oauth-field input, .oauth-field select {
+    width: 100%;
+    min-height: 48px;
+    border-radius: 8px;
+    border: 1px solid #b8c7d8;
+    background: #fff;
+    color: #102033;
+    padding: 0 14px;
+    font-weight: 800;
+}
+
+.oauth-submit {
+    width: 100%;
+    min-height: 50px;
+    border: 0;
+    border-radius: 8px;
+    background: #1769e0;
+    color: #fff;
+    font-weight: 950;
+    font-size: 16px;
+    cursor: pointer;
+    margin-top: 6px;
+}
+
+.oauth-submit:hover {
+    opacity: 0.9;
+}
+
+@media (max-width: 880px) {
+    .oauth-setup-page {
+        grid-template-columns: 1fr;
+    }
+    
+    .oauth-card {
+        order: -1;
+    }
+}
+</style>
+
+<section class="oauth-setup-page">
+    <div class="oauth-hero">
+        <h1>เสร็จเรียบร้อย!</h1>
+        <p>เราตั้งค่าได้เรียบร้อยด้วย {{ 'Google' if auth_method == 'google' else 'Facebook' }} แล้ว</p>
+        <p>ตอนนี้ให้เสร็จการลงทะเบียนโดยกรอกเบอร์โทรศัพท์ของคุณ</p>
+        
+        <div class="oauth-provider-info">
+            {% if user_info.picture %}
+                <img src="{{ user_info.picture }}" alt="Profile">
+            {% else %}
+                <div style="width: 48px; height: 48px; border-radius: 50%; background: #38bdf8;"></div>
+            {% endif %}
+            <div>
+                <strong>{{ user_info.name }}</strong>
+                <small>{{ user_info.email }}</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="oauth-card">
+        <h2>เสร็จสิ้นการลงทะเบียน</h2>
+        <p>เพิ่มเบอร์โทรศัพท์ของคุณ</p>
+
+        {% if error %}
+            <div class="oauth-error">{{ error }}</div>
+        {% endif %}
+
+        <form method="post">
+            <div class="oauth-field">
+                <label for="full_name">ชื่อเต็ม</label>
+                <input 
+                    id="full_name" 
+                    name="full_name" 
+                    type="text" 
+                    value="{{ user_info.name }}" 
+                    required
+                >
+            </div>
+
+            <div class="oauth-field">
+                <label for="phone">เบอร์โทรศัพท์</label>
+                <input 
+                    id="phone" 
+                    name="phone" 
+                    type="tel" 
+                    inputmode="numeric"
+                    placeholder="0800000000" 
+                    required
+                >
+            </div>
+
+            <div class="oauth-field">
+                <label for="role">ประเภทผู้ใช้งาน</label>
+                <select id="role" name="role" required>
+                    <option value="JOB_SEEKER">ผู้หางาน</option>
+                    <option value="EMPLOYER">นายจ้าง</option>
+                </select>
+            </div>
+
+            <button class="oauth-submit" type="submit">สร้างบัญชี</button>
+        </form>
+    </div>
+</section>
+{% endblock %}

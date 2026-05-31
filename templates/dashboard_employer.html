@@ -1,48 +1,82 @@
 {% extends "base.html" %}
 {% block title %}แดชบอร์ดนายจ้าง | JobBoard{% endblock %}
 
-{% block content %}
+{% block extra_head %}
 <style>
-.employer-dashboard-wrap{max-width:1180px;margin:0 auto;padding:34px 18px 58px;}
-.employer-hero{border:1px solid rgba(56,189,248,.28);background:radial-gradient(circle at top left,rgba(14,165,233,.2),rgba(2,6,23,.94) 45%,rgba(0,0,0,.98));border-radius:28px;padding:30px;box-shadow:0 24px 70px rgba(0,0,0,.35);}
-.employer-hero-top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap;}
-.employer-eyebrow{display:inline-flex;gap:8px;align-items:center;border:1px solid rgba(34,197,94,.35);background:rgba(34,197,94,.12);color:#86efac;border-radius:999px;padding:8px 12px;font-weight:900;font-size:13px;margin-bottom:14px;}
-.employer-title{font-size:clamp(30px,5vw,52px);line-height:1.05;margin:0;color:#fff;text-shadow:0 5px 22px rgba(14,165,233,.18);}
-.employer-sub{color:#cbd5e1;font-size:16px;font-weight:800;margin:14px 0 0;}
-.employer-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;}
-.employer-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;border-radius:999px;padding:13px 18px;font-weight:950;border:1px solid rgba(56,189,248,.35);background:#22b7f0;color:#00121c;box-shadow:0 14px 34px rgba(34,183,240,.24);}
-.employer-btn.secondary{background:rgba(15,23,42,.7);color:#e0f2fe;}
-.employer-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:24px;}
-.employer-stat{border:1px solid rgba(148,163,184,.18);background:rgba(15,23,42,.76);border-radius:22px;padding:18px;}
-.employer-stat span{display:block;color:#94a3b8;font-size:13px;font-weight:900;margin-bottom:8px;}
-.employer-stat strong{display:block;color:#fff;font-size:28px;font-weight:950;}
-.employer-section{margin-top:22px;border:1px solid rgba(148,163,184,.16);background:rgba(2,6,23,.74);border-radius:26px;padding:24px;}
-.employer-section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:18px;}
-.employer-section h2{margin:0;color:#fff;font-size:28px;}
-.employer-section p{margin:6px 0 0;color:#cbd5e1;font-weight:800;}
-.job-card-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
-.job-card{border:1px solid rgba(56,189,248,.18);background:linear-gradient(145deg,rgba(15,23,42,.92),rgba(12,18,31,.72));border-radius:24px;padding:20px;box-shadow:0 16px 46px rgba(0,0,0,.22);}
-.job-card-top{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;margin-bottom:12px;}
-.job-title{margin:0;color:#fff;font-size:22px;line-height:1.25;}
-.job-meta{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;}
-.pill{display:inline-flex;align-items:center;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:950;border:1px solid rgba(148,163,184,.18);background:rgba(255,255,255,.06);color:#dbeafe;}
-.pill.active{background:rgba(34,197,94,.13);border-color:rgba(34,197,94,.3);color:#86efac;}
-.pill.review{background:rgba(250,204,21,.12);border-color:rgba(250,204,21,.3);color:#fde68a;}
-.pill.rejected{background:rgba(248,113,113,.12);border-color:rgba(248,113,113,.3);color:#fecaca;}
-.pill.urgent{background:rgba(249,115,22,.15);border-color:rgba(249,115,22,.35);color:#fdba74;}
-.job-desc{color:#cbd5e1;font-size:14px;line-height:1.7;margin:12px 0 0;}
-.job-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;}
-.small-link{display:inline-flex;text-decoration:none;border-radius:999px;padding:10px 13px;font-weight:950;background:rgba(14,165,233,.14);color:#7dd3fc;border:1px solid rgba(14,165,233,.28);}
-.empty-jobs{border:1px dashed rgba(148,163,184,.3);border-radius:24px;padding:28px;background:rgba(15,23,42,.55);color:#dbeafe;font-weight:900;}
-@media(max-width:820px){.employer-stats,.job-card-grid{grid-template-columns:1fr}.employer-hero{padding:22px}.employer-dashboard-wrap{padding:24px 12px 44px}}
+  .employer-dashboard-wrap{width:var(--container);margin:0 auto;padding:28px 0 56px}
+  .employer-hero{
+    padding:28px 0 22px;
+    border-bottom:1px solid var(--line);
+  }
+  .employer-hero-top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;flex-wrap:wrap}
+  .employer-eyebrow{
+    min-height:30px;
+    display:inline-flex;
+    align-items:center;
+    border-radius:999px;
+    padding:0 12px;
+    background:var(--green-soft);
+    color:var(--green);
+    font-size:12px;
+    font-weight:900;
+    margin-bottom:12px;
+  }
+  .employer-title{margin:0;font-size:clamp(34px,6vw,54px);line-height:1.04}
+  .employer-sub{margin:10px 0 0;color:var(--muted);max-width:720px}
+  .employer-actions{display:flex;gap:10px;flex-wrap:wrap}
+  .employer-btn,.small-link{
+    min-height:42px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:999px;
+    padding:0 15px;
+    font-weight:900;
+  }
+  .employer-btn{background:var(--brand);color:#fff}
+  .employer-btn.secondary,.small-link{border:1px solid var(--line-strong);background:#fff;color:#344054}
+  .employer-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-top:22px}
+  .employer-stat,.employer-section,.job-card,.empty-jobs{
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    background:#fff;
+    box-shadow:var(--shadow);
+  }
+  .employer-stat{padding:18px}
+  .employer-stat span{display:block;color:var(--muted);font-size:13px;font-weight:850}
+  .employer-stat strong{display:block;margin-top:8px;font-size:26px;color:var(--ink)}
+  .employer-section{margin-top:22px;padding:22px}
+  .employer-section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+  .employer-section p{margin:6px 0 0;color:var(--muted)}
+  .job-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px}
+  .job-card{padding:18px;background:var(--surface-alt)}
+  .job-card-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+  .job-title{margin:0;font-size:21px;line-height:1.25}
+  .job-meta{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    border-radius:999px;
+    padding:6px 10px;
+    font-size:12px;
+    font-weight:900;
+    border:1px solid var(--line-strong);
+    background:#fff;
+    color:#334155;
+  }
+  .pill.active{background:var(--green-soft);border-color:#bbf7d0;color:var(--green)}
+  .pill.review{background:var(--amber-soft);border-color:#fdba74;color:var(--amber)}
+  .pill.rejected{background:var(--red-soft);border-color:#fecaca;color:var(--red)}
+  .pill.urgent{background:var(--amber-soft);border-color:#fdba74;color:var(--amber)}
+  .job-desc{margin:0;color:var(--muted)}
+  .job-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+  .empty-jobs{padding:22px;color:var(--muted)}
 </style>
+{% endblock %}
 
-{% set active_count = namespace(v=0) %}
-{% set review_count = namespace(v=0) %}
+{% block content %}
 {% set urgent_count = namespace(v=0) %}
 {% for job in jobs %}
-  {% if job.status == 'เปิดรับ' %}{% set active_count.v = active_count.v + 1 %}{% endif %}
-  {% if job.status == 'รอตรวจ' %}{% set review_count.v = review_count.v + 1 %}{% endif %}
   {% if job.is_urgent %}{% set urgent_count.v = urgent_count.v + 1 %}{% endif %}
 {% endfor %}
 
@@ -50,12 +84,12 @@
   <div class="employer-hero">
     <div class="employer-hero-top">
       <div>
-        <div class="employer-eyebrow">🏢 แดชบอร์ดนายจ้าง</div>
+        <div class="employer-eyebrow">Employer workspace</div>
         <h1 class="employer-title">{{ profile.company_name if profile else 'บริษัทของฉัน' }}</h1>
-        <p class="employer-sub">จัดการประกาศงาน ตรวจสถานะ AI และดูใบสมัครได้จากหน้านี้</p>
+        <p class="employer-sub">จัดการประกาศงาน ดูสถานะการคัดกรอง และติดตามผู้สมัครในมุมมองเดียวที่อ่านง่ายขึ้น</p>
       </div>
       <div class="employer-actions">
-        <a class="employer-btn" href="{{ url_for('employer_create_job') }}">+ โพสต์งานใหม่</a>
+        <a class="employer-btn" href="{{ url_for('employer_create_job') }}">โพสต์งานใหม่</a>
         <a class="employer-btn secondary" href="{{ url_for('employer_applications') }}">ดูใบสมัคร</a>
       </div>
     </div>
@@ -77,16 +111,20 @@
         <span>ประกาศทั้งหมด</span>
         <strong>{{ jobs|length }}</strong>
       </div>
+      <div class="employer-stat">
+        <span>งานด่วน</span>
+        <strong>{{ urgent_count.v }}</strong>
+      </div>
     </div>
   </div>
 
   <div class="employer-section">
     <div class="employer-section-head">
       <div>
-        <h2>งานที่คุณโพสต์</h2>
-        <p>เปิดรับ {{ active_count.v }} งาน · รอตรวจ {{ review_count.v }} งาน · งานด่วน {{ urgent_count.v }} งาน</p>
+        <h2>ประกาศของคุณ</h2>
+        <p>ตรวจสถานะงาน จำนวนคนดู และภาพรวมการสมัครได้จากบอร์ดนี้</p>
       </div>
-      <a class="employer-btn" href="{{ url_for('employer_create_job') }}">+ เพิ่มประกาศ</a>
+      <a class="employer-btn" href="{{ url_for('employer_create_job') }}">เพิ่มประกาศ</a>
     </div>
 
     {% if jobs %}
@@ -96,16 +134,21 @@
           <article class="job-card">
             <div class="job-card-top">
               <h3 class="job-title">{{ job.title }}</h3>
-              <span class="pill {% if job.status == 'เปิดรับ' %}active{% elif job.status == 'รอตรวจ' %}review{% elif job.status == 'ไม่ผ่าน' %}rejected{% endif %}">
+              <span class="pill {% if 'ACTIVE' in (job.status|string)|upper %}active{% elif 'PENDING' in (job.status|string)|upper %}review{% elif 'REJECTED' in (job.status|string)|upper %}rejected{% endif %}">
                 {{ job.status }}
               </span>
             </div>
 
             <div class="job-meta">
-              {% if job.location %}<span class="pill">📍 {{ job.location }}</span>{% endif %}
-              {% if job.salary_range %}<span class="pill">💰 {{ job.salary_range }}</span>{% endif %}
-              {% if job.is_urgent %}<span class="pill urgent">🔥 งานด่วน</span>{% endif %}
-              <span class="pill">ตรวจประกาศ {{ risk }}/100</span>
+              {% if job.location %}<span class="pill">{{ job.location }}</span>{% endif %}
+              {% if job.salary_range %}<span class="pill">{{ job.salary_range }}</span>{% endif %}
+              {% if job.is_urgent %}<span class="pill urgent">งานด่วน</span>{% endif %}
+              <span class="pill">ยอดดู {{ job.view_count or 0 }}</span>
+              {% if live_viewers.get(job.id, 0) > 0 %}
+                <span class="pill">{{ live_viewers.get(job.id, 0) }} คนกำลังดู</span>
+              {% endif %}
+              <span class="pill">ใบสมัคร {{ application_counts.get(job.id, 0) }}</span>
+              <span class="pill">AI risk {{ risk }}/100</span>
             </div>
 
             <p class="job-desc">{{ job.description[:170] }}{% if job.description and job.description|length > 170 %}...{% endif %}</p>
@@ -119,7 +162,7 @@
       </div>
     {% else %}
       <div class="empty-jobs">
-        ยังไม่มีประกาศงาน เริ่มจากการกด “โพสต์งานใหม่” เพื่อเปิดรับผู้สมัคร
+        คุณยังไม่มีประกาศงาน เริ่มจากสร้างโพสต์แรกเพื่อเปิดรับผู้สมัครได้ทันที
       </div>
     {% endif %}
   </div>

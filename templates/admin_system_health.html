@@ -112,6 +112,62 @@
 }
 </style>
 
+<style>
+/* System health refresh: light status dashboard. */
+.health-page{
+  width:var(--container);
+}
+.health-hero{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.health-badge{
+  border:0;
+  background:#e8f1ff;
+  color:var(--brand);
+}
+.health-hero h1,
+.health-card h2{
+  color:var(--ink);
+  letter-spacing:0;
+}
+.health-hero p{
+  color:var(--muted);
+}
+.health-actions a{
+  min-height:42px;
+  border-radius:8px;
+  border:1px solid #cdd5df;
+  background:#fff;
+  color:#344054!important;
+}
+.health-actions a.primary,
+.health-actions a.green{
+  border-color:var(--brand);
+  background:var(--brand);
+  color:#fff!important;
+}
+.health-card{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.health-row{
+  border-bottom:1px solid var(--line-soft);
+}
+.health-row span:first-child{
+  color:var(--muted);
+}
+.health-row span:last-child{
+  color:var(--ink);
+}
+.health-ok{color:var(--green)!important}
+.health-bad{color:var(--red)!important}
+</style>
+
 <section class="health-page">
   <div class="health-hero">
     <div class="health-badge">Production System Health</div>
@@ -133,6 +189,7 @@
       <div class="health-row"><span>Commit</span><span>{{ health.render_git_commit[:12] if health.render_git_commit else '-' }}</span></div>
       <div class="health-row"><span>Service</span><span>{{ health.render_service_name or '-' }}</span></div>
       <div class="health-row"><span>URL</span><span>{{ health.render_external_url or '-' }}</span></div>
+      <div class="health-row"><span>API Base</span><span>{{ health.jobboard_api_base_url or '-' }}</span></div>
     </article>
 
     <article class="health-card">
@@ -160,6 +217,21 @@
           <span class="{{ 'health-ok' if ok else 'health-bad' }}">{{ 'OK' if ok else 'MISSING' }}</span>
         </div>
       {% endfor %}
+    </article>
+
+    <article class="health-card">
+      <h2>Import Health</h2>
+      <div class="health-row"><span>Last import</span><span>{{ health.import_status.last_run_at or '-' }}</span></div>
+      <div class="health-row"><span>Last status</span><span>{{ health.import_status.last_status or '-' }}</span></div>
+      <div class="health-row"><span>Source</span><span>{{ health.import_status.last_source or '-' }}</span></div>
+      <div class="health-row"><span>Total runs</span><span>{{ health.import_status.total_imports or 0 }}</span></div>
+      <div class="health-row"><span>Last inserted</span><span>{{ health.import_status.last_inserted or 0 }}</span></div>
+      <div class="health-row"><span>Last updated</span><span>{{ health.import_status.last_updated or 0 }}</span></div>
+      <div class="health-row"><span>Last skipped</span><span>{{ health.import_status.last_skipped or 0 }}</span></div>
+      <div class="health-row"><span>Failed runs</span><span>{{ health.import_status.failed_imports or 0 }}</span></div>
+      {% if health.import_status.last_error %}
+        <div class="health-row"><span>Last error</span><span class="health-bad">{{ health.import_status.last_error }}</span></div>
+      {% endif %}
     </article>
   </div>
 </section>

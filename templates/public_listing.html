@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} | {{ site_name|default("JobBoard AI") }}{% endblock %}
+{% block meta_description %}{{ meta_description }}{% endblock %}
+{% block og_title %}{{ page_title }} | {{ site_name|default("JobBoard AI") }}{% endblock %}
+{% block og_description %}{{ subtitle }}{% endblock %}
+
+{% block extra_head %}
+  <link rel="alternate" hreflang="th-TH" href="{{ canonical_url }}">
+  <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large">
+  <script type="application/ld+json">{{ website_schema|safe }}</script>
+  <script type="application/ld+json">{{ item_list_schema|safe }}</script>
+  <script type="application/ld+json">{{ local_business_schema_json|safe }}</script>
+  <style>
+    .public-search{
+      display:grid;
+      grid-template-columns:minmax(0,1.2fr) minmax(0,.9fr) auto auto;
+      gap:10px;
+      margin:20px 0 16px;
+      padding:16px;
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      background:rgba(255,255,255,.82);
+      box-shadow:var(--shadow);
+    }
+    .public-search label{display:grid;gap:6px}
+    .public-search label span{font-size:13px}
+    .public-search button,
+    .public-search a{
+      min-height:48px;
+      align-self:end;
+      border-radius:999px;
+      padding:0 16px;
+      font-weight:900;
+    }
+    .public-search button{border:0;background:var(--brand);color:#fff}
+    .public-search a{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--line-strong);background:#fff;color:#344054}
+    .filter-row{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px}
+    .filter-tab{
+      min-height:38px;
+      display:inline-flex;
+      align-items:center;
+      border-radius:999px;
+      padding:0 12px;
+      border:1px solid var(--line-strong);
+      background:#fff;
+      color:#344054;
+      font-weight:850;
+    }
+    .filter-tab.active{background:var(--brand);border-color:var(--brand);color:#fff}
+    .ai-panel{padding:18px}
+    .ai-panel form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px}
+    .ai-panel button{border:0;background:var(--green);color:#fff;min-height:46px;border-radius:999px;padding:0 16px;font-weight:900}
+    .ai-results{display:grid;gap:10px;margin-top:12px}
+    .ai-result{padding:14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface-alt)}
+    .ai-result a,.ai-result strong{display:block;color:var(--brand);font-weight:900;margin-bottom:4px}
+    .public-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px}
+    .public-card{padding:20px}
+    .public-card h2{margin:12px 0 8px;font-size:22px;line-height:1.25}
+    .public-card p{margin:0;color:#475467}
+    .meta-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+    .meta-chip{padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-alt);font-size:14px;color:#475467}
+    .meta-chip b{display:block;color:var(--ink);font-size:12px;margin-bottom:4px}
+    .card-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+    .card-actions a{min-height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:0 14px;font-size:13px;font-weight:900}
+    .card-actions .primary-action{background:var(--brand);color:#fff}
+    .card-actions .secondary-action{border:1px solid var(--line-strong);background:#fff;color:#344054}
+    .empty-state{padding:24px}
+    @media(max-width:860px){
+      .public-search,.ai-panel form{grid-template-columns:1fr}
+    }
+    @media(max-width:640px){
+      .meta-grid{grid-template-columns:1fr}
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+<section class="page-wrap">
+  <section class="page-hero compact">
+    <div class="hero-layout">
+      <div>
+        <span class="eyebrow">AI anti-scam job board</span>
+        <h1>{{ page_title }}</h1>
+        <p class="lead">{{ subtitle }}</p>
+      </div>
+      <ul class="hero-notes" aria-label="Job safety highlights">
+        <li><span></span><div><strong>{{ rows_count }}</strong> ประกาศที่พร้อมให้ค้นหาในหน้านี้</div></li>
+        <li><span></span><div>มีคะแนนความเสี่ยงและสัญญาณเตือนให้เช็กก่อนสมัคร</div></li>
+        <li><span></span><div>เหมาะกับผู้ใช้ที่ต้องการหางานพร้อมมุมมองด้านความปลอดภัย</div></li>
+      </ul>
+    </div>
+  </section>
+
+  {% if show_search %}
+    <form class="public-search" method="get" action="{{ search_action }}">
+      <label>
+        <span>คำค้นหา</span>
+        <input name="q" value="{{ q }}" placeholder="ตำแหน่ง บริษัท หรือคำสำคัญ">
+      </label>
+      <label>
+        <span>พื้นที่</span>
+        <input name="location" value="{{ location }}" placeholder="จังหวัด หรืออำเภอ">
+      </label>
+      {% if job_type %}
+        <input type="hidden" name="type" value="{{ job_type }}">
+      {% endif %}
+      <button type="submit">ค้นหา</button>
+      <a href="{{ reset_url }}">ล้างตัวกรอง</a>
+    </form>
+  {% endif %}
+
+  {% if filter_links %}
+    <nav class="filter-row" aria-label="Job type filters">
+      {% for link in filter_links %}
+        <a class="filter-tab{% if link.active %} active{% endif %}" href="{{ link.url }}">{{ link.label }}</a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
+  <section class="panel ai-panel" aria-labelledby="ai-search-title">
+    <div class="toolbar" style="margin:0 0 10px">
+      <div>
+        <h2 id="ai-search-title">ถาม AI เกี่ยวกับงานหรือความเสี่ยง</h2>
+        <p>ค้นคำตอบจากประกาศ คู่มือ และ FAQ ภายในเว็บไซต์นี้</p>
+      </div>
+    </div>
+    <form data-ai-search-form>
+      <input name="q" type="search" placeholder="เช่น งานนี้น่าเชื่อถือไหม หรือ วิธีดูงานหลอกลวง">
+      <button type="submit">ค้นด้วย AI</button>
+    </form>
+    <div class="ai-results" data-ai-search-results aria-live="polite"></div>
+  </section>
+
+  <div class="toolbar">
+    <div>
+      <h2>ประกาศล่าสุด</h2>
+      <p>พบ {{ rows_count }} รายการ{% if q or location %} จากตัวกรองที่คุณกำลังใช้{% endif %}</p>
+    </div>
+  </div>
+
+  <section class="public-grid" aria-label="Job listings">
+    {% for item in items %}
+      <article class="card public-card">
+        <div class="actions-row">
+          <span class="badge {{ item.badge_class }}">{{ item.badge }}</span>
+          <span class="badge {{ item.risk_class }}">AI Risk {{ item.risk_score }}/100</span>
+        </div>
+        <h2><a href="{{ item.detail_url }}">{{ item.title }}</a></h2>
+        <p>{{ item.description or "เปิดดูรายละเอียดประกาศเพื่ออ่านข้อมูลสำคัญก่อนตัดสินใจสมัคร" }}</p>
+        <div class="meta-grid">
+          <div class="meta-chip"><b>หน่วยงาน / นายจ้าง</b>{{ item.agency }}</div>
+          <div class="meta-chip"><b>พื้นที่</b>{{ item.location }}</div>
+          <div class="meta-chip"><b>เงินเดือน</b>{{ item.salary }}</div>
+          <div class="meta-chip"><b>อัปเดต</b>{{ item.updated }}</div>
+        </div>
+        <div class="card-actions">
+          <a class="primary-action" href="{{ item.detail_url }}">ดูรายละเอียด</a>
+          {% if item.source_url %}
+            <a class="secondary-action" href="{{ item.source_url }}" target="_blank" rel="noopener noreferrer">แหล่งทางการ</a>
+          {% endif %}
+          {% if item.report_count %}
+            <span class="badge amber">ถูกรายงาน {{ item.report_count }} ครั้ง</span>
+          {% endif %}
+        </div>
+      </article>
+    {% else %}
+      <article class="card empty-state">
+        <h2>ยังไม่พบประกาศที่ตรงกับเงื่อนไข</h2>
+        <p class="muted">ลองเปลี่ยนคำค้นหา พื้นที่ หรือกลับไปดูรายการงานทั้งหมด</p>
+        <div class="card-actions">
+          <a class="primary-action" href="{{ url_for('jobs_public') }}">ดูงานทั้งหมด</a>
+          <a class="secondary-action" href="{{ url_for('faq_page') }}">อ่าน FAQ ความปลอดภัย</a>
+        </div>
+      </article>
+    {% endfor %}
+  </section>
+</section>
+{% endblock %}
+
+{% block extra_body %}
+<script>
+(function () {
+  const aiForm = document.querySelector("[data-ai-search-form]");
+  const aiResults = document.querySelector("[data-ai-search-results]");
+  const endpoint = {{ ai_search_endpoint|tojson }};
+
+  function track(eventName, metadata) {
+    try {
+      const payload = { event: eventName, path: location.pathname, metadata: metadata || "" };
+      if (window.gtag) window.gtag("event", eventName, payload);
+      fetch("/api/analytics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+    } catch (error) {}
+  }
+
+  function showMessage(message) {
+    aiResults.textContent = "";
+    const article = document.createElement("article");
+    article.className = "ai-result";
+    const paragraph = document.createElement("p");
+    paragraph.textContent = message;
+    article.appendChild(paragraph);
+    aiResults.appendChild(article);
+  }
+
+  function showResults(items) {
+    aiResults.textContent = "";
+    if (!items.length) {
+      showMessage("ยังไม่พบคำตอบที่เกี่ยวข้อง");
+      return;
+    }
+    items.slice(0, 6).forEach(function (item) {
+      const article = document.createElement("article");
+      article.className = "ai-result";
+      const title = item.title || item.question || "ผลการค้นหา";
+      if (item.url) {
+        const link = document.createElement("a");
+        link.href = item.url;
+        link.textContent = title;
+        article.appendChild(link);
+      } else {
+        const strong = document.createElement("strong");
+        strong.textContent = title;
+        article.appendChild(strong);
+      }
+      const paragraph = document.createElement("p");
+      paragraph.textContent = item.answer || item.description || item.snippet || "";
+      article.appendChild(paragraph);
+      aiResults.appendChild(article);
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    const link = event.target.closest("a");
+    if (!link) return;
+    const href = link.getAttribute("href") || "";
+    if (href.indexOf("/job/") === 0) track("job_card_click", href);
+    if (link.hostname && link.hostname !== location.hostname) track("outbound_link_click", link.href);
+  });
+
+  if (!aiForm || !aiResults) return;
+  aiForm.addEventListener("submit", function (event) {
+    event.preventDefault();
+    const query = (aiForm.querySelector("input[name='q']").value || "").trim();
+    if (query.length < 2) {
+      showMessage("พิมพ์อย่างน้อย 2 ตัวอักษร");
+      return;
+    }
+    track("ai_search", query.slice(0, 160));
+    showMessage("กำลังค้นหา...");
+    fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: query })
+    })
+      .then(function (response) { return response.json(); })
+      .then(function (payload) { showResults(payload.items || payload.results || []); })
+      .catch(function () { showMessage("ค้นหาไม่สำเร็จชั่วคราว ลองใหม่อีกครั้ง"); });
+  });
+})();
+</script>
+{% endblock %}

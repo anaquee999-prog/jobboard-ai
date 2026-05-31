@@ -5,12 +5,18 @@ import argparse
 import os
 import re
 import sqlite3
+import sys
 from datetime import datetime
 from html import unescape
 from pathlib import Path
 from urllib.parse import urljoin
 
 import requests
+
+for stream_name in ("stdout", "stderr"):
+    stream = getattr(sys, stream_name, None)
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / os.environ.get("JOBBOARD_DATABASE_PATH", "instance/jobboard.db")

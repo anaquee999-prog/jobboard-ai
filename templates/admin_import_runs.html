@@ -21,6 +21,76 @@
 .import-note{grid-column:1/-1;color:#94a3b8;font-size:13px;font-weight:800;line-height:1.6;}
 .empty-import{margin-top:20px;border:1px dashed rgba(148,163,184,.28);border-radius:24px;padding:28px;text-align:center;background:rgba(15,23,42,.58);color:#dbeafe;font-weight:900;}
 @media(max-width:860px){.import-row{grid-template-columns:1fr}.import-note{grid-column:auto}}
+.import-filter{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;align-items:flex-end}
+.import-filter label{display:flex;flex-direction:column;gap:6px;color:#cbd5e1;font-size:13px}
+.import-filter select,.import-filter input{min-width:180px;padding:12px 14px;border-radius:14px;border:1px solid rgba(148,163,184,.22);background:#0f172a;color:#e2e8f0}
+.import-filter button,.import-filter .secondary{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:999px;border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.78);color:#e0f2fe;text-decoration:none;font-weight:950;cursor:pointer}
+.import-filter .secondary{background:transparent;color:#93c5fd}
+</style>
+
+<style>
+/* Import runs refresh: light operational table. */
+.import-page{
+  width:var(--container);
+  color:var(--ink);
+}
+.import-hero{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.import-hero p,
+.import-note,
+.import-filter label{
+  color:var(--muted);
+}
+.import-actions a,
+.import-actions form button,
+.import-filter button,
+.import-filter .secondary{
+  border-radius:8px;
+  border:1px solid #cdd5df;
+  background:#fff;
+  color:#344054;
+}
+.import-actions .primary,
+.import-filter button{
+  border-color:var(--brand);
+  background:var(--brand);
+  color:#fff;
+}
+.import-row{
+  border-radius:8px;
+  background:#fff;
+  border:1px solid var(--line);
+  box-shadow:var(--shadow);
+}
+.import-row strong{
+  color:var(--ink);
+}
+.import-pill{
+  background:#e8f1ff;
+  border-color:#c8dcff;
+  color:var(--brand);
+}
+.import-pill.ok{background:#ecfdf3;border-color:#bbf7d0;color:var(--green)}
+.import-pill.warn{background:#fff7ed;border-color:#fed7aa;color:var(--amber)}
+.import-pill.err{background:#fef3f2;border-color:#fecaca;color:var(--red)}
+.empty-import{
+  border-radius:8px;
+  border-color:#cdd5df;
+  background:#fff;
+  color:var(--muted);
+  box-shadow:var(--shadow);
+}
+.import-filter select,
+.import-filter input{
+  border-radius:8px;
+  border:1px solid #cdd5df;
+  background:#fff;
+  color:var(--ink);
+}
 </style>
 
 <section class="import-page">
@@ -28,13 +98,54 @@
     <span class="final-soft-pill green">ระบบดึงงาน</span>
     <h1>ประวัติการดึงงาน</h1>
     <p>ใช้ตรวจว่าระบบนำเข้างานจากแหล่งทางการและงานท้องถิ่นทำงานล่าสุดเมื่อใด เพิ่มกี่รายการ อัปเดตกี่รายการ และมีข้อผิดพลาดหรือไม่</p>
+    {% if import_status %}
+      <p>
+        Latest: <strong>{{ import_status.last_status }}</strong>
+        at {{ import_status.last_run_at or '-' }} |
+        inserted {{ import_status.last_inserted }} |
+        updated {{ import_status.last_updated }} |
+        skipped {{ import_status.last_skipped }} |
+        government jobs {{ import_status.government_jobs }}
+      </p>
+      {% if import_status.last_error %}
+        <p style="color:#fecaca">Last error: {{ import_status.last_error }}</p>
+      {% endif %}
+    {% endif %}
 
     <div class="import-actions">
-      <a class="primary" href="{{ url_for('admin_import_latest_doe_news') }}">ดึงข่าวงานจากกรมการจัดหางาน</a>
-      <a href="{{ url_for('admin_import_upper_central_jobs') }}">นำเข้างานท้องถิ่น</a>
-      <a href="{{ url_for('admin_repair_doe_source_links') }}">ซ่อมลิงก์ต้นทาง</a>
+      <form method="post" action="{{ url_for('admin_import_latest_doe_news') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="primary" type="submit">Manual DOE import</button>
+      </form>
+      <form method="post" action="{{ url_for('admin_import_upper_central_jobs') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Retry import</button>
+      </form>
+      <form method="post" action="{{ url_for('admin_repair_doe_source_links') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Repair source links</button>
+      </form>
+      <a href="{{ url_for('admin_import_runs') }}">Refresh</a>
       <a href="{{ url_for('admin_dashboard') }}">กลับ Admin</a>
     </div>
+
+    <form class="import-filter" method="get" action="{{ url_for('admin_import_runs') }}">
+      <label>
+        สถานะ
+        <select name="status">
+          <option value="" {% if not selected_status %}selected{% endif %}>ทั้งหมด</option>
+          <option value="SUCCESS" {% if selected_status == 'SUCCESS' %}selected{% endif %}>SUCCESS</option>
+          <option value="PARTIAL_SUCCESS" {% if selected_status == 'PARTIAL_SUCCESS' %}selected{% endif %}>PARTIAL_SUCCESS</option>
+          <option value="ERROR" {% if selected_status == 'ERROR' %}selected{% endif %}>ERROR</option>
+        </select>
+      </label>
+      <label>
+        แหล่งข้อมูล
+        <input type="text" name="source" placeholder="ค้นหา source_name" value="{{ source_filter }}">
+      </label>
+      <button type="submit">กรอง</button>
+      <a class="secondary" href="{{ url_for('admin_import_runs') }}">ล้าง</a>
+    </form>
   </div>
 
   {% if runs %}

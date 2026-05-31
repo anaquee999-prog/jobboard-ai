@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+
+{% block title %}ลงทะเบียนด้วยเบอร์โทร | JobBoard{% endblock %}
+
+{% block content %}
+<style>
+.phone-reg-page {
+    width: min(1080px, calc(100% - 28px));
+    margin: 30px auto 50px;
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    gap: 22px;
+}
+
+.phone-reg-hero, .phone-reg-card {
+    border-radius: 8px;
+    border: 1px solid #d9e2ec;
+    background: #fff;
+    box-shadow: 0 12px 32px rgba(16, 24, 40, .08);
+}
+
+.phone-reg-hero {
+    padding: 34px;
+    background: #fff;
+}
+
+.phone-reg-hero h1 {
+    margin: 10px 0;
+    color: #102033;
+    font-size: clamp(38px, 6vw, 62px);
+    line-height: 1;
+}
+
+.phone-reg-hero p {
+    color: #5c6f82;
+    font-size: 18px;
+    line-height: 1.7;
+}
+
+.phone-reg-badge {
+    display: inline-flex;
+    padding: 8px 13px;
+    border-radius: 999px;
+    border: 1px solid #b8d4ff;
+    background: #eef5ff;
+    color: #1769e0;
+    font-weight: 950;
+    font-size: 13px;
+}
+
+.phone-reg-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 22px;
+}
+
+.phone-reg-list div {
+    padding: 13px;
+    border-radius: 8px;
+    background: #f7f9fc;
+    border: 1px solid #d9e2ec;
+    color: #344054;
+    font-weight: 850;
+}
+
+.phone-reg-card {
+    padding: 26px;
+}
+
+.phone-reg-card h2 {
+    margin: 0 0 6px;
+    color: #102033;
+    font-size: 30px;
+}
+
+.phone-reg-card p {
+    margin: 0 0 16px;
+    color: #667085;
+}
+
+.phone-reg-error {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: #fff1f1;
+    border: 1px solid #ffc9c9;
+    color: #b42318;
+    font-weight: 900;
+    margin-bottom: 14px;
+}
+
+.phone-reg-field {
+    margin-bottom: 14px;
+}
+
+.phone-reg-field label {
+    display: block;
+    margin-bottom: 7px;
+    color: #344054;
+    font-weight: 950;
+}
+
+.phone-reg-field input, .phone-reg-field select {
+    width: 100%;
+    min-height: 48px;
+    border-radius: 8px;
+    border: 1px solid #b8c7d8;
+    background: #fff;
+    color: #102033;
+    padding: 0 14px;
+    font-weight: 800;
+}
+
+.phone-reg-submit {
+    width: 100%;
+    min-height: 50px;
+    border: 0;
+    border-radius: 8px;
+    background: #1769e0;
+    color: #fff;
+    font-weight: 950;
+    font-size: 16px;
+    cursor: pointer;
+    margin-top: 6px;
+}
+
+.phone-reg-submit:hover {
+    opacity: 0.9;
+}
+
+.phone-verified {
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: #ecfdf3;
+    border: 1px solid #abefc6;
+    color: #067647;
+    font-weight: 900;
+    margin-bottom: 14px;
+}
+
+@media (max-width: 880px) {
+    .phone-reg-page {
+        grid-template-columns: 1fr;
+    }
+    
+    .phone-reg-card {
+        order: -1;
+    }
+}
+</style>
+
+<section class="phone-reg-page">
+    <div class="phone-reg-hero">
+        <div class="phone-reg-badge">✓ เบอร์โทรยืนยันแล้ว</div>
+        <h1>สร้างบัญชี</h1>
+        <p>เสร็จสิ้นการลงทะเบียนด้วยการตั้งรหัสผ่าน</p>
+        <div class="phone-reg-list">
+            <div>📱 เบอร์โทรของคุณยืนยันแล้ว</div>
+            <div>🔒 ความปลอดภัยสูง</div>
+            <div>🚀 เริ่มต้นใช้งาน</div>
+        </div>
+    </div>
+
+    <div class="phone-reg-card">
+        <h2>ลงทะเบียน</h2>
+        <p>กรอกข้อมูลเพื่อสร้างบัญชี</p>
+
+        {% if error %}
+            <div class="phone-reg-error">{{ error }}</div>
+        {% endif %}
+
+        <div class="phone-verified">
+            ✓ เบอร์โทร: {{ phone }}
+        </div>
+
+        <form method="post">
+            <div class="phone-reg-field">
+                <label for="full_name">ชื่อเต็ม</label>
+                <input 
+                    id="full_name" 
+                    name="full_name" 
+                    type="text" 
+                    placeholder="ชื่อของคุณ"
+                    required
+                >
+            </div>
+
+            <div class="phone-reg-field">
+                <label for="role">ประเภทผู้ใช้งาน</label>
+                <select id="role" name="role" required>
+                    <option value="JOB_SEEKER">ผู้หางาน</option>
+                    <option value="EMPLOYER">นายจ้าง</option>
+                </select>
+            </div>
+
+            <div class="phone-reg-field">
+                <label for="password">รหัสผ่าน</label>
+                <input 
+                    id="password" 
+                    name="password" 
+                    type="password" 
+                    placeholder="อย่างน้อย 6 ตัวอักษร"
+                    autocomplete="new-password"
+                    required
+                >
+            </div>
+
+            <div class="phone-reg-field">
+                <label for="confirm_password">ยืนยันรหัสผ่าน</label>
+                <input 
+                    id="confirm_password" 
+                    name="confirm_password" 
+                    type="password" 
+                    placeholder="พิมพ์รหัสผ่านอีกครั้ง"
+                    autocomplete="new-password"
+                    required
+                >
+            </div>
+
+            <button class="phone-reg-submit" type="submit">สร้างบัญชี</button>
+        </form>
+
+        <div style="margin-top: 16px; text-align: center; color: rgba(226, 232, 240, .70);">
+            มีบัญชีแล้ว? <a href="{{ url_for('login') }}" style="color: #7dd3fc; font-weight: 950;">เข้าสู่ระบบ</a>
+        </div>
+    </div>
+</section>
+{% endblock %}

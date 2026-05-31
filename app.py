@@ -11,7 +11,7 @@ import json
 from html import unescape
 import zipfile
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urljoin
 
@@ -32,14 +32,197 @@ from flask import (
     send_from_directory,
 )
 from security_engine import security_guard
+from auth_module import init_oauth_providers, generate_oauth_state, store_oauth_state, verify_oauth_state, store_oauth_callback, get_oauth_callback
+from otp_handler import OTPHandler, PhoneOTPFlow
+from admin_action_routes import register_admin_action_routes
+from admin_page_routes import register_admin_page_routes
+from auth_routes import register_auth_routes
+from community_routes import register_community_routes
+from dashboard_routes import register_dashboard_routes
+from job_data_sources import JOB_DATA_SOURCES
+from matching_services import (
+    canonical_job_position as _canonical_job_position,
+    extract_skill_tags as _extract_skill_tags,
+    profile_job_match as _profile_job_match,
+    row_value as _row_value,
+)
+from notifications_routes import register_notification_routes
+from public_routes import register_public_routes
+from utility_api_routes import register_utility_api_routes
+from discord_api_routes import register_discord_api_routes
+from discord_services import build_discord_services
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / os.environ.get("JOBBOARD_DATABASE_PATH", "instance/jobboard.db")
 SITE_URL = os.environ.get("JOBBOARD_SITE_URL", "https://jobboard-ai-app.onrender.com").rstrip("/")
+JOBBOARD_API_BASE_URL = os.environ.get("JOBBOARD_API_BASE_URL", SITE_URL).rstrip("/")
+SEO_SITE_NAME = os.environ.get("JOBBOARD_SEO_SITE_NAME", "JobBoard AI").strip() or "JobBoard AI"
+SEO_CITY = os.environ.get("JOBBOARD_SEO_CITY", "Bangkok").strip() or "Bangkok"
+SEO_REGION = os.environ.get("JOBBOARD_SEO_REGION", "Bangkok").strip() or "Bangkok"
+SEO_COUNTRY = os.environ.get("JOBBOARD_SEO_COUNTRY", "TH").strip() or "TH"
+SEO_KEYWORDS = os.environ.get(
+    "JOBBOARD_SEO_KEYWORDS",
+    "local jobs, job search, urgent jobs, government jobs, apply jobs, AI job board, job scam detection, Thailand jobs",
+).strip()
+AI_SEARCH_API_ENDPOINT = os.environ.get("AI_SEARCH_API_ENDPOINT", "").strip()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("JOBBOARD_SECRET_KEY", "").strip()
 app.permanent_session_lifetime = timedelta(hours=12)
+DASHBOARD_DIST_DIR = BASE_DIR / "dashboard_frontend" / "dist"
+DEFAULT_PROVINCE_LANDING_PAGES = [
+    "Bangkok",
+    "Nakhon Sawan",
+    "Phichit",
+    "Phitsanulok",
+    "Kamphaeng Phet",
+    "Chiang Mai",
+    "Chonburi",
+    "Khon Kaen",
+    "Nakhon Ratchasima",
+    "Songkhla",
+]
+CONTENT_GUIDES = [
+    {
+        "slug": "avoid-job-scams",
+        "title": "How to avoid job scams before applying",
+        "description": "A practical checklist for spotting suspicious job ads, upfront payment tricks, and unsafe contact patterns.",
+        "sections": [
+            "Never transfer money before starting work or signing a clear agreement.",
+            "Verify the employer through official websites, phone numbers, and public business records.",
+            "Be careful with jobs that promise unusually high pay for unclear work.",
+            "Use report buttons when a listing asks for deposits, document fees, or personal data too early.",
+        ],
+    },
+    {
+        "slug": "government-job-source-checklist",
+        "title": "Government job source checklist",
+        "description": "How to verify DOE and government job announcements before sharing documents.",
+        "sections": [
+            "Open the official source link whenever it is available.",
+            "Check the application dates, required documents, and agency contact details.",
+            "Avoid reposted announcements that remove source links or ask for fees.",
+            "Keep copies of official pages and receipts when applying.",
+        ],
+    },
+    {
+        "slug": "safe-local-job-search",
+        "title": "Safe local job search guide",
+        "description": "Steps for finding local jobs while protecting phone numbers, documents, and personal information.",
+        "sections": [
+            "Search by province and job title, then compare multiple listings.",
+            "Prefer employers with clear company names, locations, and contact channels.",
+            "Ask questions in writing before sharing sensitive documents.",
+            "Report suspicious patterns to help the community stay safer.",
+        ],
+    },
+]
+FAQ_ITEMS = [
+    {
+        "question": "How does JobBoard AI detect suspicious jobs?",
+        "answer": "The system checks listing text, employer trust signals, report counts, risky keywords, and scam patterns before assigning a risk score.",
+    },
+    {
+        "question": "Can users report suspicious job posts?",
+        "answer": "Yes. Logged-in users can report jobs and community posts so admins can review and moderate them.",
+    },
+    {
+        "question": "Are government job posts linked to official sources?",
+        "answer": "Government and DOE posts should include official source links when available, and users should verify details on the source page before applying.",
+    },
+    {
+        "question": "Do I need to pay money before applying for jobs?",
+        "answer": "No. Be cautious of any job that asks for upfront fees, deposits, or document processing payments before work begins.",
+    },
+]
+
+
+def build_seo_title(page_title=""):
+    page_title = str(page_title or "").strip()
+    if not page_title:
+        return f"{SEO_SITE_NAME} | Safe Local Jobs in {SEO_REGION}"
+    if SEO_SITE_NAME.lower() in page_title.lower():
+        return page_title
+    return f"{page_title} | {SEO_SITE_NAME}"
+
+
+def build_meta_description(page_description=""):
+    description = str(page_description or "").strip()
+    if description:
+        return description[:300]
+    return (
+        f"Find local jobs in {SEO_CITY}, {SEO_REGION} with AI anti-scam screening, "
+        "trusted employer signals, official job sources, and safety FAQ answers."
+    )
+
+
+def build_local_business_schema():
+    return {
+        "@context": "https://schema.org",
+        "@type": "LocalBusiness",
+        "name": SEO_SITE_NAME,
+        "url": SITE_URL,
+        "description": build_meta_description(),
+        "areaServed": {
+            "@type": "AdministrativeArea",
+            "name": SEO_REGION,
+            "address": {
+                "@type": "PostalAddress",
+                "addressLocality": SEO_CITY,
+                "addressRegion": SEO_REGION,
+                "addressCountry": SEO_COUNTRY,
+            },
+        },
+        "address": {
+            "@type": "PostalAddress",
+            "addressLocality": SEO_CITY,
+            "addressRegion": SEO_REGION,
+            "addressCountry": SEO_COUNTRY,
+        },
+    }
+
+
+def _schema_row_value(row, key, default=""):
+    try:
+        value = row[key]
+    except Exception:
+        value = getattr(row, key, default)
+    return default if value is None else value
+
+
+def generate_jobposting_jsonld(job):
+    title = _schema_row_value(job, "title", "Job opening")
+    description = _schema_row_value(job, "description", "")
+    location = _schema_row_value(job, "location", SEO_CITY)
+    company_name = _schema_row_value(job, "company_name", SEO_SITE_NAME) or SEO_SITE_NAME
+    created_at = str(_schema_row_value(job, "created_at", "") or "")
+    posted_date = created_at[:10] if created_at else datetime.now(timezone.utc).date().isoformat()
+
+    return {
+        "@context": "https://schema.org",
+        "@type": "JobPosting",
+        "title": title,
+        "description": description,
+        "datePosted": posted_date,
+        "employmentType": _schema_row_value(job, "job_type", "") or "FULL_TIME",
+        "hiringOrganization": {
+            "@type": "Organization",
+            "name": company_name,
+            "sameAs": SITE_URL,
+        },
+        "jobLocation": {
+            "@type": "Place",
+            "address": {
+                "@type": "PostalAddress",
+                "addressLocality": location or SEO_CITY,
+                "addressRegion": SEO_REGION,
+                "addressCountry": SEO_COUNTRY,
+            },
+        },
+    }
+
+# Initialize OAuth Providers
+OAUTH_PROVIDERS = init_oauth_providers()
 
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
@@ -53,45 +236,45 @@ DISCORD_BOT_API_TOKEN = os.environ.get("DISCORD_BOT_API_TOKEN", "").strip()
 DOE_NEWS_SOURCES = [
     {
         "key": "doe-main",
-        "province": "กรมการจัดหางาน",
+        "province": "à¸à¸£à¸¡à¸à¸²à¸£à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™",
         "phone": "0996101000",
-        "employer": "กรมการจัดหางาน / ข่าวประกาศรับสมัครงาน",
+        "employer": "à¸à¸£à¸¡à¸à¸²à¸£à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™ / à¸‚à¹ˆà¸²à¸§à¸›à¸£à¸°à¸à¸²à¸¨à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£à¸‡à¸²à¸™",
         "tax_id": "DOE-SOURCE-MAIN",
         "url": "https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label",
         "priority": 100,
     },
     {
         "key": "phichit",
-        "province": "พิจิตร",
+        "province": "à¸žà¸´à¸ˆà¸´à¸•à¸£",
         "phone": "0996101001",
-        "employer": "สำนักงานจัดหางานจังหวัดพิจิตร / ข่าวงานท้องถิ่น",
+        "employer": "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸”à¸žà¸´à¸ˆà¸´à¸•à¸£ / à¸‚à¹ˆà¸²à¸§à¸‡à¸²à¸™à¸—à¹‰à¸­à¸‡à¸–à¸´à¹ˆà¸™",
         "tax_id": "DOE-SOURCE-PHICHIT-LIVE",
         "url": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label",
         "priority": 95,
     },
     {
         "key": "phitsanulok",
-        "province": "พิษณุโลก",
+        "province": "à¸žà¸´à¸©à¸“à¸¸à¹‚à¸¥à¸",
         "phone": "0996101002",
-        "employer": "สำนักงานจัดหางานจังหวัดพิษณุโลก / ข่าวงานท้องถิ่น",
+        "employer": "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸”à¸žà¸´à¸©à¸“à¸¸à¹‚à¸¥à¸ / à¸‚à¹ˆà¸²à¸§à¸‡à¸²à¸™à¸—à¹‰à¸­à¸‡à¸–à¸´à¹ˆà¸™",
         "tax_id": "DOE-SOURCE-PHITSANULOK-LIVE",
         "url": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label",
         "priority": 94,
     },
     {
         "key": "kamphaengphet",
-        "province": "กำแพงเพชร",
+        "province": "à¸à¸³à¹à¸žà¸‡à¹€à¸žà¸Šà¸£",
         "phone": "0996101003",
-        "employer": "สำนักงานจัดหางานจังหวัดกำแพงเพชร / ข่าวงานท้องถิ่น",
+        "employer": "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸”à¸à¸³à¹à¸žà¸‡à¹€à¸žà¸Šà¸£ / à¸‚à¹ˆà¸²à¸§à¸‡à¸²à¸™à¸—à¹‰à¸­à¸‡à¸–à¸´à¹ˆà¸™",
         "tax_id": "DOE-SOURCE-KAMPHAENGPHET-LIVE",
         "url": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label",
         "priority": 93,
     },
     {
         "key": "nakhonsawan",
-        "province": "นครสวรรค์",
+        "province": "à¸™à¸„à¸£à¸ªà¸§à¸£à¸£à¸„à¹Œ",
         "phone": "0996101004",
-        "employer": "สำนักงานจัดหางานจังหวัดนครสวรรค์ / ข่าวงานท้องถิ่น",
+        "employer": "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸”à¸™à¸„à¸£à¸ªà¸§à¸£à¸£à¸„à¹Œ / à¸‚à¹ˆà¸²à¸§à¸‡à¸²à¸™à¸—à¹‰à¸­à¸‡à¸–à¸´à¹ˆà¸™",
         "tax_id": "DOE-SOURCE-NAKHONSAWAN-LIVE",
         "url": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label",
         "priority": 92,
@@ -120,10 +303,26 @@ def validate_runtime_config():
         raise RuntimeError("Missing required environment variables: " + ", ".join(missing))
 
     if len(app.secret_key) < 32:
-        raise RuntimeError("JOBBOARD_SECRET_KEY ต้องยาวอย่างน้อย 32 ตัวอักษร")
+        raise RuntimeError("JOBBOARD_SECRET_KEY à¸•à¹‰à¸­à¸‡à¸¢à¸²à¸§à¸­à¸¢à¹ˆà¸²à¸‡à¸™à¹‰à¸­à¸¢ 32 à¸•à¸±à¸§à¸­à¸±à¸à¸©à¸£")
 
     if len(ADMIN_PASSWORD) < 12:
-        raise RuntimeError("JOBBOARD_ADMIN_PASSWORD ควรยาวอย่างน้อย 12 ตัวอักษร")
+        raise RuntimeError("JOBBOARD_ADMIN_PASSWORD à¸„à¸§à¸£à¸¢à¸²à¸§à¸­à¸¢à¹ˆà¸²à¸‡à¸™à¹‰à¸­à¸¢ 12 à¸•à¸±à¸§à¸­à¸±à¸à¸©à¸£")
+
+
+def send_discord_alert(message, username="JobBoard Alert"):
+    """à¸ªà¹ˆà¸‡à¸‚à¹‰à¸­à¸„à¸§à¸²à¸¡à¹à¸ˆà¹‰à¸‡à¹€à¸•à¸·à¸­à¸™à¹„à¸›à¸¢à¸±à¸‡ Discord webhook"""
+    if not DISCORD_SCAM_ALERT_WEBHOOK_URL:
+        return False
+    try:
+        payload = {
+            "username": username,
+            "content": message,
+        }
+        response = requests.post(DISCORD_SCAM_ALERT_WEBHOOK_URL, json=payload, timeout=10)
+        response.raise_for_status()
+        return True
+    except Exception:
+        return False
 
 
 def now_str():
@@ -132,6 +331,89 @@ def now_str():
 
 def normalize_phone(value):
     return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def is_phone_blacklisted(phone):
+    """à¸•à¸£à¸§à¸ˆà¸ªà¸­à¸šà¸§à¹ˆà¸²à¹€à¸šà¸­à¸£à¹Œà¸–à¸¹à¸ ban à¹„à¸«à¸¡"""
+    phone = normalize_phone(phone)
+    if not phone:
+        return False
+    try:
+        row = get_db().execute(
+            "SELECT id FROM phone_blacklist WHERE phone_number = ?",
+            (phone,),
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def blacklist_phone(phone, reason="", banned_by_user_id=None):
+    """Ban à¹€à¸šà¸­à¸£à¹Œà¹‚à¸—à¸£à¸¨à¸±à¸žà¸—à¹Œ"""
+    phone = normalize_phone(phone)
+    if not is_valid_thai_phone(phone):
+        return False, "à¹€à¸šà¸­à¸£à¹Œà¹‚à¸—à¸£à¹„à¸¡à¹ˆà¸–à¸¹à¸à¸•à¹‰à¸­à¸‡"
+
+    if is_phone_blacklisted(phone):
+        return False, "à¹€à¸šà¸­à¸£à¹Œà¸™à¸µà¹‰à¸–à¸¹à¸ ban à¸­à¸¢à¸¹à¹ˆà¹à¸¥à¹‰à¸§"
+
+    try:
+        get_db().execute(
+            """
+            INSERT INTO phone_blacklist (phone_number, reason, banned_by_user_id, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (phone, reason, banned_by_user_id, now_str()),
+        )
+        get_db().commit()
+        return True, "Ban à¹€à¸šà¸­à¸£à¹Œà¸ªà¸³à¹€à¸£à¹‡à¸ˆ"
+    except Exception as e:
+        return False, f"à¹€à¸à¸´à¸”à¸‚à¹‰à¸­à¸œà¸´à¸”à¸žà¸¥à¸²à¸”: {str(e)}"
+
+
+def track_job_view(job_id, user_id=None, ip_address=None, user_agent=None):
+    """à¸šà¸±à¸™à¸—à¸¶à¸à¸à¸²à¸£à¸”à¸¹à¸‡à¸²à¸™"""
+    try:
+        get_db().execute(
+            """
+            INSERT INTO job_views (job_id, user_id, ip_address, user_agent, viewed_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (job_id, user_id, ip_address, user_agent, now_str()),
+        )
+        get_db().commit()
+        return True
+    except Exception:
+        return False
+
+
+def get_job_view_count(job_id):
+    """à¸™à¸±à¸šà¸ˆà¸³à¸™à¸§à¸™à¸„à¸™à¸”à¸¹à¸‡à¸²à¸™"""
+    try:
+        row = get_db().execute(
+            "SELECT COUNT(*) as count FROM job_views WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+        return int(row["count"] or 0) if row else 0
+    except Exception:
+        return 0
+
+
+def get_live_viewers(job_id, minutes=5):
+    """à¸™à¸±à¸šà¸„à¸™à¸—à¸µà¹ˆà¸à¸³à¸¥à¸±à¸‡à¸”à¸¹à¸­à¸¢à¸¹à¹ˆà¸•à¸­à¸™à¸™à¸µà¹‰ (à¹ƒà¸™ 5 à¸™à¸²à¸—à¸µà¸¥à¹ˆà¸²à¸ªà¸¸à¸”)"""
+    try:
+        cutoff = (datetime.now() - timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        row = get_db().execute(
+            """
+            SELECT COUNT(DISTINCT COALESCE(user_id, ip_address)) as count
+            FROM job_views
+            WHERE job_id = ? AND viewed_at >= ?
+            """,
+            (job_id, cutoff),
+        ).fetchone()
+        return int(row["count"] or 0) if row else 0
+    except Exception:
+        return 0
 
 
 def is_valid_thai_phone(phone):
@@ -155,22 +437,22 @@ def validate_account_password(password, phone_number=""):
     }
 
     if len(password) < 8:
-        return False, "รหัสผ่านต้องยาวอย่างน้อย 8 ตัวอักษร"
+        return False, "à¸£à¸«à¸±à¸ªà¸œà¹ˆà¸²à¸™à¸•à¹‰à¸­à¸‡à¸¢à¸²à¸§à¸­à¸¢à¹ˆà¸²à¸‡à¸™à¹‰à¸­à¸¢ 8 à¸•à¸±à¸§à¸­à¸±à¸à¸©à¸£"
 
     if len(password) > 128:
-        return False, "รหัสผ่านยาวเกินไป"
+        return False, "à¸£à¸«à¸±à¸ªà¸œà¹ˆà¸²à¸™à¸¢à¸²à¸§à¹€à¸à¸´à¸™à¹„à¸›"
 
     if password.lower() in weak_passwords:
-        return False, "รหัสผ่านนี้เดาง่ายเกินไป กรุณาตั้งใหม่"
+        return False, "à¸£à¸«à¸±à¸ªà¸œà¹ˆà¸²à¸™à¸™à¸µà¹‰à¹€à¸”à¸²à¸‡à¹ˆà¸²à¸¢à¹€à¸à¸´à¸™à¹„à¸› à¸à¸£à¸¸à¸“à¸²à¸•à¸±à¹‰à¸‡à¹ƒà¸«à¸¡à¹ˆ"
 
     if phone_number and password == phone_number:
-        return False, "ห้ามใช้เบอร์โทรศัพท์เป็นรหัสผ่าน"
+        return False, "à¸«à¹‰à¸²à¸¡à¹ƒà¸Šà¹‰à¹€à¸šà¸­à¸£à¹Œà¹‚à¸—à¸£à¸¨à¸±à¸žà¸—à¹Œà¹€à¸›à¹‡à¸™à¸£à¸«à¸±à¸ªà¸œà¹ˆà¸²à¸™"
 
     if password.isdigit():
-        return False, "รหัสผ่านไม่ควรเป็นตัวเลขล้วน"
+        return False, "à¸£à¸«à¸±à¸ªà¸œà¹ˆà¸²à¸™à¹„à¸¡à¹ˆà¸„à¸§à¸£à¹€à¸›à¹‡à¸™à¸•à¸±à¸§à¹€à¸¥à¸‚à¸¥à¹‰à¸§à¸™"
 
-    if not re.search(r"[A-Za-zก-๙]", password) or not re.search(r"\d", password):
-        return False, "รหัสผ่านควรมีทั้งตัวอักษรและตัวเลข"
+    if not re.search(r"[A-Za-zà¸-à¹™]", password) or not re.search(r"\d", password):
+        return False, "à¸£à¸«à¸±à¸ªà¸œà¹ˆà¸²à¸™à¸„à¸§à¸£à¸¡à¸µà¸—à¸±à¹‰à¸‡à¸•à¸±à¸§à¸­à¸±à¸à¸©à¸£à¹à¸¥à¸°à¸•à¸±à¸§à¹€à¸¥à¸‚"
 
     return True, ""
 
@@ -179,10 +461,10 @@ def validate_profile_name(value, label, max_length=120):
     value = str(value or "").strip()
 
     if not value:
-        return False, f"กรุณากรอก{label}"
+        return False, f"à¸à¸£à¸¸à¸“à¸²à¸à¸£à¸­à¸{label}"
 
     if len(value) > max_length:
-        return False, f"{label}ยาวเกินไป"
+        return False, f"{label}à¸¢à¸²à¸§à¹€à¸à¸´à¸™à¹„à¸›"
 
     blocked_patterns = [
         r"https?://",
@@ -190,15 +472,15 @@ def validate_profile_name(value, label, max_length=120):
         r"line\s*id",
         r"telegram",
         r"whatsapp",
-        r"เว็บพนัน",
-        r"พนัน",
-        r"เงินกู้",
+        r"à¹€à¸§à¹‡à¸šà¸žà¸™à¸±à¸™",
+        r"à¸žà¸™à¸±à¸™",
+        r"à¹€à¸‡à¸´à¸™à¸à¸¹à¹‰",
     ]
 
     lowered = value.lower()
     for pattern in blocked_patterns:
         if re.search(pattern, lowered, re.IGNORECASE):
-            return False, f"{label}มีข้อความที่ไม่เหมาะสม"
+            return False, f"{label}à¸¡à¸µà¸‚à¹‰à¸­à¸„à¸§à¸²à¸¡à¸—à¸µà¹ˆà¹„à¸¡à¹ˆà¹€à¸«à¸¡à¸²à¸°à¸ªà¸¡"
 
     return True, ""
 
@@ -458,7 +740,7 @@ def analyze_job_content(title, description, salary_range="", location="", trust_
         from security_engine import calculate_scam_score
         score, reasons = calculate_scam_score(f"{title} {description} {salary_range} {location}")
     except Exception:
-        score, reasons = 50, ["ระบบคัดกรองทำงานไม่สมบูรณ์ จึงส่งให้ผู้ดูแลตรวจ"]
+        score, reasons = 50, ["à¸£à¸°à¸šà¸šà¸„à¸±à¸”à¸à¸£à¸­à¸‡à¸—à¸³à¸‡à¸²à¸™à¹„à¸¡à¹ˆà¸ªà¸¡à¸šà¸¹à¸£à¸“à¹Œ à¸ˆà¸¶à¸‡à¸ªà¹ˆà¸‡à¹ƒà¸«à¹‰à¸œà¸¹à¹‰à¸”à¸¹à¹à¸¥à¸•à¸£à¸§à¸ˆ"]
 
     try:
         trust_score = int(trust_score or 50)
@@ -472,10 +754,10 @@ def analyze_job_content(title, description, salary_range="", location="", trust_
 
     if trust_score < 30:
         score += 20
-        reasons.append("Trust score ต่ำ")
+        reasons.append("Trust score à¸•à¹ˆà¸³")
     if report_count >= 3:
         score += 20
-        reasons.append("มีรายงานจากผู้ใช้หลายครั้ง")
+        reasons.append("à¸¡à¸µà¸£à¸²à¸¢à¸‡à¸²à¸™à¸ˆà¸²à¸à¸œà¸¹à¹‰à¹ƒà¸Šà¹‰à¸«à¸¥à¸²à¸¢à¸„à¸£à¸±à¹‰à¸‡")
 
     score = max(0, min(100, int(score or 0)))
     if score >= 70:
@@ -502,20 +784,33 @@ def get_trust_level(score):
 @app.context_processor
 def inject_common_values():
     canonical_path = request.path if request else "/"
+    canonical_url = f"{SITE_URL}{canonical_path}"
     return {
         "csrf_token": generate_csrf_token,
         "current_year": datetime.now().year,
         "current_user": get_current_user(),
         "site_url": SITE_URL,
-        "canonical_url": f"{SITE_URL}{canonical_path}",
+        "site_name": SEO_SITE_NAME,
+        "canonical_url": canonical_url,
+        "seo_keywords": SEO_KEYWORDS,
+        "seo_city": SEO_CITY,
+        "seo_region": SEO_REGION,
+        "seo_country": SEO_COUNTRY,
+        "default_meta_description": build_meta_description(),
+        "local_business_schema": build_local_business_schema(),
         "job_slug": job_slug,
         "scam_risk_label": scam_risk_label,
+        "get_trust_level": get_trust_level,
         "page_view_stats": get_page_view_stats,
         "official_source_url": get_official_doe_source_for_location,
         "is_bad_source_url": is_bad_or_placeholder_source_url,
         "safe_source_url": safe_source_url,
         "unread_notifications_count": get_unread_notifications_count,
         "recent_notifications": get_recent_notifications,
+        "google_analytics_id": os.environ.get("GOOGLE_ANALYTICS_ID", "").strip(),
+        "microsoft_clarity_id": os.environ.get("MICROSOFT_CLARITY_ID", "").strip(),
+        "google_adsense_client": os.environ.get("GOOGLE_ADSENSE_CLIENT", "").strip(),
+        "ai_search_endpoint": url_for("api_ai_search"),
     }
 
 
@@ -523,9 +818,13 @@ def inject_common_values():
 def csrf_protect():
     if request.method != "POST":
         return None
-    if request.path == "/admin/discord-test" and os.environ.get("JOBBOARD_ALLOW_UNAUTH_DISCORD_TEST", "0") == "1":
+    if request.path == "/admin/discord-test" and (
+        request.is_json or os.environ.get("JOBBOARD_ALLOW_UNAUTH_DISCORD_TEST", "0") == "1"
+    ):
         return None
     if request.path == "/api/analytics":
+        return None
+    if request.path == "/api/ai-search":
         return None
     if request.path.startswith("/api/discord/"):
         return None
@@ -533,10 +832,10 @@ def csrf_protect():
         return None
 
     session_token = session.get("_csrf_token", "")
-    form_token = request.form.get("csrf_token", "")
+    form_token = request.form.get("csrf_token", "") or request.headers.get("X-CSRF-Token", "")
 
     if not session_token or not form_token or not hmac.compare_digest(session_token, form_token):
-        return "CSRF token ไม่ถูกต้องหรือหมดอายุ กรุณารีเฟรชหน้าแล้วลองใหม่อีกครั้ง", 400
+        return "CSRF token à¹„à¸¡à¹ˆà¸–à¸¹à¸à¸•à¹‰à¸­à¸‡à¸«à¸£à¸·à¸­à¸«à¸¡à¸”à¸­à¸²à¸¢à¸¸ à¸à¸£à¸¸à¸“à¸²à¸£à¸µà¹€à¸Ÿà¸£à¸Šà¸«à¸™à¹‰à¸²à¹à¸¥à¹‰à¸§à¸¥à¸­à¸‡à¹ƒà¸«à¸¡à¹ˆà¸­à¸µà¸à¸„à¸£à¸±à¹‰à¸‡", 400
 
     return None
 
@@ -571,7 +870,22 @@ def ensure_column(conn, table_name, column_name, definition):
     rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
     existing = {row["name"] for row in rows}
     if column_name not in existing:
-        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
+        # SQLite cannot add a column with UNIQUE directly via ALTER TABLE.
+        # Add the column first, then enforce uniqueness with an index.
+        normalized = definition.strip()
+        if "UNIQUE" in normalized.upper():
+            column_definition = " ".join(
+                part for part in normalized.split() if part.upper() != "UNIQUE"
+            ).strip()
+            conn.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}"
+            )
+            conn.execute(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{table_name}_{column_name}_unique "
+                f"ON {table_name}({column_name})"
+            )
+        else:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")
 
 
 def ensure_discord_schema(conn=None):
@@ -665,10 +979,20 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone_number TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
+            phone_number TEXT UNIQUE,
+            password_hash TEXT,
+            email TEXT UNIQUE,
+            google_id TEXT UNIQUE,
+            google_email TEXT,
+            facebook_id TEXT UNIQUE,
+            facebook_email TEXT,
+            profile_picture TEXT DEFAULT '',
+            full_name TEXT DEFAULT '',
             role TEXT NOT NULL DEFAULT 'JOB_SEEKER',
+            auth_method TEXT DEFAULT 'phone',
             is_verified INTEGER NOT NULL DEFAULT 0,
+            is_phone_verified INTEGER NOT NULL DEFAULT 0,
+            is_email_verified INTEGER NOT NULL DEFAULT 0,
             is_banned INTEGER NOT NULL DEFAULT 0,
             trust_score INTEGER NOT NULL DEFAULT 50,
             created_at TEXT NOT NULL,
@@ -717,6 +1041,29 @@ def init_db():
             updated_at TEXT NOT NULL,
             FOREIGN KEY (employer_id) REFERENCES users(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS phone_blacklist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone_number TEXT UNIQUE NOT NULL,
+            reason TEXT,
+            banned_by_user_id INTEGER,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (banned_by_user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE IF NOT EXISTS job_views (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id INTEGER NOT NULL,
+            user_id INTEGER,
+            ip_address TEXT,
+            user_agent TEXT,
+            viewed_at TEXT NOT NULL,
+            FOREIGN KEY (job_id) REFERENCES job_posts(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_job_views_job_id ON job_views(job_id);
+        CREATE INDEX IF NOT EXISTS idx_job_views_viewed_at ON job_views(viewed_at);
 
         CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -913,6 +1260,18 @@ def init_db():
     ensure_column(conn, "community_reports", "status", "TEXT NOT NULL DEFAULT 'PENDING'")
     ensure_column(conn, "community_reports", "updated_at", "TEXT")
     ensure_discord_schema(conn)
+    
+    # Migrate users table for OAuth support
+    ensure_column(conn, "users", "email", "TEXT UNIQUE")
+    ensure_column(conn, "users", "google_id", "TEXT UNIQUE")
+    ensure_column(conn, "users", "google_email", "TEXT")
+    ensure_column(conn, "users", "facebook_id", "TEXT UNIQUE")
+    ensure_column(conn, "users", "facebook_email", "TEXT")
+    ensure_column(conn, "users", "profile_picture", "TEXT DEFAULT ''")
+    ensure_column(conn, "users", "full_name", "TEXT DEFAULT ''")
+    ensure_column(conn, "users", "auth_method", "TEXT DEFAULT 'phone'")
+    ensure_column(conn, "users", "is_phone_verified", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "users", "is_email_verified", "INTEGER NOT NULL DEFAULT 0")
 
 
     seed_admin(conn)
@@ -993,9 +1352,9 @@ def seed_demo_jobs(conn):
         )
 
     demo_jobs = [
-        ("Marketing Officer", "วางแผนการตลาด ดูแลคอนเทนต์ และประสานงานแคมเปญออนไลน์", "18,000 - 28,000 บาท", "Bangkok", 0),
-        ("Graphic Designer", "ออกแบบสื่อโฆษณา ภาพโปรโมต และงานกราฟิกสำหรับ Social Media", "20,000 - 30,000 บาท", "Chiang Mai", 0),
-        ("ข่าวรับสมัครงานราชการตัวอย่าง", "ตัวอย่างข่าวราชการที่ระบบ AI จะดึงเข้ามาในอนาคต", "", "ทั่วประเทศ", 1),
+        ("Marketing Officer", "à¸§à¸²à¸‡à¹à¸œà¸™à¸à¸²à¸£à¸•à¸¥à¸²à¸” à¸”à¸¹à¹à¸¥à¸„à¸­à¸™à¹€à¸—à¸™à¸•à¹Œ à¹à¸¥à¸°à¸›à¸£à¸°à¸ªà¸²à¸™à¸‡à¸²à¸™à¹à¸„à¸¡à¹€à¸›à¸à¸­à¸­à¸™à¹„à¸¥à¸™à¹Œ", "18,000 - 28,000 à¸šà¸²à¸—", "Bangkok", 0),
+        ("Graphic Designer", "à¸­à¸­à¸à¹à¸šà¸šà¸ªà¸·à¹ˆà¸­à¹‚à¸†à¸©à¸“à¸² à¸ à¸²à¸žà¹‚à¸›à¸£à¹‚à¸¡à¸• à¹à¸¥à¸°à¸‡à¸²à¸™à¸à¸£à¸²à¸Ÿà¸´à¸à¸ªà¸³à¸«à¸£à¸±à¸š Social Media", "20,000 - 30,000 à¸šà¸²à¸—", "Chiang Mai", 0),
+        ("à¸‚à¹ˆà¸²à¸§à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£à¸‡à¸²à¸™à¸£à¸²à¸Šà¸à¸²à¸£à¸•à¸±à¸§à¸­à¸¢à¹ˆà¸²à¸‡", "à¸•à¸±à¸§à¸­à¸¢à¹ˆà¸²à¸‡à¸‚à¹ˆà¸²à¸§à¸£à¸²à¸Šà¸à¸²à¸£à¸—à¸µà¹ˆà¸£à¸°à¸šà¸š AI à¸ˆà¸°à¸”à¸¶à¸‡à¹€à¸‚à¹‰à¸²à¸¡à¸²à¹ƒà¸™à¸­à¸™à¸²à¸„à¸•", "", "à¸—à¸±à¹ˆà¸§à¸›à¸£à¸°à¹€à¸—à¸¨", 1),
     ]
 
     for title, desc, salary, loc, is_gov in demo_jobs:
@@ -1039,7 +1398,7 @@ def clean_demo_and_test_data(conn):
         DELETE FROM job_posts
         WHERE lower(COALESCE(ai_risk_reason, '')) LIKE '%demo%'
            OR lower(COALESCE(description, '')) LIKE '%demo%'
-           OR title LIKE '%ตัวอย่าง%'
+           OR title LIKE '%à¸•à¸±à¸§à¸­à¸¢à¹ˆà¸²à¸‡%'
            OR lower(COALESCE(source_url, '')) LIKE '%example.com%'
            OR lower(COALESCE(source_url, '')) LIKE '%/demo/%'
            OR title IN ('Marketing Officer', 'Graphic Designer')
@@ -1058,7 +1417,7 @@ def clean_demo_and_test_data(conn):
         WHERE upper(COALESCE(tax_id, '')) LIKE 'DEMO-%'
            OR upper(COALESCE(tax_id, '')) LIKE 'TEST-%'
            OR company_name LIKE '%Demo%'
-           OR company_name LIKE '%ทดสอบ%'
+           OR company_name LIKE '%à¸—à¸”à¸ªà¸­à¸š%'
         """
     )
 
@@ -1093,7 +1452,7 @@ def government_jobs_where_sql(prefix="job_posts"):
         AND lower(COALESCE({prefix}.source_url, '')) NOT LIKE '%google.com%'
         AND lower(COALESCE({prefix}.source_url, '')) NOT LIKE '%localhost%'
         AND lower(COALESCE({prefix}.source_url, '')) NOT LIKE '%127.0.0.1%'
-        AND {prefix}.title NOT LIKE '%ตัวอย่าง%'
+        AND {prefix}.title NOT LIKE '%à¸•à¸±à¸§à¸­à¸¢à¹ˆà¸²à¸‡%'
         AND lower(COALESCE({prefix}.description, '')) NOT LIKE '%demo%'
     """
 
@@ -1117,20 +1476,20 @@ def _safe_agency_name(company_name="", location="", source_url=""):
     location = str(location or "").strip()
     source_url = str(source_url or "").lower().strip()
 
-    bad = {"", "ระบบดึงงานอัตโนมัติ", "auto job engine", "government job news"}
+    bad = {"", "à¸£à¸°à¸šà¸šà¸”à¸¶à¸‡à¸‡à¸²à¸™à¸­à¸±à¸•à¹‚à¸™à¸¡à¸±à¸•à¸´", "auto job engine", "government job news"}
 
     if company_name.lower() not in bad:
         return company_name
 
-    if "phichit" in source_url or "พิจิตร" in location:
-        return "สำนักงานจัดหางานจังหวัดพิจิตร"
-    if "phitsanulok" in source_url or "พิษณุโลก" in location:
-        return "สำนักงานจัดหางานจังหวัดพิษณุโลก"
-    if "kamphaengphet" in source_url or "กำแพงเพชร" in location:
-        return "สำนักงานจัดหางานจังหวัดกำแพงเพชร"
-    if "nakhonsawan" in source_url or "นครสวรรค์" in location:
-        return "สำนักงานจัดหางานจังหวัดนครสวรรค์"
-    return "กรมการจัดหางาน / ข่าวประกาศรับสมัครงาน"
+    if "phichit" in source_url or "à¸žà¸´à¸ˆà¸´à¸•à¸£" in location:
+        return "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸”à¸žà¸´à¸ˆà¸´à¸•à¸£"
+    if "phitsanulok" in source_url or "à¸žà¸´à¸©à¸“à¸¸à¹‚à¸¥à¸" in location:
+        return "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸”à¸žà¸´à¸©à¸“à¸¸à¹‚à¸¥à¸"
+    if "kamphaengphet" in source_url or "à¸à¸³à¹à¸žà¸‡à¹€à¸žà¸Šà¸£" in location:
+        return "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸”à¸à¸³à¹à¸žà¸‡à¹€à¸žà¸Šà¸£"
+    if "nakhonsawan" in source_url or "à¸™à¸„à¸£à¸ªà¸§à¸£à¸£à¸„à¹Œ" in location:
+        return "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸”à¸™à¸„à¸£à¸ªà¸§à¸£à¸£à¸„à¹Œ"
+    return "à¸à¸£à¸¡à¸à¸²à¸£à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™ / à¸‚à¹ˆà¸²à¸§à¸›à¸£à¸°à¸à¸²à¸¨à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£à¸‡à¸²à¸™"
 
 
 def _safe_is_real_job_title(title):
@@ -1141,58 +1500,58 @@ def _safe_is_real_job_title(title):
         return False
 
     bad_terms = [
-        "สำนักงานบริหารแรงงานไทยไปต่างประเทศ",
-        "สำนักบริหารแรงงานต่างด้าว",
-        "เว็บลิงค์หน่วยงานภายนอก",
-        "เว็บลิงค์หน่วยงานภายใน",
-        "รายงานงบทดลองเบิกจ่าย",
-        "ข่าวประกาศ",
-        "กฏหมาย",
-        "กฎหมาย",
-        "แผนงาน",
-        "โครงการ และงบประมาณ",
-        "ยุทธศาสตร์",
-        "แผนปฏิบัติราชการ",
-        "แผนพัฒนาดิจิทัล",
-        "นโยบายกรม",
-        "นโยบายกระทรวง",
-        "อำนาจหน้าที่",
-        "ภารกิจของหน่วยงาน",
-        "โครงสร้างหน่วยงาน",
-        "ข้อมูลผู้บริหาร",
-        "ผู้บริหารกรม",
-        "ผลการปฏิบัติงาน",
-        "คู่มือตาม",
-        "เกี่ยวกับบริษัทจัดหางาน",
-        "บทความ/งานวิเคราะห์",
-        "วารสาร",
+        "à¸ªà¸³à¸™à¸±à¸à¸‡à¸²à¸™à¸šà¸£à¸´à¸«à¸²à¸£à¹à¸£à¸‡à¸‡à¸²à¸™à¹„à¸—à¸¢à¹„à¸›à¸•à¹ˆà¸²à¸‡à¸›à¸£à¸°à¹€à¸—à¸¨",
+        "à¸ªà¸³à¸™à¸±à¸à¸šà¸£à¸´à¸«à¸²à¸£à¹à¸£à¸‡à¸‡à¸²à¸™à¸•à¹ˆà¸²à¸‡à¸”à¹‰à¸²à¸§",
+        "à¹€à¸§à¹‡à¸šà¸¥à¸´à¸‡à¸„à¹Œà¸«à¸™à¹ˆà¸§à¸¢à¸‡à¸²à¸™à¸ à¸²à¸¢à¸™à¸­à¸",
+        "à¹€à¸§à¹‡à¸šà¸¥à¸´à¸‡à¸„à¹Œà¸«à¸™à¹ˆà¸§à¸¢à¸‡à¸²à¸™à¸ à¸²à¸¢à¹ƒà¸™",
+        "à¸£à¸²à¸¢à¸‡à¸²à¸™à¸‡à¸šà¸—à¸”à¸¥à¸­à¸‡à¹€à¸šà¸´à¸à¸ˆà¹ˆà¸²à¸¢",
+        "à¸‚à¹ˆà¸²à¸§à¸›à¸£à¸°à¸à¸²à¸¨",
+        "à¸à¸à¸«à¸¡à¸²à¸¢",
+        "à¸à¸Žà¸«à¸¡à¸²à¸¢",
+        "à¹à¸œà¸™à¸‡à¸²à¸™",
+        "à¹‚à¸„à¸£à¸‡à¸à¸²à¸£ à¹à¸¥à¸°à¸‡à¸šà¸›à¸£à¸°à¸¡à¸²à¸“",
+        "à¸¢à¸¸à¸—à¸˜à¸¨à¸²à¸ªà¸•à¸£à¹Œ",
+        "à¹à¸œà¸™à¸›à¸à¸´à¸šà¸±à¸•à¸´à¸£à¸²à¸Šà¸à¸²à¸£",
+        "à¹à¸œà¸™à¸žà¸±à¸’à¸™à¸²à¸”à¸´à¸ˆà¸´à¸—à¸±à¸¥",
+        "à¸™à¹‚à¸¢à¸šà¸²à¸¢à¸à¸£à¸¡",
+        "à¸™à¹‚à¸¢à¸šà¸²à¸¢à¸à¸£à¸°à¸—à¸£à¸§à¸‡",
+        "à¸­à¸³à¸™à¸²à¸ˆà¸«à¸™à¹‰à¸²à¸—à¸µà¹ˆ",
+        "à¸ à¸²à¸£à¸à¸´à¸ˆà¸‚à¸­à¸‡à¸«à¸™à¹ˆà¸§à¸¢à¸‡à¸²à¸™",
+        "à¹‚à¸„à¸£à¸‡à¸ªà¸£à¹‰à¸²à¸‡à¸«à¸™à¹ˆà¸§à¸¢à¸‡à¸²à¸™",
+        "à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸œà¸¹à¹‰à¸šà¸£à¸´à¸«à¸²à¸£",
+        "à¸œà¸¹à¹‰à¸šà¸£à¸´à¸«à¸²à¸£à¸à¸£à¸¡",
+        "à¸œà¸¥à¸à¸²à¸£à¸›à¸à¸´à¸šà¸±à¸•à¸´à¸‡à¸²à¸™",
+        "à¸„à¸¹à¹ˆà¸¡à¸·à¸­à¸•à¸²à¸¡",
+        "à¹€à¸à¸µà¹ˆà¸¢à¸§à¸à¸±à¸šà¸šà¸£à¸´à¸©à¸±à¸—à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™",
+        "à¸šà¸—à¸„à¸§à¸²à¸¡/à¸‡à¸²à¸™à¸§à¸´à¹€à¸„à¸£à¸²à¸°à¸«à¹Œ",
+        "à¸§à¸²à¸£à¸ªà¸²à¸£",
         "mobile app",
-        "ข้อมูลการไปทำงานต่างประเทศ",
-        "สถานการณ์ว่างงาน",
-        "ศูนย์บริหารข้อมูลตลาดแรงงาน",
-        "การทำงานในประเทศ",
-        "การทำงานของคนต่างด้าว",
-        "การไปทำงานต่างประเทศ",
-        "การเดินทางไปทำงานต่างประเทศ",
-        "แรงงานต่างด้าว",
+        "à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸à¸²à¸£à¹„à¸›à¸—à¸³à¸‡à¸²à¸™à¸•à¹ˆà¸²à¸‡à¸›à¸£à¸°à¹€à¸—à¸¨",
+        "à¸ªà¸–à¸²à¸™à¸à¸²à¸£à¸“à¹Œà¸§à¹ˆà¸²à¸‡à¸‡à¸²à¸™",
+        "à¸¨à¸¹à¸™à¸¢à¹Œà¸šà¸£à¸´à¸«à¸²à¸£à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸•à¸¥à¸²à¸”à¹à¸£à¸‡à¸‡à¸²à¸™",
+        "à¸à¸²à¸£à¸—à¸³à¸‡à¸²à¸™à¹ƒà¸™à¸›à¸£à¸°à¹€à¸—à¸¨",
+        "à¸à¸²à¸£à¸—à¸³à¸‡à¸²à¸™à¸‚à¸­à¸‡à¸„à¸™à¸•à¹ˆà¸²à¸‡à¸”à¹‰à¸²à¸§",
+        "à¸à¸²à¸£à¹„à¸›à¸—à¸³à¸‡à¸²à¸™à¸•à¹ˆà¸²à¸‡à¸›à¸£à¸°à¹€à¸—à¸¨",
+        "à¸à¸²à¸£à¹€à¸”à¸´à¸™à¸—à¸²à¸‡à¹„à¸›à¸—à¸³à¸‡à¸²à¸™à¸•à¹ˆà¸²à¸‡à¸›à¸£à¸°à¹€à¸—à¸¨",
+        "à¹à¸£à¸‡à¸‡à¸²à¸™à¸•à¹ˆà¸²à¸‡à¸”à¹‰à¸²à¸§",
     ]
 
     if any(term.lower() in lowered for term in bad_terms):
         return False
 
     good_terms = [
-        "รับสมัคร",
-        "เปิดรับสมัคร",
-        "ประกาศรับสมัคร",
-        "ตำแหน่งงานว่าง",
-        "งานว่าง",
-        "นัดพบแรงงาน",
-        "ตลาดงาน",
-        "ลูกจ้าง",
-        "พนักงาน",
-        "จ้างเหมา",
-        "สอบคัดเลือก",
-        "สรรหา",
+        "à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£",
+        "à¹€à¸›à¸´à¸”à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£",
+        "à¸›à¸£à¸°à¸à¸²à¸¨à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£",
+        "à¸•à¸³à¹à¸«à¸™à¹ˆà¸‡à¸‡à¸²à¸™à¸§à¹ˆà¸²à¸‡",
+        "à¸‡à¸²à¸™à¸§à¹ˆà¸²à¸‡",
+        "à¸™à¸±à¸”à¸žà¸šà¹à¸£à¸‡à¸‡à¸²à¸™",
+        "à¸•à¸¥à¸²à¸”à¸‡à¸²à¸™",
+        "à¸¥à¸¹à¸à¸ˆà¹‰à¸²à¸‡",
+        "à¸žà¸™à¸±à¸à¸‡à¸²à¸™",
+        "à¸ˆà¹‰à¸²à¸‡à¹€à¸«à¸¡à¸²",
+        "à¸ªà¸­à¸šà¸„à¸±à¸”à¹€à¸¥à¸·à¸­à¸",
+        "à¸ªà¸£à¸£à¸«à¸²",
     ]
 
     return any(term in title for term in good_terms)
@@ -1214,7 +1573,7 @@ def _safe_fetch_government_rows(limit=100, q="", location=""):
         AND lower(COALESCE(job_posts.source_url, '')) NOT LIKE '%google.com%'
         AND lower(COALESCE(job_posts.source_url, '')) NOT LIKE '%localhost%'
         AND lower(COALESCE(job_posts.source_url, '')) NOT LIKE '%127.0.0.1%'
-        AND job_posts.title NOT LIKE '%ตัวอย่าง%'
+        AND job_posts.title NOT LIKE '%à¸•à¸±à¸§à¸­à¸¢à¹ˆà¸²à¸‡%'
         AND lower(COALESCE(job_posts.description, '')) NOT LIKE '%demo%'
     """
     params = []
@@ -1276,7 +1635,7 @@ def _safe_fetch_government_rows(limit=100, q="", location=""):
     return clean_rows
 
 
-def _safe_fetch_public_job_rows(limit=100, q="", location=""):
+def _safe_fetch_public_job_rows(limit=100, q="", location="", job_type=""):
     conn = get_db()
     try:
         ensure_production_job_schema(conn)
@@ -1287,6 +1646,7 @@ def _safe_fetch_public_job_rows(limit=100, q="", location=""):
     params = []
     q = str(q or "").strip().lower()
     location = str(location or "").strip().lower()
+    job_type = str(job_type or "").strip().lower()
 
     if q:
         like_q = f"%{q}%"
@@ -1305,6 +1665,11 @@ def _safe_fetch_public_job_rows(limit=100, q="", location=""):
     if location:
         where.append("lower(job_posts.location) LIKE ?")
         params.append(f"%{location}%")
+
+    if job_type == "government":
+        where.append("job_posts.is_government_news = 1")
+    elif job_type == "private":
+        where.append("job_posts.is_government_news = 0")
 
     rows = conn.execute(
         f"""
@@ -1344,374 +1709,201 @@ def _safe_fetch_public_job_rows(limit=100, q="", location=""):
     return clean_rows
 
 
-def _safe_render_public_page(page_title, subtitle, rows, q="", location="", show_search=True):
-    cards = []
-
-    for row in rows:
-        title = _safe_html_escape(row["title"])
-        loc = _safe_html_escape(row["location"] or "ทั่วประเทศ")
-        is_government = int(row["is_government_news"] or 0) if "is_government_news" in row.keys() else 1
-        agency_name = _safe_agency_name(row["company_name"], row["location"], row["source_url"]) if is_government else (row["company_name"] or "นายจ้าง")
-        agency = _safe_html_escape(agency_name)
-        salary = _safe_html_escape(row["salary_range"] or "ตรวจสอบตามประกาศต้นทาง")
-        updated = _safe_html_escape(row["updated_at"] or row["created_at"] or "")
-        source_url = _safe_html_escape(safe_source_url(row["source_url"], row["location"], row["title"])) if is_government else ""
-        views = int(row["view_count"] or 0)
-        badge = "งานราชการ / DOE" if is_government else "ประกาศจากนายจ้าง"
-        source_action = f'<a class="btn" href="{source_url}" target="_blank" rel="noopener">เปิดต้นทาง DOE</a>' if source_url else ""
-
-        detail_url = f"/job/{row['id']}"
-
-        cards.append(
-            f"""
-            <article class="card">
-                <div class="badge">{badge}</div>
-                <h2>{title}</h2>
-                <p><b>หน่วยงาน:</b> {agency}</p>
-                <p><b>พื้นที่:</b> {loc}</p>
-                <p><b>เงินเดือน:</b> {salary}</p>
-                <p><b>อัปเดต:</b> {updated} · <b>เข้าชม:</b> {views} ครั้ง</p>
-                <div class="actions">
-                    <a class="btn primary" href="{detail_url}">ดูรายละเอียด</a>
-                    {source_action}
-                </div>
-            </article>
-            """
-        )
-
-    if not cards:
-        cards.append(
-            """
-            <article class="card">
-                <h2>ยังไม่พบงานราชการจริงในฐานข้อมูล</h2>
-                <p>ให้รัน <code>python auto_job_engine.py --live</code> เพื่อดึงข่าวล่าสุด</p>
-            </article>
-            """
-        )
-
-    search_html = ""
-    if show_search:
-        search_html = f"""
-        <form class="search" method="get" action="/jobs">
-            <input name="q" value="{_safe_html_escape(q)}" placeholder="ค้นหา เช่น รับสมัคร ลูกจ้าง พนักงาน">
-            <input name="location" value="{_safe_html_escape(location)}" placeholder="จังหวัด เช่น พิจิตร พิษณุโลก">
-            <button type="submit">ค้นหา</button>
-            <a href="/jobs">ล้างคำค้น</a>
-        </form>
-        """
-
-    return f"""
-    <!doctype html>
-    <html lang="th">
-    <head>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>{_safe_html_escape(page_title)} | งานใกล้บ้าน</title>
-        <style>
-            body{{margin:0;font-family:Tahoma,Arial,sans-serif;background:#f8fafc;color:#0f172a;line-height:1.65}}
-            .wrap{{max-width:1160px;margin:0 auto;padding:28px 18px 70px}}
-            .hero{{background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff;border-radius:26px;padding:34px;box-shadow:0 20px 50px rgba(15,23,42,.18);margin-bottom:18px}}
-            .hero h1{{margin:0 0 8px;font-size:clamp(28px,5vw,44px)}}
-            .hero p{{margin:0;opacity:.92;font-size:17px}}
-            .nav{{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0}}
-            .nav a,.btn,.search button,.search a{{display:inline-block;padding:10px 14px;border-radius:999px;background:#fff;color:#1d4ed8;border:1px solid #dbeafe;text-decoration:none;font-weight:700}}
-            .search{{display:grid;grid-template-columns:1fr 1fr auto auto;gap:10px;background:#fff;padding:14px;border-radius:18px;border:1px solid #e2e8f0;margin:18px 0}}
-            .search input{{padding:12px 14px;border-radius:999px;border:1px solid #cbd5e1;font-size:15px}}
-            .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:16px}}
-            .card{{background:#fff;border:1px solid #e2e8f0;border-radius:22px;padding:20px;box-shadow:0 10px 30px rgba(15,23,42,.08)}}
-            .card h2{{margin:10px 0;font-size:20px}}
-            .badge{{display:inline-block;background:#dcfce7;color:#166534;border-radius:999px;padding:6px 10px;font-weight:700;font-size:13px}}
-            .actions{{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}}
-            .btn.primary,.search button{{background:#2563eb;color:#fff;border-color:#2563eb;cursor:pointer}}
-            .count{{color:#dbeafe;margin-top:8px}}
-            @media(max-width:760px){{.search{{grid-template-columns:1fr}}}}
-        </style>
-    </head>
-    <body>
-        <main class="wrap">
-            <section class="hero">
-                <h1>{_safe_html_escape(page_title)}</h1>
-                <p>{_safe_html_escape(subtitle)}</p>
-                <p class="count">พบข้อมูล {len(rows)} รายการ</p>
-            </section>
-            <nav class="nav">
-                <a href="/">หน้าแรก</a>
-                <a href="/home">Home</a>
-                <a href="/jobs">งานราชการทั้งหมด</a>
-                <a href="/news">ข่าวกรมแรงงาน</a>
-                <a href="/urgent">งานด่วน</a>
-            </nav>
-            {search_html}
-            <section class="grid">{''.join(cards)}</section>
-        </main>
-    </body>
-    </html>
-    """
-
-
 @app.route("/")
 @app.route("/home")
 def home():
-    rows = _safe_fetch_government_rows(limit=12)
-    return _safe_render_public_page(
-        "งานใกล้บ้าน",
-        "รวมงานราชการ ข่าวกรมแรงงาน และตำแหน่งงานว่างจากแหล่งข้อมูลจริง",
-        rows,
-    )
+    return redesigned_home()
+
+
+@app.route("/jobboard-ai/")
+@app.route("/jobboard-ai/<path:path>")
+def jobboard_ai_dashboard(path="index.html"):
+    if path.startswith("assets/"):
+        return send_from_directory(DASHBOARD_DIST_DIR, path)
+    return send_from_directory(DASHBOARD_DIST_DIR, "index.html")
 
 
 @app.route("/jobs")
 def jobs_public():
-    q = request.args.get("q", "").strip()
-    location = request.args.get("location", "").strip()
-    rows = _safe_fetch_public_job_rows(limit=100, q=q, location=location)
-    return _safe_render_public_page(
-        "งานทั้งหมด",
-        "ค้นหาและดูประกาศงานจากนายจ้าง พร้อมข่าวรับสมัครงานราชการ/ตำแหน่งงานว่างจาก DOE",
-        rows,
-        q=q,
-        location=location,
-    )
+    return redesigned_jobs_public()
 
 
 @app.route("/news")
 def government_news():
-    rows = _safe_fetch_government_rows(limit=100)
-    return _safe_render_public_page(
-        "ข่าวกรมแรงงาน / งานราชการ",
-        "รวมข่าวประกาศรับสมัครงานและตำแหน่งงานว่างจากแหล่งข้อมูลราชการจริง",
-        rows,
-        show_search=False,
-    )
+    return redesigned_government_news()
 
 
 
 
-def _render_redesigned_public_page(page_title, subtitle, rows, q="", location="", show_search=True):
-    cards = []
+def _public_row_value(row, key, default=""):
+    try:
+        if isinstance(row, dict):
+            return row.get(key, default)
+        if hasattr(row, "keys") and key in row.keys():
+            return row[key]
+        return getattr(row, key, default)
+    except Exception:
+        return default
+
+
+def _public_row_int(row, key, default=0):
+    try:
+        value = _public_row_value(row, key, default)
+        if value is None or value == "":
+            value = default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _public_listing_items(rows):
+    items = []
     for row in rows:
-        title = _safe_html_escape(row["title"])
-        loc = _safe_html_escape(row["location"] or "ทั่วประเทศ")
-        is_government = int(row["is_government_news"] or 0) if "is_government_news" in row.keys() else 1
-        agency_name = _safe_agency_name(row["company_name"], row["location"], row["source_url"]) if is_government else (row["company_name"] or "นายจ้าง")
-        agency = _safe_html_escape(agency_name)
-        salary = _safe_html_escape(row["salary_range"] or "ไม่ระบุเงินเดือน")
-        updated = _safe_html_escape(row["updated_at"] or row["created_at"] or "ล่าสุด")
-        source_url = _safe_html_escape(safe_source_url(row["source_url"], row["location"], row["title"])) if is_government else ""
-        views = int(row["view_count"] or 0)
-        risk_score = int(row["ai_risk_score"] or 0) if "ai_risk_score" in row.keys() else 0
-        report_count = int(row["report_count"] or 0) if "report_count" in row.keys() else 0
-        badge = "งานราชการ / DOE" if is_government else "ประกาศจากนายจ้าง"
-        badge_class = "official" if is_government else "employer"
-        source_action = f'<a class="secondary-action" href="{source_url}" target="_blank" rel="noopener">เปิดแหล่งทางการ</a>' if source_url else ""
-        detail_url = f"/job/{row['id']}"
-
-        cards.append(
-            f"""
-            <article class="job-card">
-              <div class="card-topline">
-                <span class="badge {badge_class}">{badge}</span>
-                <span class="trust-pill">AI Risk {risk_score}/100</span>
-              </div>
-              <h2>{title}</h2>
-              <p class="agency">{agency}</p>
-              <div class="meta-grid">
-                <span><b>พื้นที่</b>{loc}</span>
-                <span><b>เงินเดือน</b>{salary}</span>
-                <span><b>อัปเดต</b>{updated}</span>
-                <span><b>เข้าชม</b>{views} ครั้ง</span>
-              </div>
-              <p class="safety-line">ระบบช่วยคัดกรองเบื้องต้นแล้ว ผู้สมัครควรตรวจสอบนายจ้างและห้ามโอนเงินก่อนเริ่มงาน</p>
-              <div class="actions">
-                <a class="primary-action" href="{detail_url}">ดูรายละเอียด</a>
-                {source_action}
-                <span class="report-note">รายงาน {report_count} ครั้ง</span>
-              </div>
-            </article>
-            """
+        title = str(_public_row_value(row, "title", "") or "").strip()
+        location = str(_public_row_value(row, "location", "") or "").strip() or "à¸—à¸±à¹ˆà¸§à¸›à¸£à¸°à¹€à¸—à¸¨"
+        salary = str(_public_row_value(row, "salary_range", "") or "").strip() or "à¹„à¸¡à¹ˆà¸£à¸°à¸šà¸¸à¹€à¸‡à¸´à¸™à¹€à¸”à¸·à¸­à¸™"
+        updated = str(
+            _public_row_value(row, "updated_at", "")
+            or _public_row_value(row, "created_at", "")
+            or "à¸¥à¹ˆà¸²à¸ªà¸¸à¸”"
+        ).strip()
+        source_url_raw = str(_public_row_value(row, "source_url", "") or "").strip()
+        company_name = str(_public_row_value(row, "company_name", "") or "").strip()
+        is_government = bool(_public_row_int(row, "is_government_news", 1))
+        agency = (
+            _safe_agency_name(company_name, location, source_url_raw)
+            if is_government
+            else (company_name or "à¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡")
         )
+        description = re.sub(r"\s+", " ", str(_public_row_value(row, "description", "") or "")).strip()
+        if len(description) > 180:
+            description = f"{description[:177].rstrip()}..."
 
-    if not cards:
-        cards.append(
-            """
-            <article class="empty-card">
-              <h2>ยังไม่พบประกาศที่ตรงกับเงื่อนไข</h2>
-              <p>ลองเปลี่ยนคำค้นหา จังหวัด หรือกลับไปดูงานทั้งหมด</p>
-              <a href="/jobs">ดูงานทั้งหมด</a>
-            </article>
-            """
-        )
+        risk_score = _public_row_int(row, "ai_risk_score", 0)
+        if risk_score >= 70:
+            risk_class = "red"
+        elif risk_score >= 35:
+            risk_class = "amber"
+        else:
+            risk_class = "green"
 
-    search_html = ""
-    if show_search:
-        search_html = f"""
-        <form class="search" method="get" action="/jobs">
-          <label>
-            <span>ตำแหน่งหรือคำค้นหา</span>
-            <input name="q" value="{_safe_html_escape(q)}" placeholder="เช่น พนักงานขาย บัญชี ขับรถ">
-          </label>
-          <label>
-            <span>จังหวัดหรือพื้นที่</span>
-            <input name="location" value="{_safe_html_escape(location)}" placeholder="เช่น พิจิตร พิษณุโลก นครสวรรค์">
-          </label>
-          <button type="submit">ค้นหางาน</button>
-          <a href="/jobs">ล้างคำค้น</a>
-        </form>
-        """
+        try:
+            detail_url = url_for("job_detail", slug=job_slug(row))
+        except Exception:
+            detail_url = f"/job/{_public_row_value(row, 'id', '')}"
 
-    return f"""
-    <!doctype html>
-    <html lang="th">
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title>{_safe_html_escape(page_title)} | งานใกล้บ้าน</title>
-      <meta name="description" content="{_safe_html_escape(subtitle)}">
-      <link rel="canonical" href="{_safe_html_escape(SITE_URL + request.path)}">
-      <link rel="alternate" hreflang="th-TH" href="{_safe_html_escape(SITE_URL + request.path)}">
-      <meta name="geo.region" content="TH">
-      <meta name="geo.placename" content="Thailand">
-      <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large">
-      <meta property="og:type" content="website">
-      <meta property="og:site_name" content="งานใกล้บ้าน">
-      <meta property="og:title" content="{_safe_html_escape(page_title)} | งานใกล้บ้าน">
-      <meta property="og:description" content="{_safe_html_escape(subtitle)}">
-      <meta property="og:url" content="{_safe_html_escape(SITE_URL + request.path)}">
-      <script type="application/ld+json">
-      {json.dumps({
-          "@context": "https://schema.org",
-          "@type": "WebSite",
-          "name": "งานใกล้บ้าน",
-          "url": SITE_URL,
-          "potentialAction": {
-              "@type": "SearchAction",
-              "target": SITE_URL + "/jobs?q={search_term_string}",
-              "query-input": "required name=search_term_string",
-          },
-      }, ensure_ascii=False)}
-      </script>
-      <script type="application/ld+json">
-      {json.dumps({
-          "@context": "https://schema.org",
-          "@type": "ItemList",
-          "name": page_title,
-          "numberOfItems": len(rows),
-          "itemListElement": [
-              {
-                  "@type": "ListItem",
-                  "position": index + 1,
-                  "url": SITE_URL + f"/job/{row['id']}",
-                  "name": row["title"],
-              }
-              for index, row in enumerate(rows[:20])
-          ],
-      }, ensure_ascii=False)}
-      </script>
-      <link rel="preconnect" href="https://fonts.googleapis.com">
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-      <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-      <style>
-        :root{{--blue:#1769e0;--ink:#101828;--muted:#667085;--line:#d9e2ec;--green:#15803d;--amber:#b45309}}
-        *{{box-sizing:border-box}}
-        body{{margin:0;font-family:"Noto Sans Thai",system-ui,sans-serif;background:linear-gradient(180deg,#eef5ff 0,#f7f8fb 420px);color:var(--ink);line-height:1.65}}
-        a{{color:inherit;text-decoration:none}}
-        .topbar{{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}}
-        .topbar-inner{{width:min(1180px,calc(100% - 32px));min-height:70px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:18px}}
-        .brand{{display:flex;align-items:center;gap:12px;font-weight:800}}
-        .brand-mark{{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:#e8f1ff;color:var(--blue);border:1px solid #c8dcff}}
-        .brand small{{display:block;color:var(--muted);font-size:12px;font-weight:600}}
-        .nav{{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}}
-        .nav a{{min-height:38px;display:inline-flex;align-items:center;padding:0 13px;border-radius:999px;color:#344054;font-weight:700;font-size:14px}}
-        .nav a:hover{{background:#eef5ff;color:var(--blue)}}
-        .nav .primary{{background:var(--blue);color:#fff}}
-        .wrap{{width:min(1180px,calc(100% - 32px));margin:0 auto;padding:34px 0 70px}}
-        .hero{{display:grid;grid-template-columns:1.3fr .7fr;gap:22px;align-items:stretch;margin-bottom:18px}}
-        .hero-main{{background:#fff;border:1px solid var(--line);border-radius:28px;padding:34px;box-shadow:0 18px 50px rgba(16,24,40,.08)}}
-        .eyebrow{{display:inline-flex;border-radius:999px;padding:6px 10px;background:#e8f1ff;color:var(--blue);font-size:13px;font-weight:800}}
-        h1{{margin:14px 0 10px;font-size:clamp(34px,6vw,62px);line-height:1.05;letter-spacing:0}}
-        .hero-main p{{margin:0;color:var(--muted);font-size:17px}}
-        .hero-side{{border-radius:28px;padding:24px;background:#101828;color:#fff;display:flex;flex-direction:column;justify-content:space-between;box-shadow:0 18px 50px rgba(16,24,40,.14)}}
-        .hero-side strong{{display:block;font-size:42px;line-height:1}}
-        .hero-side span,.hero-side p{{color:#cdd5df}}
-        .search{{display:grid;grid-template-columns:1fr 1fr auto auto;gap:12px;background:#fff;padding:16px;border-radius:24px;border:1px solid var(--line);box-shadow:0 12px 34px rgba(16,24,40,.06);margin:18px 0 26px}}
-        .search label span{{display:block;margin:0 0 6px;color:#475467;font-size:13px;font-weight:700}}
-        .search input{{width:100%;min-height:46px;border-radius:14px;border:1px solid #cdd5df;padding:0 13px;font:inherit}}
-        .search button,.search a{{min-height:46px;align-self:end;border:0;border-radius:14px;padding:0 16px;font:inherit;font-weight:800;display:inline-flex;align-items:center;justify-content:center}}
-        .search button{{background:var(--blue);color:#fff;cursor:pointer}}
-        .search a{{border:1px solid #cdd5df;color:#344054;background:#fff}}
-        .section-head{{display:flex;align-items:end;justify-content:space-between;gap:16px;margin:26px 0 14px}}
-        .section-head h2{{margin:0;font-size:28px}}
-        .section-head p{{margin:4px 0 0;color:var(--muted)}}
-        .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}}
-        .job-card,.empty-card{{background:#fff;border:1px solid var(--line);border-radius:24px;padding:20px;box-shadow:0 12px 34px rgba(16,24,40,.06)}}
-        .card-topline{{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}}
-        .badge,.trust-pill{{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;padding:0 10px;font-size:12px;font-weight:800}}
-        .badge.official{{background:#ecfdf3;color:var(--green)}}
-        .badge.employer{{background:#e8f1ff;color:var(--blue)}}
-        .trust-pill{{background:#fff7ed;color:var(--amber)}}
-        .job-card h2{{margin:14px 0 6px;font-size:21px;line-height:1.35}}
-        .agency{{margin:0 0 14px;color:var(--muted);font-weight:700}}
-        .meta-grid{{display:grid;grid-template-columns:1fr 1fr;gap:8px}}
-        .meta-grid span{{border:1px solid #eef2f6;border-radius:14px;padding:10px 12px;color:#475467;background:#fbfcfe;font-size:14px}}
-        .meta-grid b{{display:block;color:#101828;font-size:12px}}
-        .safety-line{{margin:14px 0 0;color:#667085;font-size:14px}}
-        .actions{{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:16px}}
-        .primary-action,.secondary-action{{min-height:40px;display:inline-flex;align-items:center;border-radius:14px;padding:0 13px;font-weight:800}}
-        .primary-action{{background:var(--blue);color:#fff}}
-        .secondary-action{{border:1px solid #cdd5df;color:#344054;background:#fff}}
-        .report-note{{margin-left:auto;color:#98a2b3;font-size:13px;font-weight:700}}
-        .empty-card a{{display:inline-flex;margin-top:12px;background:var(--blue);color:#fff;border-radius:14px;padding:10px 14px;font-weight:800}}
-        @media(max-width:820px){{.topbar-inner,.hero,.section-head{{display:block}}.nav{{justify-content:flex-start;margin-top:12px;overflow-x:auto;flex-wrap:nowrap}}.nav a{{white-space:nowrap}}.search{{grid-template-columns:1fr}}.meta-grid{{grid-template-columns:1fr}}}}
-      </style>
-    </head>
-    <body>
-      <header class="topbar">
-        <div class="topbar-inner">
-          <a class="brand" href="/"><span class="brand-mark">AI</span><span>งานใกล้บ้าน<small>JobBoard AI Anti-Scam</small></span></a>
-          <nav class="nav">
-            <a href="/">หน้าแรก</a>
-            <a href="/jobs">ค้นหางาน</a>
-            <a href="/urgent">งานด่วน</a>
-            <a href="/community">ชุมชน</a>
-            <a href="/login">เข้าสู่ระบบ</a>
-            <a class="primary" href="/register">สมัครใช้งาน</a>
-          </nav>
-        </div>
-      </header>
-      <main class="wrap">
-        <section class="hero">
-          <div class="hero-main">
-            <span class="eyebrow">หางานอย่างปลอดภัยกว่าเดิม</span>
-            <h1>{_safe_html_escape(page_title)}</h1>
-            <p>{_safe_html_escape(subtitle)}</p>
-          </div>
-          <aside class="hero-side">
-            <div>
-              <strong>{len(rows)}</strong>
-              <span>ประกาศที่แสดงในหน้านี้</span>
-            </div>
-            <p>ทุกประกาศควรอ่านรายละเอียด ตรวจสอบนายจ้าง และหลีกเลี่ยงการโอนเงินก่อนเริ่มงาน</p>
-          </aside>
-        </section>
-        {search_html}
-        <div class="section-head">
-          <div>
-            <h2>ประกาศล่าสุด</h2>
-            <p>เรียงจากข้อมูลที่ระบบนำเข้าและอัปเดตล่าสุด</p>
-          </div>
-        </div>
-        <section class="grid">{''.join(cards)}</section>
-      </main>
-    </body>
-    </html>
-    """
+        source_url = ""
+        if is_government:
+            source_url = safe_source_url(source_url_raw, location, title)
+
+        items.append({
+            "title": title or "à¸›à¸£à¸°à¸à¸²à¸¨à¸‡à¸²à¸™",
+            "description": description,
+            "agency": agency,
+            "location": location,
+            "salary": salary,
+            "updated": updated,
+            "detail_url": detail_url,
+            "source_url": source_url,
+            "views": _public_row_int(row, "view_count", 0),
+            "report_count": _public_row_int(row, "report_count", 0),
+            "risk_score": risk_score,
+            "risk_class": risk_class,
+            "badge": "à¸‡à¸²à¸™à¸£à¸²à¸Šà¸à¸²à¸£ / DOE" if is_government else "à¸›à¸£à¸°à¸à¸²à¸¨à¸ˆà¸²à¸à¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡",
+            "badge_class": "green" if is_government else "blue",
+        })
+    return items
+
+
+def _public_filter_links(q="", location="", job_type=""):
+    filter_args = {}
+    if q:
+        filter_args["q"] = q
+    if location:
+        filter_args["location"] = location
+    return [
+        {
+            "label": "à¸—à¸±à¹‰à¸‡à¸«à¸¡à¸”",
+            "url": url_for("jobs_public", **filter_args),
+            "active": not job_type,
+        },
+        {
+            "label": "à¸‡à¸²à¸™à¸£à¸²à¸Šà¸à¸²à¸£",
+            "url": url_for("jobs_public", type="government", **filter_args),
+            "active": job_type == "government",
+        },
+        {
+            "label": "à¸‡à¸²à¸™à¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡",
+            "url": url_for("jobs_public", type="private", **filter_args),
+            "active": job_type == "private",
+        },
+    ]
+
+
+def _render_redesigned_public_page(page_title, subtitle, rows, q="", location="", show_search=True, job_type="", search_action="/jobs"):
+    items = _public_listing_items(rows)
+    canonical_url = f"{SITE_URL}{request.path}"
+    meta_description = build_meta_description(subtitle)
+    website_schema = json.dumps({
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": SEO_SITE_NAME,
+        "url": SITE_URL,
+        "potentialAction": {
+            "@type": "SearchAction",
+            "target": f"{SITE_URL}/jobs?q={{search_term_string}}",
+            "query-input": "required name=search_term_string",
+        },
+    }, ensure_ascii=False)
+    item_list_schema = json.dumps({
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": page_title,
+        "numberOfItems": len(items),
+        "itemListElement": [
+            {
+                "@type": "ListItem",
+                "position": index + 1,
+                "url": f"{SITE_URL}{item['detail_url']}",
+                "name": item["title"],
+            }
+            for index, item in enumerate(items[:20])
+        ],
+    }, ensure_ascii=False)
+
+    if search_action == "/news":
+        reset_url = url_for("government_news")
+        filter_links = []
+    else:
+        reset_url = url_for("jobs_public")
+        filter_links = _public_filter_links(q, location, job_type)
+
+    return render_template(
+        "public_listing.html",
+        page_title=page_title,
+        subtitle=subtitle,
+        meta_description=meta_description,
+        canonical_url=canonical_url,
+        website_schema=website_schema,
+        item_list_schema=item_list_schema,
+        local_business_schema_json=json.dumps(build_local_business_schema(), ensure_ascii=False),
+        items=items,
+        rows_count=len(items),
+        q=q,
+        location=location,
+        show_search=show_search,
+        job_type=job_type,
+        search_action=search_action,
+        reset_url=reset_url,
+        filter_links=filter_links,
+    )
 
 
 def redesigned_home():
     rows = _safe_fetch_government_rows(limit=12)
     return _render_redesigned_public_page(
-        "งานใกล้บ้าน",
-        "รวมงานใกล้บ้าน งานราชการ ข่าวกรมแรงงาน และประกาศจากนายจ้าง พร้อมระบบช่วยคัดกรองประกาศเสี่ยง",
+        "à¸‡à¸²à¸™à¹ƒà¸à¸¥à¹‰à¸šà¹‰à¸²à¸™",
+        "à¸£à¸§à¸¡à¸‡à¸²à¸™à¹ƒà¸à¸¥à¹‰à¸šà¹‰à¸²à¸™ à¸‡à¸²à¸™à¸£à¸²à¸Šà¸à¸²à¸£ à¸‚à¹ˆà¸²à¸§à¸à¸£à¸¡à¹à¸£à¸‡à¸‡à¸²à¸™ à¹à¸¥à¸°à¸›à¸£à¸°à¸à¸²à¸¨à¸ˆà¸²à¸à¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡ à¸žà¸£à¹‰à¸­à¸¡à¸£à¸°à¸šà¸šà¸Šà¹ˆà¸§à¸¢à¸„à¸±à¸”à¸à¸£à¸­à¸‡à¸›à¸£à¸°à¸à¸²à¸¨à¹€à¸ªà¸µà¹ˆà¸¢à¸‡",
         rows,
     )
 
@@ -1719,29 +1911,31 @@ def redesigned_home():
 def redesigned_jobs_public():
     q = request.args.get("q", "").strip()
     location = request.args.get("location", "").strip()
-    rows = _safe_fetch_public_job_rows(limit=100, q=q, location=location)
+    job_type = request.args.get("type", "").strip().lower()
+    rows = _safe_fetch_public_job_rows(limit=100, q=q, location=location, job_type=job_type)
     return _render_redesigned_public_page(
-        "ค้นหางานทั้งหมด",
-        "ค้นหางานตามตำแหน่ง จังหวัด หรือแหล่งงาน พร้อมข้อมูลความปลอดภัยก่อนสมัคร",
+        "à¸„à¹‰à¸™à¸«à¸²à¸‡à¸²à¸™à¸—à¸±à¹‰à¸‡à¸«à¸¡à¸”",
+        "à¸„à¹‰à¸™à¸«à¸²à¸‡à¸²à¸™à¸•à¸²à¸¡à¸•à¸³à¹à¸«à¸™à¹ˆà¸‡ à¸ˆà¸±à¸‡à¸«à¸§à¸±à¸” à¸«à¸£à¸·à¸­à¹à¸«à¸¥à¹ˆà¸‡à¸‡à¸²à¸™ à¸žà¸£à¹‰à¸­à¸¡à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸„à¸§à¸²à¸¡à¸›à¸¥à¸­à¸”à¸ à¸±à¸¢à¸à¹ˆà¸­à¸™à¸ªà¸¡à¸±à¸„à¸£",
         rows,
         q=q,
         location=location,
+        job_type=job_type,
     )
 
 
 def redesigned_government_news():
-    rows = _safe_fetch_government_rows(limit=100)
+    q = request.args.get("q", "").strip()
+    location = request.args.get("location", "").strip()
+    rows = _safe_fetch_government_rows(limit=100, q=q, location=location)
     return _render_redesigned_public_page(
-        "ข่าวกรมแรงงาน / งานราชการ",
-        "รวมข่าวประกาศรับสมัครงานและตำแหน่งงานว่างจากแหล่งข้อมูลราชการ",
+        "à¸‚à¹ˆà¸²à¸§à¸à¸£à¸¡à¹à¸£à¸‡à¸‡à¸²à¸™ / à¸‡à¸²à¸™à¸£à¸²à¸Šà¸à¸²à¸£",
+        "à¸£à¸§à¸¡à¸‚à¹ˆà¸²à¸§à¸›à¸£à¸°à¸à¸²à¸¨à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£à¸‡à¸²à¸™à¹à¸¥à¸°à¸•à¸³à¹à¸«à¸™à¹ˆà¸‡à¸‡à¸²à¸™à¸§à¹ˆà¸²à¸‡à¸ˆà¸²à¸à¹à¸«à¸¥à¹ˆà¸‡à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸£à¸²à¸Šà¸à¸²à¸£",
         rows,
-        show_search=False,
+        q=q,
+        location=location,
+        show_search=True,
+        search_action="/news",
     )
-
-
-app.view_functions["home"] = redesigned_home
-app.view_functions["jobs_public"] = redesigned_jobs_public
-app.view_functions["government_news"] = redesigned_government_news
 
 
 # RESTORED_CRON_IMPORT_ROUTE_V1
@@ -1808,14 +2002,17 @@ def cron_import_upper_central_jobs():
 
         try:
             if "send_discord_alert" in globals():
+                status_text = "âœ… Cron Import DOE à¸ªà¸³à¹€à¸£à¹‡à¸ˆ"
+                if result["errors"]:
+                    status_text = "âš ï¸ Cron Import DOE à¸ªà¸³à¹€à¸£à¹‡à¸ˆà¸šà¸²à¸‡à¸ªà¹ˆà¸§à¸™"
                 send_discord_alert(
-                    "✅ Cron Import DOE สำเร็จ\n"
+                    f"{status_text}\n"
                     f"Inserted: {result['inserted']}\n"
                     f"Updated: {result['updated']}\n"
                     f"Scanned: {result['scanned']}\n"
                     f"Errors: {len(result['errors'])}\n"
                     f"Source: {source}\n"
-                    f"เวลา: {now_str()}",
+                    f"à¹€à¸§à¸¥à¸²: {now_str()}",
                     username="JobBoard Cron Import Bot",
                 )
         except Exception:
@@ -1834,9 +2031,25 @@ def cron_import_upper_central_jobs():
 
     except Exception as exc:
         try:
+            _record_import_run("CRON_IMPORT_DOE_NEWS", "ERROR", error_message=str(exc))
+        except Exception:
+            pass
+        try:
             if "add_activity_log" in globals():
                 add_activity_log(None, "CRON_IMPORT_DOE_NEWS_FAILED", "job_posts", None, str(exc)[:500])
                 get_db().commit()
+        except Exception:
+            pass
+
+        try:
+            if "send_discord_alert" in globals():
+                send_discord_alert(
+                    "âŒ Cron Import DOE à¸¥à¹‰à¸¡à¹€à¸«à¸¥à¸§\n"
+                    f"Error: {str(exc)[:500]}\n"
+                    f"Source: {source}\n"
+                    f"à¹€à¸§à¸¥à¸²: {now_str()}",
+                    username="JobBoard Cron Import Bot",
+                )
         except Exception:
             pass
 
@@ -1845,6 +2058,22 @@ def cron_import_upper_central_jobs():
             "error": str(exc),
             "checked_at": now_str(),
         }), 500
+
+
+@app.route("/internal/cron/import-status", methods=["GET"])
+def cron_import_status():
+    if not _cron_token_is_valid():
+        abort(403)
+    return jsonify({
+        "ok": True,
+        "checked_at": now_str(),
+        "import_status": _fetch_import_status(),
+        "env": {
+            "JOBBOARD_CRON_TOKEN": bool(JOBBOARD_CRON_TOKEN),
+            "JOBBOARD_API_BASE_URL": bool(JOBBOARD_API_BASE_URL),
+            "DISCORD_SCAM_ALERT_WEBHOOK_URL": bool(DISCORD_SCAM_ALERT_WEBHOOK_URL),
+        },
+    })
 
 
 
@@ -1962,8 +2191,8 @@ def upsert_test_user_account(phone, password, role, display_name):
                 """,
                 (
                     display_name,
-                    "พร้อมเริ่มงานทันที ต้องการงานใกล้บ้าน",
-                    "โปรไฟล์ทดสอบสำหรับตรวจระบบผู้หางาน",
+                    "à¸žà¸£à¹‰à¸­à¸¡à¹€à¸£à¸´à¹ˆà¸¡à¸‡à¸²à¸™à¸—à¸±à¸™à¸—à¸µ à¸•à¹‰à¸­à¸‡à¸à¸²à¸£à¸‡à¸²à¸™à¹ƒà¸à¸¥à¹‰à¸šà¹‰à¸²à¸™",
+                    "à¹‚à¸›à¸£à¹„à¸Ÿà¸¥à¹Œà¸—à¸”à¸ªà¸­à¸šà¸ªà¸³à¸«à¸£à¸±à¸šà¸•à¸£à¸§à¸ˆà¸£à¸°à¸šà¸šà¸œà¸¹à¹‰à¸«à¸²à¸‡à¸²à¸™",
                     current_time,
                     user_id,
                 )
@@ -1979,8 +2208,8 @@ def upsert_test_user_account(phone, password, role, display_name):
                 (
                     user_id,
                     display_name,
-                    "พร้อมเริ่มงานทันที ต้องการงานใกล้บ้าน",
-                    "โปรไฟล์ทดสอบสำหรับตรวจระบบผู้หางาน",
+                    "à¸žà¸£à¹‰à¸­à¸¡à¹€à¸£à¸´à¹ˆà¸¡à¸‡à¸²à¸™à¸—à¸±à¸™à¸—à¸µ à¸•à¹‰à¸­à¸‡à¸à¸²à¸£à¸‡à¸²à¸™à¹ƒà¸à¸¥à¹‰à¸šà¹‰à¸²à¸™",
+                    "à¹‚à¸›à¸£à¹„à¸Ÿà¸¥à¹Œà¸—à¸”à¸ªà¸­à¸šà¸ªà¸³à¸«à¸£à¸±à¸šà¸•à¸£à¸§à¸ˆà¸£à¸°à¸šà¸šà¸œà¸¹à¹‰à¸«à¸²à¸‡à¸²à¸™",
                     current_time,
                     current_time,
                 )
@@ -2003,7 +2232,7 @@ def upsert_test_user_account(phone, password, role, display_name):
                 (
                     display_name,
                     "TEST-EMPLOYER-0002",
-                    "บริษัททดสอบสำหรับตรวจระบบนายจ้าง งานใกล้บ้าน",
+                    "à¸šà¸£à¸´à¸©à¸±à¸—à¸—à¸”à¸ªà¸­à¸šà¸ªà¸³à¸«à¸£à¸±à¸šà¸•à¸£à¸§à¸ˆà¸£à¸°à¸šà¸šà¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡ à¸‡à¸²à¸™à¹ƒà¸à¸¥à¹‰à¸šà¹‰à¸²à¸™",
                     current_time,
                     user_id,
                 )
@@ -2020,7 +2249,7 @@ def upsert_test_user_account(phone, password, role, display_name):
                     user_id,
                     display_name,
                     "TEST-EMPLOYER-0002",
-                    "บริษัททดสอบสำหรับตรวจระบบนายจ้าง งานใกล้บ้าน",
+                    "à¸šà¸£à¸´à¸©à¸±à¸—à¸—à¸”à¸ªà¸­à¸šà¸ªà¸³à¸«à¸£à¸±à¸šà¸•à¸£à¸§à¸ˆà¸£à¸°à¸šà¸šà¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡ à¸‡à¸²à¸™à¹ƒà¸à¸¥à¹‰à¸šà¹‰à¸²à¸™",
                     current_time,
                     current_time,
                 )
@@ -2033,7 +2262,7 @@ def upsert_test_user_account(phone, password, role, display_name):
             WHERE employer_id = ? AND title = ?
             LIMIT 1
             """,
-            (employer_id, "ด่วน รับพนักงานประสานงานใกล้บ้าน")
+            (employer_id, "à¸”à¹ˆà¸§à¸™ à¸£à¸±à¸šà¸žà¸™à¸±à¸à¸‡à¸²à¸™à¸›à¸£à¸°à¸ªà¸²à¸™à¸‡à¸²à¸™à¹ƒà¸à¸¥à¹‰à¸šà¹‰à¸²à¸™")
         ).fetchone()
 
         if existing_job:
@@ -2046,10 +2275,10 @@ def upsert_test_user_account(phone, password, role, display_name):
                 WHERE id = ?
                 """,
                 (
-                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ",
-                    "15,000 - 18,000 บาท",
-                    "พิจิตร",
-                    "ประกาศทดสอบจากนายจ้างที่ยืนยันแล้ว",
+                    "à¸‡à¸²à¸™à¸—à¸”à¸ªà¸­à¸šà¸ªà¸³à¸«à¸£à¸±à¸šà¸•à¸£à¸§à¸ˆà¸«à¸™à¹‰à¸² à¸‡à¸²à¸™à¸”à¹ˆà¸§à¸™ à¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡à¸›à¸£à¸°à¸à¸²à¸¨à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£à¸ˆà¸£à¸´à¸‡à¹ƒà¸™à¸£à¸°à¸šà¸š",
+                    "15,000 - 18,000 à¸šà¸²à¸—",
+                    "à¸žà¸´à¸ˆà¸´à¸•à¸£",
+                    "à¸›à¸£à¸°à¸à¸²à¸¨à¸—à¸”à¸ªà¸­à¸šà¸ˆà¸²à¸à¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡à¸—à¸µà¹ˆà¸¢à¸·à¸™à¸¢à¸±à¸™à¹à¸¥à¹‰à¸§",
                     current_time,
                     existing_job["id"],
                 )
@@ -2066,11 +2295,11 @@ def upsert_test_user_account(phone, password, role, display_name):
                 """,
                 (
                     employer_id,
-                    "ด่วน รับพนักงานประสานงานใกล้บ้าน",
-                    "งานทดสอบสำหรับตรวจหน้า งานด่วน นายจ้างประกาศรับสมัครจริงในระบบ",
-                    "15,000 - 18,000 บาท",
-                    "พิจิตร",
-                    "ประกาศทดสอบจากนายจ้างที่ยืนยันแล้ว",
+                    "à¸”à¹ˆà¸§à¸™ à¸£à¸±à¸šà¸žà¸™à¸±à¸à¸‡à¸²à¸™à¸›à¸£à¸°à¸ªà¸²à¸™à¸‡à¸²à¸™à¹ƒà¸à¸¥à¹‰à¸šà¹‰à¸²à¸™",
+                    "à¸‡à¸²à¸™à¸—à¸”à¸ªà¸­à¸šà¸ªà¸³à¸«à¸£à¸±à¸šà¸•à¸£à¸§à¸ˆà¸«à¸™à¹‰à¸² à¸‡à¸²à¸™à¸”à¹ˆà¸§à¸™ à¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡à¸›à¸£à¸°à¸à¸²à¸¨à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£à¸ˆà¸£à¸´à¸‡à¹ƒà¸™à¸£à¸°à¸šà¸š",
+                    "15,000 - 18,000 à¸šà¸²à¸—",
+                    "à¸žà¸´à¸ˆà¸´à¸•à¸£",
+                    "à¸›à¸£à¸°à¸à¸²à¸¨à¸—à¸”à¸ªà¸­à¸šà¸ˆà¸²à¸à¸™à¸²à¸¢à¸ˆà¹‰à¸²à¸‡à¸—à¸µà¹ˆà¸¢à¸·à¸™à¸¢à¸±à¸™à¹à¸¥à¹‰à¸§",
                     current_time,
                     current_time,
                 )
@@ -2085,10 +2314,10 @@ def force_repair_demo_and_bad_sources():
     current_time = now_str()
 
     source_map = {
-        "พิจิตร": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label",
-        "พิษณุโลก": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label",
-        "กำแพงเพชร": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label",
-        "นครสวรรค์": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label",
+        "à¸žà¸´à¸ˆà¸´à¸•à¸£": "https://www.doe.go.th/prd/phichit/news/param/site/96/cat/8/sub/0/pull/category/view/list-label",
+        "à¸žà¸´à¸©à¸“à¸¸à¹‚à¸¥à¸": "https://www.doe.go.th/prd/phitsanulok/news/param/site/161/cat/8/sub/0/pull/category/view/list-label",
+        "à¸à¸³à¹à¸žà¸‡à¹€à¸žà¸Šà¸£": "https://www.doe.go.th/prd/kamphaengphet/news/param/site/139/cat/8/sub/0/pull/category/view/list-label",
+        "à¸™à¸„à¸£à¸ªà¸§à¸£à¸£à¸„à¹Œ": "https://www.doe.go.th/prd/nakhonsawan/news/param/site/146/cat/8/sub/0/pull/category/view/list-label",
     }
     default_url = "https://www.doe.go.th/prd/main/news/param/site/1/cat/8/sub/0/pull/category/view/list-label"
 
@@ -2103,8 +2332,8 @@ def force_repair_demo_and_bad_sources():
            OR lower(source_url) LIKE '%localhost%'
            OR lower(source_url) LIKE '%127.0.0.1%'
            OR source_url = '#'
-           OR title LIKE '%ตัวอย่าง%'
-           OR description LIKE '%ตัวอย่าง%'
+           OR title LIKE '%à¸•à¸±à¸§à¸­à¸¢à¹ˆà¸²à¸‡%'
+           OR description LIKE '%à¸•à¸±à¸§à¸­à¸¢à¹ˆà¸²à¸‡%'
            OR description LIKE '%Demo%'
         """
     ).fetchall()
@@ -2119,10 +2348,10 @@ def force_repair_demo_and_bad_sources():
                 break
 
         title = row["title"] or ""
-        if "ตัวอย่าง" in title:
-            title = "ข่าวรับสมัครงานจากกรมการจัดหางาน"
+        if "à¸•à¸±à¸§à¸­à¸¢à¹ˆà¸²à¸‡" in title:
+            title = "à¸‚à¹ˆà¸²à¸§à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£à¸‡à¸²à¸™à¸ˆà¸²à¸à¸à¸£à¸¡à¸à¸²à¸£à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™"
         if not title.strip():
-            title = "ข่าวรับสมัครงานจากกรมการจัดหางาน"
+            title = "à¸‚à¹ˆà¸²à¸§à¸£à¸±à¸šà¸ªà¸¡à¸±à¸„à¸£à¸‡à¸²à¸™à¸ˆà¸²à¸à¸à¸£à¸¡à¸à¸²à¸£à¸ˆà¸±à¸”à¸«à¸²à¸‡à¸²à¸™"
 
         conn.execute(
             """
@@ -2131,7 +2360,7 @@ def force_repair_demo_and_bad_sources():
                 source_url = ?,
                 is_government_news = CASE
                     WHEN is_government_news = 1 THEN 1
-                    WHEN title LIKE '%ราชการ%' THEN 1
+                    WHEN title LIKE '%à¸£à¸²à¸Šà¸à¸²à¸£%' THEN 1
                     ELSE is_government_news
                 END,
                 status = 'ACTIVE',
@@ -2144,6 +2373,10 @@ def force_repair_demo_and_bad_sources():
 
     conn.commit()
     return fixed
+
+
+def repair_job_source_urls_to_official():
+    return force_repair_demo_and_bad_sources()
 
 
 @app.route("/internal/admin/seed-test-accounts-and-repair", methods=["GET", "POST"])
@@ -2225,12 +2458,21 @@ def _fetch_template_jobs(limit=20, status="ACTIVE", urgent_only=False):
 
 def _admin_stats():
     conn = get_db()
+    ensure_import_run_schema(conn)
 
     def count(sql, params=()):
         try:
             return int(conn.execute(sql, params).fetchone()["count"] or 0)
         except Exception:
             return 0
+
+    last_import = None
+    try:
+        last_import = conn.execute(
+            "SELECT * FROM import_runs ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+        ).fetchone()
+    except Exception:
+        last_import = None
 
     return {
         "users": count("SELECT COUNT(*) AS count FROM users"),
@@ -2238,1068 +2480,62 @@ def _admin_stats():
         "active": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'"),
         "rejected": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'"),
         "reports": count("SELECT COUNT(*) AS count FROM reports WHERE status = 'PENDING'"),
+        "import_status": {
+            "last_run_at": last_import["created_at"] if last_import else None,
+            "last_status": last_import["status"] if last_import else "N/A",
+            "last_source": last_import["source_name"] if last_import else "à¹„à¸¡à¹ˆà¸¡à¸µà¸‚à¹‰à¸­à¸¡à¸¹à¸¥",
+            "total_imports": count("SELECT COUNT(*) AS count FROM import_runs"),
+            "failed_imports": count("SELECT COUNT(*) AS count FROM import_runs WHERE status != 'SUCCESS'"),
+        },
     }
 
 
-def _redirect_back(default_endpoint="home"):
-    return redirect(request.referrer or url_for(default_endpoint))
+def ensure_import_run_schema(conn):
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS import_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            inserted_count INTEGER NOT NULL DEFAULT 0,
+            updated_count INTEGER NOT NULL DEFAULT 0,
+            skipped_count INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_import_runs_created ON import_runs(created_at)")
+    conn.commit()
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    # TODO: Restore the full login flow if this fallback is replaced by the original route.
-    error = ""
-    if request.method == "POST":
-        phone = normalize_phone(request.form.get("phone_number") or request.form.get("phone"))
-        password = request.form.get("password", "")
-        row = get_db().execute("SELECT * FROM users WHERE phone_number = ?", (phone,)).fetchone()
-        if row and verify_password(password, row["password_hash"]) and not row["is_banned"]:
-            session.clear()
-            session["user_id"] = row["id"]
-            session.permanent = True
-            return redirect(url_for("dashboard"))
-        error = "เบอร์โทรศัพท์หรือรหัสผ่านไม่ถูกต้อง"
-    return render_template("login.html", error=error)
-
-
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    error = ""
-    if request.method == "POST":
-        role = request.form.get("role", "JOB_SEEKER").strip().upper()
-        phone = normalize_phone(request.form.get("phone_number"))
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "")
-        confirm_password = request.form.get("confirm_password", "")
-        full_name = request.form.get("full_name", "").strip()
-        company_name = request.form.get("company_name", "").strip()
-
-        if role not in {"JOB_SEEKER", "EMPLOYER"}:
-            error = "ประเภทบัญชีไม่ถูกต้อง"
-        elif not request.form.get("accept_terms"):
-            error = "กรุณายอมรับเงื่อนไขการใช้งาน"
-        elif not is_valid_thai_phone(phone):
-            error = "กรุณากรอกเบอร์โทรศัพท์ไทย 10 หลัก"
-        elif email and ("@" not in email or "." not in email.split("@")[-1]):
-            error = "รูปแบบอีเมลไม่ถูกต้อง"
-        elif password != confirm_password:
-            error = "รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน"
-        else:
-            ok, message = validate_account_password(password, phone)
-            if not ok:
-                error = message
-
-        if not error:
-            label = "ชื่อผู้หางาน" if role == "JOB_SEEKER" else "ชื่อบริษัท"
-            profile_name = full_name if role == "JOB_SEEKER" else company_name
-            ok, message = validate_profile_name(profile_name, label)
-            if not ok:
-                error = message
-
-        if not error:
-            try:
-                ensure_notification_schema()
-                conn = get_db()
-                current_time = now_str()
-                cur = conn.execute(
-                    """
-                    INSERT INTO users (
-                        phone_number, password_hash, role, is_verified, is_banned,
-                        trust_score, email, wants_email_alerts, wants_web_alerts,
-                        created_at, updated_at
-                    )
-                    VALUES (?, ?, ?, 1, 0, ?, ?, ?, 1, ?, ?)
-                    """,
-                    (
-                        phone,
-                        hash_password(password),
-                        role,
-                        55 if role == "EMPLOYER" else 50,
-                        email,
-                        1 if request.form.get("notify_consent") else 0,
-                        current_time,
-                        current_time,
-                    ),
-                )
-                user_id = cur.lastrowid
-
-                if role == "JOB_SEEKER":
-                    conn.execute(
-                        """
-                        INSERT INTO job_seeker_profiles (
-                            user_id, full_name, headline, resume_url, is_public,
-                            created_at, updated_at
-                        )
-                        VALUES (?, ?, '', '', 0, ?, ?)
-                        """,
-                        (user_id, full_name, current_time, current_time),
-                    )
-                else:
-                    conn.execute(
-                        """
-                        INSERT INTO employer_profiles (
-                            user_id, company_name, tax_id, is_company_verified,
-                            address, website, created_at, updated_at
-                        )
-                        VALUES (?, ?, ?, 0, '', '', ?, ?)
-                        """,
-                        (user_id, company_name, f"EMP-{user_id}", current_time, current_time),
-                    )
-
-                add_activity_log(user_id, "REGISTER", "users", user_id, f"role={role}")
-                conn.commit()
-                session.clear()
-                session["user_id"] = user_id
-                session.permanent = True
-                create_notification(
-                    user_id,
-                    "สมัครสมาชิกเรียบร้อย",
-                    "ยินดีต้อนรับเข้าสู่ระบบงานใกล้บ้าน",
-                    url_for("dashboard"),
-                    "ACCOUNT",
-                )
-                return redirect(url_for("dashboard"))
-            except sqlite3.IntegrityError:
-                error = "เบอร์โทรศัพท์นี้ถูกใช้สมัครแล้ว"
-            except Exception:
-                error = "สมัครสมาชิกไม่สำเร็จ กรุณาลองใหม่อีกครั้ง"
-
-    return render_template("register.html", error=error)
-
-
-@app.route("/logout", methods=["POST"])
-def logout():
-    session.clear()
-    return redirect(url_for("home"))
-
-
-@app.route("/dashboard")
-@login_required
-def dashboard():
-    user = get_current_user()
-    if user and user["role"] == "ADMIN":
-        return redirect(url_for("admin_dashboard"))
-    if user and user["role"] == "EMPLOYER":
-        return redirect(url_for("employer_dashboard"))
-    return redirect(url_for("job_seeker_dashboard"))
-
-
-@app.route("/dashboard/job-seeker")
-@login_required
-def job_seeker_dashboard():
-    user = get_current_user()
+def _record_import_run(source_name, status, inserted=0, updated=0, skipped=0, error_message=""):
     conn = get_db()
-    profile = conn.execute(
-        "SELECT * FROM job_seeker_profiles WHERE user_id = ?",
-        (user["id"],),
-    ).fetchone()
-    applications = conn.execute(
+    ensure_import_run_schema(conn)
+    conn.execute(
         """
-        SELECT
-            applications.*,
-            job_posts.title,
-            job_posts.location,
-            employer_profiles.company_name
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE applications.job_seeker_id = ?
-        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
+        INSERT INTO import_runs (
+            source_name, status, inserted_count, updated_count,
+            skipped_count, error_message, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (user["id"],),
-    ).fetchall()
-    recommended_jobs = _fetch_template_jobs(limit=6, status="ACTIVE")
-    return render_template(
-        "dashboard_job_seeker.html",
-        user=user,
-        profile=profile,
-        applications=applications,
-        recommended_jobs=recommended_jobs,
+        (
+            str(source_name or "UNKNOWN")[:120],
+            str(status or "ERROR")[:40],
+            int(inserted or 0),
+            int(updated or 0),
+            int(skipped or 0),
+            str(error_message or "")[:1000],
+            now_str(),
+        ),
     )
+    conn.commit()
 
 
-@app.route("/employer/dashboard")
-@app.route("/dashboard/employer")
-@login_required
-def employer_dashboard():
-    user = get_current_user()
-    if user["role"] != "EMPLOYER":
-        abort(403)
-    conn = get_db()
-    profile = conn.execute(
-        "SELECT * FROM employer_profiles WHERE user_id = ?",
-        (user["id"],),
-    ).fetchone()
-    jobs = conn.execute(
-        """
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.employer_id = ?
-        ORDER BY datetime(job_posts.updated_at) DESC, job_posts.id DESC
-        """,
-        (user["id"],),
-    ).fetchall()
-    applications = conn.execute(
-        """
-        SELECT COUNT(*) AS count
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        WHERE job_posts.employer_id = ?
-        """,
-        (user["id"],),
-    ).fetchone()["count"]
-    return render_template(
-        "dashboard_employer.html",
-        user=user,
-        profile=profile,
-        jobs=jobs,
-        applications=applications,
-        trust_level=get_trust_level(user["trust_score"]),
-    )
-
-
-@app.route("/post-job", methods=["GET", "POST"])
-@app.route("/employer/jobs/new", methods=["GET", "POST"])
-@login_required
-def employer_create_job():
-    user = get_current_user()
-    if user["role"] != "EMPLOYER":
-        abort(403)
-    locked = int(user["trust_score"] or 0) < 20 or int(user["is_banned"] or 0)
-    error = ""
-    preview = None
-    if request.method == "POST":
-        title = request.form.get("title", "").strip()
-        description = request.form.get("description", "").strip()
-        salary_range = request.form.get("salary_range", "").strip()
-        location = request.form.get("location", "").strip()
-        is_urgent = 1 if request.form.get("is_urgent") else 0
-        preview = {
-            "title": title,
-            "description": description,
-            "salary_range": salary_range,
-            "location": location,
-            "is_urgent": is_urgent,
-        }
-
-        if locked:
-            error = "บัญชีนี้ยังไม่พร้อมโพสต์งาน"
-        elif len(title) < 5:
-            error = "กรุณากรอกชื่อตำแหน่งงานให้ชัดเจน"
-        elif len(description) < 40:
-            error = "รายละเอียดงานควรยาวอย่างน้อย 40 ตัวอักษร"
-        else:
-            ok, message = validate_profile_name(title, "ชื่อตำแหน่งงาน", 160)
-            if not ok:
-                error = message
-
-        if not error:
-            score, status, reason = analyze_job_content(
-                title,
-                description,
-                salary_range,
-                location,
-                user["trust_score"],
-                0,
-            )
-            conn = get_db()
-            current_time = now_str()
-            canonical_position = _canonical_job_position(title, description)
-            required_skills = _extract_skill_tags(title, description)
-            cur = conn.execute(
-                """
-                INSERT INTO job_posts (
-                    employer_id, title, description, salary_range, location,
-                    is_government_news, source_url, status, ai_risk_score,
-                    ai_risk_reason, report_count, created_at, updated_at, is_urgent,
-                    canonical_position, required_skills, job_type
-                )
-                VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?, ?, ?, '')
-                """,
-                (
-                    user["id"],
-                    title,
-                    description,
-                    salary_range,
-                    location,
-                    status,
-                    score,
-                    reason,
-                    current_time,
-                    current_time,
-                    is_urgent,
-                    canonical_position,
-                    required_skills,
-                ),
-            )
-            job_id = cur.lastrowid
-            conn.execute(
-                """
-                INSERT INTO ai_decision_logs (job_post_id, title, risk_score, risk_reason, final_status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (job_id, title, score, reason, status, current_time),
-            )
-            add_activity_log(user["id"], "CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
-            conn.commit()
-            if status == "ACTIVE":
-                _run_matching_for_job(job_id)
-            return redirect(url_for("job_detail", slug=str(job_id)))
-
-    return render_template("employer_job_form.html", job=None, error=error, locked=locked, preview=preview)
-
-
-@app.route("/employer/applications")
-@login_required
-def employer_applications():
-    user = get_current_user()
-    if user["role"] != "EMPLOYER":
-        abort(403)
-    applications = get_db().execute(
-        """
-        SELECT
-            applications.*,
-            applications.job_seeker_id,
-            job_posts.title AS job_title,
-            job_posts.location AS job_location,
-            users.phone_number AS applicant_phone,
-            job_seeker_profiles.full_name,
-            job_seeker_profiles.headline,
-            job_seeker_profiles.resume_url
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        JOIN users ON users.id = applications.job_seeker_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = applications.job_seeker_id
-        WHERE job_posts.employer_id = ?
-        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
-        """,
-        (user["id"],),
-    ).fetchall()
-    return render_template("employer_applications.html", applications=applications)
-
-
-@app.route("/employer/applications/<int:application_id>/<action>", methods=["POST"])
-@login_required
-def employer_update_application(application_id, action):
-    user = get_current_user()
-    if user["role"] != "EMPLOYER":
-        abort(403)
-    status_map = {
-        "review": "REVIEWING",
-        "shortlist": "SHORTLISTED",
-        "reject": "REJECTED",
-        "accept": "ACCEPTED",
-    }
-    new_status = status_map.get(action)
-    if not new_status:
-        abort(404)
-
-    row = get_db().execute(
-        """
-        SELECT applications.*, job_posts.employer_id, job_posts.title
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        WHERE applications.id = ?
-        """,
-        (application_id,),
-    ).fetchone()
-    if not row or row["employer_id"] != user["id"]:
-        abort(404)
-
-    get_db().execute(
-        "UPDATE applications SET status = ?, updated_at = ? WHERE id = ?",
-        (new_status, now_str(), application_id),
-    )
-    create_notification(
-        row["job_seeker_id"],
-        "สถานะใบสมัครอัปเดต",
-        f"ใบสมัครงาน {row['title']} เปลี่ยนเป็น {new_status}",
-        url_for("job_seeker_dashboard"),
-        "APPLICATION",
-    )
-    add_activity_log(user["id"], "UPDATE_APPLICATION", "applications", application_id, new_status)
-    get_db().commit()
-    return redirect(url_for("employer_applications"))
-
-
-@app.route("/job-seeker/post", methods=["GET", "POST"])
-@login_required
-def job_seeker_post():
-    user = get_current_user()
-    if user["role"] != "JOB_SEEKER":
-        abort(403)
-    if request.method == "POST":
-        return redirect(url_for("job_seeker_post"))
-    profile = get_db().execute(
-        "SELECT * FROM job_seeker_profiles WHERE user_id = ?",
-        (user["id"],),
-    ).fetchone()
-    applications = get_db().execute(
-        """
-        SELECT applications.*, job_posts.title, job_posts.location, employer_profiles.company_name
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE applications.job_seeker_id = ?
-        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
-        """,
-        (user["id"],),
-    ).fetchall()
-    return render_template("job_seeker_post.html", profile=profile, applications=applications)
-
-
-@app.route("/applications/<int:job_id>", methods=["POST"])
-@login_required
-def apply_job(job_id):
-    user = get_current_user()
-    if user["role"] != "JOB_SEEKER":
-        abort(403)
-
-    job = get_db().execute(
-        "SELECT * FROM job_posts WHERE id = ? AND status = 'ACTIVE'",
-        (job_id,),
-    ).fetchone()
-    if not job:
-        abort(404)
-
-    message = request.form.get("message", "").strip()[:1000]
-    current_time = now_str()
-    try:
-        get_db().execute(
-            """
-            INSERT INTO applications (job_seeker_id, job_post_id, status, message, created_at, updated_at)
-            VALUES (?, ?, 'PENDING', ?, ?, ?)
-            """,
-            (user["id"], job_id, message, current_time, current_time),
-        )
-        create_notification(
-            job["employer_id"],
-            "มีผู้สมัครงานใหม่",
-            f"มีผู้สมัครงาน {job['title']}",
-            url_for("employer_applications"),
-            "APPLICATION",
-        )
-        add_activity_log(user["id"], "APPLY_JOB", "job_posts", job_id, "")
-        get_db().commit()
-    except sqlite3.IntegrityError:
-        pass
-    return redirect(url_for("job_detail_old", job_id=job_id))
-
-
-@app.route("/reports/<int:job_id>", methods=["POST"])
-@login_required
-def report_job(job_id):
-    user = get_current_user()
-    reason = request.form.get("reason", "").strip()
-    if len(reason) < 3:
-        reason = "ผู้ใช้แจ้งตรวจประกาศนี้"
-    current_time = now_str()
-    try:
-        get_db().execute(
-            """
-            INSERT INTO reports (job_post_id, reporter_id, reason, status, created_at, updated_at)
-            VALUES (?, ?, ?, 'PENDING', ?, ?)
-            """,
-            (job_id, user["id"], reason[:500], current_time, current_time),
-        )
-        row = get_db().execute(
-            "SELECT COUNT(*) AS count FROM reports WHERE job_post_id = ?",
-            (job_id,),
-        ).fetchone()
-        report_count = int(row["count"] or 0)
-        job = get_db().execute("SELECT * FROM job_posts WHERE id = ?", (job_id,)).fetchone()
-        if job:
-            score, status, risk_reason = analyze_job_content(
-                job["title"],
-                job["description"],
-                job["salary_range"],
-                job["location"],
-                50,
-                report_count,
-            )
-            next_status = "PENDING_AI_REVIEW" if status == "ACTIVE" and report_count > 0 else status
-            get_db().execute(
-                """
-                UPDATE job_posts
-                SET report_count = ?, ai_risk_score = ?, ai_risk_reason = ?, status = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (report_count, score, risk_reason, next_status, current_time, job_id),
-            )
-            create_notification(
-                job["employer_id"],
-                "ประกาศถูกแจ้งตรวจ",
-                f"ประกาศ {job['title']} ถูกผู้ใช้แจ้งตรวจ",
-                url_for("job_detail", slug=str(job_id)),
-                "REPORT",
-            )
-        add_activity_log(user["id"], "REPORT_JOB", "job_posts", job_id, reason)
-        get_db().commit()
-    except sqlite3.IntegrityError:
-        pass
-    return redirect(url_for("job_detail_old", job_id=job_id))
-
-
-@app.route("/messages", methods=["POST"])
-@login_required
-def send_message():
-    user = get_current_user()
-    receiver_id = request.form.get("receiver_id", "").strip()
-    application_id = request.form.get("application_id", "").strip() or None
-    message = request.form.get("message", "").strip()
-    if receiver_id and message:
-        try:
-            get_db().execute(
-                """
-                INSERT INTO messages (sender_id, receiver_id, application_id, message, is_read, created_at)
-                VALUES (?, ?, ?, ?, 0, ?)
-                """,
-                (user["id"], int(receiver_id), int(application_id) if application_id else None, message[:1000], now_str()),
-            )
-            create_notification(
-                int(receiver_id),
-                "มีข้อความใหม่",
-                message[:160],
-                url_for("inbox"),
-                "MESSAGE",
-            )
-            add_activity_log(user["id"], "SEND_MESSAGE", "messages", None, f"receiver={receiver_id}")
-            get_db().commit()
-        except Exception:
-            pass
-    return _redirect_back("inbox")
-
-
-@app.route("/inbox")
-@login_required
-def inbox():
-    return render_template("inbox.html", conversations=[], messages=[], selected_application=None)
-
-
-@app.route("/api/messages/unread-count")
-@login_required
-def api_unread_messages_count():
-    row = get_db().execute(
-        "SELECT COUNT(*) AS count FROM messages WHERE receiver_id = ? AND is_read = 0",
-        (get_current_user()["id"],),
-    ).fetchone()
-    return {"ok": True, "unread": int(row["count"] or 0)}
-
-
-COMMUNITY_CATEGORY_LABELS = {
-    "GENERAL": "พูดคุยทั่วไป",
-    "SCAM_ALERT": "เตือนภัยงาน",
-    "QUESTION": "ถาม-ตอบสมัครงาน",
-    "EXPERIENCE": "แชร์ประสบการณ์",
-    "LOCAL_NEWS": "ข่าวงานในพื้นที่",
-}
-COMMUNITY_CATEGORIES = set(COMMUNITY_CATEGORY_LABELS)
-
-
-def _community_status_counts():
-    rows = get_db().execute(
-        """
-        SELECT status, COUNT(*) AS count
-        FROM community_posts
-        GROUP BY status
-        """
-    ).fetchall()
-    counts = {row["status"]: int(row["count"] or 0) for row in rows}
-    return {
-        "active": counts.get("ACTIVE", 0),
-        "pending": counts.get("PENDING_REVIEW", 0),
-        "blocked": counts.get("BLOCKED", 0),
-    }
-
-
-def _normalize_community_category(value):
-    category = str(value or "GENERAL").strip().upper()
-    return category if category in COMMUNITY_CATEGORIES else "GENERAL"
-
-
-@app.route("/community")
-def community_board():
-    user = get_current_user()
-    selected_category = request.args.get("category", "ALL").strip().upper()
-    if selected_category != "ALL":
-        selected_category = _normalize_community_category(selected_category)
-    q = request.args.get("q", "").strip()[:80]
-
-    where_clauses = ["community_posts.status = 'ACTIVE'"]
-    params = []
-    if user:
-        where_clauses = ["(community_posts.status = 'ACTIVE' OR (community_posts.user_id = ? AND community_posts.status != 'BLOCKED'))"]
-        params.append(user["id"])
-    if selected_category != "ALL":
-        where_clauses.append("community_posts.category = ?")
-        params.append(selected_category)
-    if q:
-        where_clauses.append("community_posts.body LIKE ?")
-        params.append(f"%{q}%")
-
-    posts = get_db().execute(
-        f"""
-        SELECT
-            community_posts.*,
-            users.phone_number,
-            job_seeker_profiles.full_name,
-            employer_profiles.company_name
-        FROM community_posts
-        LEFT JOIN users ON users.id = community_posts.user_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = community_posts.user_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = community_posts.user_id
-        WHERE {" AND ".join(where_clauses)}
-        ORDER BY datetime(community_posts.created_at) DESC, community_posts.id DESC
-        LIMIT 100
-        """,
-        params,
-    ).fetchall()
-    stats = _community_status_counts()
-    return render_template(
-        "community.html",
-        posts=posts,
-        stats=stats,
-        categories=COMMUNITY_CATEGORY_LABELS,
-        selected_category=selected_category,
-        q=q,
-        posted=request.args.get("posted", ""),
-        reported=request.args.get("reported", ""),
-    )
-
-
-@app.route("/community/posts", methods=["POST"])
-@login_required
-def create_community_post():
-    user = get_current_user()
-    if int(user["is_banned"] or 0):
-        abort(403)
-
-    ok, message = security_guard(request, "community")
-    if not ok:
-        add_activity_log(user["id"], "COMMUNITY_RATE_LIMITED", "community_posts", None, message)
-        get_db().commit()
-        return redirect(url_for("community_board", posted="rate_limited"))
-
-    body = request.form.get("body", "").strip() or request.form.get("content", "").strip()
-    category = _normalize_community_category(request.form.get("category"))
-    if body:
-        body = re.sub(r"\s+", " ", body).strip()
-        if len(body) < 10 or len(body) > 1000:
-            return redirect(url_for("community_board", posted="invalid"))
-
-        duplicate = get_db().execute(
-            """
-            SELECT id
-            FROM community_posts
-            WHERE user_id = ? AND lower(body) = lower(?)
-              AND datetime(created_at) >= datetime('now', '-30 minutes')
-            LIMIT 1
-            """,
-            (user["id"], body[:1000]),
-        ).fetchone()
-        if duplicate:
-            return redirect(url_for("community_board", posted="duplicate"))
-
-        result = None
-        try:
-            from security_engine import analyze_community_post
-            result = analyze_community_post(body)
-        except Exception:
-            result = {"score": 35, "status": "PENDING_REVIEW", "reason": "ระบบคัดกรองไม่สมบูรณ์"}
-
-        current_time = now_str()
-        get_db().execute(
-            """
-            INSERT INTO community_posts (
-                user_id, body, category, status, moderation_score, moderation_reason,
-                report_count, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-            """,
-            (
-                user["id"],
-                body[:1000],
-                category,
-                result.get("status", "PENDING_REVIEW"),
-                int(result.get("score", 0) or 0),
-                result.get("reason", ""),
-                current_time,
-                current_time,
-            ),
-        )
-        add_activity_log(user["id"], "CREATE_COMMUNITY_POST", "community_posts", None, "")
-        get_db().commit()
-        return redirect(url_for("community_board", posted=result.get("status", "PENDING_REVIEW").lower()))
-    return redirect(url_for("community_board", posted="invalid"))
-
-
-@app.route("/community/posts/<int:post_id>/report", methods=["POST"])
-@login_required
-def report_community_post(post_id):
-    user = get_current_user()
-    ok, message = security_guard(request, "community")
-    if not ok:
-        add_activity_log(user["id"], "COMMUNITY_REPORT_RATE_LIMITED", "community_posts", post_id, message)
-        get_db().commit()
-        return redirect(url_for("community_board", reported="rate_limited"))
-
-    reason = request.form.get("reason", "").strip()[:500]
-    if len(reason) < 3:
-        reason = "ผู้ใช้แจ้งตรวจโพสต์ชุมชนนี้"
-    current_time = now_str()
-    post = get_db().execute("SELECT * FROM community_posts WHERE id = ?", (post_id,)).fetchone()
-    if not post:
-        abort(404)
-    try:
-        get_db().execute(
-            """
-            INSERT INTO community_reports (post_id, reporter_id, reason, status, created_at, updated_at)
-            VALUES (?, ?, ?, 'PENDING', ?, ?)
-            """,
-            (post_id, user["id"], reason, current_time, current_time),
-        )
-    except sqlite3.IntegrityError:
-        return redirect(url_for("community_board", reported="duplicate"))
-
-    row = get_db().execute("SELECT COUNT(*) AS count FROM community_reports WHERE post_id = ?", (post_id,)).fetchone()
-    report_count = int(row["count"] or 0)
-    next_status = "PENDING_REVIEW" if report_count >= 1 and post["status"] == "ACTIVE" else post["status"]
-    if report_count >= 3:
-        next_status = "BLOCKED"
-    get_db().execute(
-        """
-        UPDATE community_posts
-        SET report_count = ?, status = ?, updated_at = ?
-        WHERE id = ?
-        """,
-        (report_count, next_status, current_time, post_id),
-    )
-    add_activity_log(user["id"], "REPORT_COMMUNITY_POST", "community_posts", post_id, reason)
-    get_db().commit()
-    return redirect(url_for("community_board", reported="ok"))
-
-
-@app.route("/openchat")
-def openchat():
-    messages = get_db().execute(
-        """
-        SELECT
-            openchat_messages.*,
-            users.phone_number,
-            users.role,
-            COALESCE(job_seeker_profiles.full_name, employer_profiles.company_name, '') AS author_name
-        FROM openchat_messages
-        LEFT JOIN users ON users.id = openchat_messages.user_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = openchat_messages.user_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = openchat_messages.user_id
-        WHERE openchat_messages.status = 'ACTIVE'
-        ORDER BY datetime(openchat_messages.created_at) DESC, openchat_messages.id DESC
-        LIMIT 100
-        """
-    ).fetchall()
-    return render_template("openchat.html", messages=messages, media_by_message={})
-
-
-@app.route("/openchat/send", methods=["POST"])
-@login_required
-def openchat_send():
-    user = get_current_user()
-    message = request.form.get("message", "").strip()
-    if message:
-        try:
-            from security_engine import analyze_openchat_message
-            result = analyze_openchat_message(message)
-        except Exception:
-            result = {"score": 35, "status": "PENDING_REVIEW", "reason": "ระบบคัดกรองไม่สมบูรณ์"}
-
-        current_time = now_str()
-        get_db().execute(
-            """
-            INSERT INTO openchat_messages (
-                user_id, message, status, moderation_score, moderation_reason,
-                created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                user["id"],
-                message[:1000],
-                result.get("status", "PENDING_REVIEW"),
-                int(result.get("score", 0) or 0),
-                result.get("reason", ""),
-                current_time,
-                current_time,
-            ),
-        )
-        add_activity_log(user["id"], "SEND_OPENCHAT", "openchat_messages", None, "")
-        get_db().commit()
-    return redirect(url_for("openchat"))
-
-
-@app.route("/uploads/openchat/<path:filename>")
-def uploaded_openchat_media(filename):
-    return send_from_directory(OPENCHAT_UPLOAD_DIR, filename)
-
-
-@app.route("/urgent")
-@app.route("/urgent-jobs")
-def urgent_jobs():
-    employer_jobs = _fetch_template_jobs(limit=30, urgent_only=True)
-    seeker_posts = []
-    stats = {
-        "total": len(employer_jobs) + len(seeker_posts),
-        "employer_jobs": len(employer_jobs),
-        "seeker_posts": len(seeker_posts),
-    }
-    return render_template("urgent_jobs.html", stats=stats, employer_jobs=employer_jobs, seeker_posts=seeker_posts)
-
-
-@app.route("/job/<slug>")
-def job_detail(slug):
-    try:
-        job_id = int(str(slug).split("-")[0])
-    except (TypeError, ValueError):
-        abort(404)
-
-    job = get_db().execute(
-        """
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.id = ?
-        """,
-        (job_id,),
-    ).fetchone()
-    if not job:
-        abort(404)
-    already_applied = False
-    if get_current_user() and get_current_user()["role"] == "JOB_SEEKER":
-        already_applied = bool(
-            get_db().execute(
-                "SELECT id FROM applications WHERE job_seeker_id = ? AND job_post_id = ?",
-                (get_current_user()["id"], job_id),
-            ).fetchone()
-        )
-    try:
-        get_db().execute(
-            "UPDATE job_posts SET view_count = COALESCE(view_count, 0) + 1 WHERE id = ?",
-            (job_id,),
-        )
-        get_db().commit()
-    except Exception:
-        pass
-    return render_template("job_detail.html", job=job, already_applied=already_applied)
-
-
-@app.route("/job-id/<int:job_id>")
-def job_detail_old(job_id):
-    return redirect(url_for("job_detail", slug=str(job_id)))
-
-
-@app.route("/privacy")
-def privacy_policy():
-    return render_template("privacy.html")
-
-
-@app.route("/terms")
-def terms_page():
-    return render_template("terms.html")
-
-
-@app.route("/pricing")
-def pricing_page():
-    return redirect(url_for("register"), code=301)
-
-
-@app.route("/employer")
-def employer_landing():
-    return redirect(url_for("register"), code=301)
-
-
-@app.route("/setup-check")
-@role_required("ADMIN")
-def setup_check():
-    # TODO: Expand this with full system checks if the admin diagnostics page is restored.
-    conn = get_db()
-
-    def count(table_name):
-        try:
-            row = conn.execute(f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
-            return int(row["count"] or 0)
-        except Exception:
-            return 0
-
-    stats = {
-        "users": count("users"),
-        "job_posts": count("job_posts"),
-        "reports": count("reports"),
-        "checked_at": now_str(),
-    }
-    return render_template("setup_check.html", stats=stats)
-
-
-def _xml_escape(value):
-    return (
-        str(value or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&apos;")
-    )
-
-
-@app.route("/robots.txt")
-def robots_txt():
-    body = "\n".join(
-        [
-            "User-agent: *",
-            "Allow: /",
-            "Disallow: /admin",
-            "Disallow: /internal",
-            "Disallow: /api",
-            f"Sitemap: {SITE_URL}/sitemap.xml",
-            f"Host: {SITE_URL}",
-            "",
-        ]
-    )
-    return Response(body, mimetype="text/plain")
-
-
-@app.route("/sitemap.xml")
-def sitemap_xml():
-    init_db()
-    static_paths = [
-        ("/", "1.0", "daily"),
-        ("/jobs", "0.95", "daily"),
-        ("/news", "0.85", "daily"),
-        ("/urgent", "0.8", "daily"),
-        ("/community", "0.65", "weekly"),
-        ("/privacy", "0.3", "yearly"),
-        ("/terms", "0.3", "yearly"),
-    ]
-    today = datetime.utcnow().date().isoformat()
-    urls = [
-        f"<url><loc>{_xml_escape(SITE_URL + path)}</loc><lastmod>{today}</lastmod><changefreq>{changefreq}</changefreq><priority>{priority}</priority></url>"
-        for path, priority, changefreq in static_paths
-    ]
-
-    rows = get_db().execute(
-        """
-        SELECT id, title, updated_at, created_at
-        FROM job_posts
-        WHERE status = 'ACTIVE'
-        ORDER BY datetime(updated_at) DESC, id DESC
-        LIMIT 1000
-        """
-    ).fetchall()
-    for row in rows:
-        lastmod = str(row["updated_at"] or row["created_at"] or today)[:10]
-        urls.append(
-            f"<url><loc>{_xml_escape(SITE_URL + url_for('job_detail', slug=job_slug(row)))}</loc><lastmod>{_xml_escape(lastmod)}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>"
-        )
-
-    xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-    xml += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
-    xml += "\n".join(urls)
-    xml += "\n</urlset>\n"
-    return Response(xml, mimetype="application/xml")
-
-
-@app.route("/llms.txt")
-def llms_txt():
-    body = f"""# งานใกล้บ้าน
-
-> Thai local job board with AI anti-scam screening, employer trust signals, community reports, and public job listings.
-
-Canonical site: {SITE_URL}
-
-Important pages:
-- Home: {SITE_URL}/
-- Job search: {SITE_URL}/jobs
-- Government and DOE job news: {SITE_URL}/news
-- Urgent jobs: {SITE_URL}/urgent
-- Privacy: {SITE_URL}/privacy
-- Terms: {SITE_URL}/terms
-
-Best summary:
-งานใกล้บ้าน helps Thai job seekers find local jobs while checking scam risk signals such as upfront payment requests, suspicious contact patterns, and repeated reports.
-
-Content policy for AI answers:
-- Recommend users verify employers before sharing personal data.
-- Warn users not to transfer money before starting work.
-- Prefer official source links for government job postings when available.
-"""
-    return Response(body, mimetype="text/plain")
-
-
-@app.route("/admin")
-@role_required("ADMIN")
-def admin_dashboard():
-    return render_template("admin_dashboard.html", stats=_admin_stats(), review_jobs=_fetch_template_jobs(limit=8, status="PENDING_AI_REVIEW"))
-
-
-@app.route("/admin/moderation")
-@role_required("ADMIN")
-def admin_moderation():
-    q = request.args.get("q", "").strip().lower()
-    status = request.args.get("status", "PENDING_AI_REVIEW").strip()
-    where = []
-    params = []
-    if status:
-        where.append("job_posts.status = ?")
-        params.append(status)
-    if q:
-        where.append(
-            "(lower(job_posts.title) LIKE ? OR lower(job_posts.description) LIKE ? OR lower(employer_profiles.company_name) LIKE ?)"
-        )
-        params.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
-    where_sql = "WHERE " + " AND ".join(where) if where else ""
-    jobs = get_db().execute(
-        f"""
-        SELECT
-            job_posts.*,
-            users.phone_number,
-            users.trust_score,
-            employer_profiles.company_name,
-            employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN users ON users.id = job_posts.employer_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        {where_sql}
-        ORDER BY datetime(job_posts.updated_at) DESC, job_posts.id DESC
-        LIMIT 100
-        """,
-        tuple(params),
-    ).fetchall()
-    community_posts = get_db().execute(
-        """
-        SELECT
-            community_posts.*,
-            users.phone_number,
-            COALESCE(job_seeker_profiles.full_name, employer_profiles.company_name, '') AS author_name
-        FROM community_posts
-        LEFT JOIN users ON users.id = community_posts.user_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = community_posts.user_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = community_posts.user_id
-        WHERE community_posts.status != 'ACTIVE' OR community_posts.report_count > 0
-        ORDER BY
-            CASE community_posts.status WHEN 'PENDING_REVIEW' THEN 0 WHEN 'BLOCKED' THEN 1 ELSE 2 END,
-            community_posts.report_count DESC,
-            datetime(community_posts.updated_at) DESC,
-            community_posts.id DESC
-        LIMIT 50
-        """
-    ).fetchall()
-    return render_template("admin_moderation.html", jobs=jobs, community_posts=community_posts, q=q, status=status)
-
-
-@app.route("/scam-check")
-@app.route("/admin/scam-center")
-@role_required("ADMIN")
-def admin_scam_center():
-    conn = get_db()
+def _fetch_import_status(conn=None):
+    conn = conn or get_db()
+    ensure_import_run_schema(conn)
 
     def count(sql, params=()):
         try:
@@ -3307,459 +2543,219 @@ def admin_scam_center():
         except Exception:
             return 0
 
-    stats = {
-        "high": count("SELECT COUNT(*) AS count FROM job_posts WHERE COALESCE(ai_risk_score, 0) >= 70"),
-        "medium": count("SELECT COUNT(*) AS count FROM job_posts WHERE COALESCE(ai_risk_score, 0) >= 35 AND COALESCE(ai_risk_score, 0) < 70"),
-        "low": count("SELECT COUNT(*) AS count FROM job_posts WHERE COALESCE(ai_risk_score, 0) < 35"),
-        "pending": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'"),
+    last_import = conn.execute(
+        "SELECT * FROM import_runs ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+    ).fetchone()
+
+    status = {
+        "last_run_at": last_import["created_at"] if last_import else None,
+        "last_status": last_import["status"] if last_import else "N/A",
+        "last_source": last_import["source_name"] if last_import else "à¹„à¸¡à¹ˆà¸¡à¸µà¸‚à¹‰à¸­à¸¡à¸¹à¸¥",
+        "last_inserted": last_import["inserted_count"] if last_import else 0,
+        "last_updated": last_import["updated_count"] if last_import else 0,
+        "last_skipped": last_import["skipped_count"] if last_import else 0,
+        "last_error": last_import["error_message"] if last_import else "",
+        "total_imports": count("SELECT COUNT(*) AS count FROM import_runs"),
+        "successful_imports": count("SELECT COUNT(*) AS count FROM import_runs WHERE status = 'SUCCESS'"),
+        "failed_imports": count("SELECT COUNT(*) AS count FROM import_runs WHERE status NOT IN ('SUCCESS', 'PARTIAL_SUCCESS')"),
+        "partial_imports": count("SELECT COUNT(*) AS count FROM import_runs WHERE status = 'PARTIAL_SUCCESS'"),
+        "government_jobs": count("SELECT COUNT(*) AS count FROM job_posts WHERE is_government_news = 1 AND status = 'ACTIVE'"),
     }
-    jobs = conn.execute(
-        """
-        SELECT
-            job_posts.*,
-            users.trust_score,
-            employer_profiles.company_name
-        FROM job_posts
-        LEFT JOIN users ON users.id = job_posts.employer_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.status = 'PENDING_AI_REVIEW'
-           OR COALESCE(job_posts.ai_risk_score, 0) >= 35
-        ORDER BY COALESCE(job_posts.ai_risk_score, 0) DESC, datetime(job_posts.updated_at) DESC
-        LIMIT 100
-        """
-    ).fetchall()
-    logs = []
-    try:
-        logs = conn.execute(
-            """
-            SELECT scam_scan_logs.*, job_posts.title
-            FROM scam_scan_logs
-            LEFT JOIN job_posts ON job_posts.id = scam_scan_logs.job_post_id
-            ORDER BY datetime(scam_scan_logs.created_at) DESC, scam_scan_logs.id DESC
-            LIMIT 50
-            """
-        ).fetchall()
-    except Exception:
-        logs = []
-    return render_template("admin_scam_center.html", stats=stats, jobs=jobs, logs=logs)
-
-
-@app.route("/admin/users")
-@role_required("ADMIN")
-def admin_users():
-    users = get_db().execute("SELECT * FROM users ORDER BY id DESC LIMIT 100").fetchall()
-    return render_template("admin_users.html", users=users)
-
-
-@app.route("/admin/logs")
-@role_required("ADMIN")
-def admin_logs():
-    logs = get_db().execute("SELECT * FROM activity_logs ORDER BY datetime(created_at) DESC, id DESC LIMIT 100").fetchall()
-    return render_template("admin_logs.html", logs=logs)
-
-
-@app.route("/admin/import-runs")
-@role_required("ADMIN")
-def admin_import_runs():
-    return render_template("admin_import_runs.html", import_runs=[])
-
-
-@app.route("/admin/trust")
-@role_required("ADMIN")
-def admin_trust_center():
-    users = get_db().execute("SELECT * FROM users ORDER BY trust_score ASC, id DESC LIMIT 100").fetchall()
-    return render_template("admin_trust.html", users=users)
-
-
-@app.route("/admin/system-health")
-@role_required("ADMIN")
-def admin_system_health():
-    conn = get_db()
-
-    def count(sql):
-        try:
-            return int(conn.execute(sql).fetchone()["count"] or 0)
-        except Exception:
-            return 0
-
-    db_path = DB_PATH
-    health = {
-        "checked_at": now_str(),
-        "render_git_commit": os.environ.get("RENDER_GIT_COMMIT", ""),
-        "render_service_name": os.environ.get("RENDER_SERVICE_NAME", ""),
-        "render_external_url": os.environ.get("RENDER_EXTERNAL_URL", ""),
-        "database_exists": db_path.exists(),
-        "database_size": f"{db_path.stat().st_size} bytes" if db_path.exists() else "-",
-        "database_path": str(db_path),
-        "stats": {
-            "users": count("SELECT COUNT(*) AS count FROM users"),
-            "active_jobs": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'"),
-            "pending_jobs": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'"),
-            "rejected_jobs": count("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'"),
-            "reports": count("SELECT COUNT(*) AS count FROM reports"),
-            "activity_logs": count("SELECT COUNT(*) AS count FROM activity_logs"),
-        },
-        "env_checks": {
-            "JOBBOARD_SECRET_KEY": bool(app.secret_key),
-            "JOBBOARD_ADMIN_PHONE": bool(ADMIN_PHONE),
-            "JOBBOARD_ADMIN_PASSWORD": bool(ADMIN_PASSWORD),
-            "JOBBOARD_CRON_TOKEN": bool(JOBBOARD_CRON_TOKEN),
-        },
-    }
-    return render_template("admin_system_health.html", health=health)
-
-
-@app.route("/admin/openchat-media")
-@role_required("ADMIN")
-def admin_openchat_media_review():
-    stats = {"pending": 0, "approved": 0, "rejected": 0}
-    return render_template("admin_openchat_media_review.html", stats=stats, media_items=[])
-
-
-@app.route("/admin/backup/download")
-@role_required("ADMIN")
-def admin_backup_download():
-    # TODO: Restore full backup ZIP generation.
-    return Response("Backup route placeholder", mimetype="text/plain")
-
-
-@app.route("/admin/discord-test", methods=["GET", "POST"])
-def admin_discord_test():
-    automation_allowed = os.environ.get("JOBBOARD_ALLOW_UNAUTH_DISCORD_TEST", "0") == "1"
-    wants_json = request.method == "POST" or "application/json" in request.headers.get("Accept", "")
-
-    if not automation_allowed:
-        user = get_current_user()
-        if not user:
-            if wants_json:
-                return jsonify({"ok": False, "message": "Admin login required."}), 401
-            return redirect(url_for("login"))
-        if user["role"] != "ADMIN":
-            abort(403)
-
-    if not DISCORD_SCAM_ALERT_WEBHOOK_URL:
-        message = "DISCORD_SCAM_ALERT_WEBHOOK_URL is not configured; webhook send was skipped."
-        if wants_json:
-            return jsonify({"ok": True, "sent": False, "message": message})
-        return redirect(url_for("admin_system_health"))
-
-    payload = {
-        "content": "JobBoard AI Anti-Scam Discord webhook test: admin alert pipeline is working."
-    }
-
-    try:
-        response = requests.post(DISCORD_SCAM_ALERT_WEBHOOK_URL, json=payload, timeout=10)
-        response.raise_for_status()
-    except Exception as exc:
-        if wants_json:
-            return jsonify({"ok": False, "sent": False, "message": f"Discord webhook failed: {exc}"}), 502
-        return redirect(url_for("admin_system_health"))
-
-    if wants_json:
-        return jsonify({"ok": True, "sent": True, "message": "Discord webhook test sent successfully."})
-    return redirect(url_for("admin_system_health"))
-
-
-@app.route("/admin/import-upper-central-jobs")
-@role_required("ADMIN")
-def admin_import_upper_central_jobs():
-    try:
-        from auto_job_engine import run_live
-        result = run_live()
-        add_activity_log(get_current_user()["id"], "ADMIN_IMPORT_DOE_NEWS", "job_posts", None, str(result))
-        get_db().commit()
-    except Exception as exc:
-        add_activity_log(get_current_user()["id"], "ADMIN_IMPORT_DOE_NEWS_FAILED", "job_posts", None, str(exc))
-        get_db().commit()
-    return redirect(url_for("admin_import_runs"))
-
-
-@app.route("/admin/import-latest-doe-news")
-@role_required("ADMIN")
-def admin_import_latest_doe_news():
-    return admin_import_upper_central_jobs()
-
-
-@app.route("/admin/repair-doe-source-links")
-@role_required("ADMIN")
-def admin_repair_doe_source_links():
-    # TODO: Restore source link repair action.
-    return redirect(url_for("admin_import_runs"))
-
-
-@app.route("/admin/fetch-government-news", methods=["POST"])
-@role_required("ADMIN")
-def admin_fetch_government_news():
-    try:
-        from auto_job_engine import run_live
-        result = run_live()
-        add_activity_log(get_current_user()["id"], "ADMIN_FETCH_GOVERNMENT_NEWS", "job_posts", None, str(result))
-        get_db().commit()
-    except Exception as exc:
-        add_activity_log(get_current_user()["id"], "ADMIN_FETCH_GOVERNMENT_NEWS_FAILED", "job_posts", None, str(exc))
-        get_db().commit()
-    return redirect(url_for("admin_dashboard"))
-
-
-@app.route("/admin/scam-center/run", methods=["POST"])
-@role_required("ADMIN")
-def admin_run_scam_scanner():
-    try:
-        from scam_engine import scan_all_jobs
-        result = scan_all_jobs(apply_changes=True)
-        add_activity_log(
-            get_current_user()["id"],
-            "RUN_SCAM_SCANNER",
-            "job_posts",
-            None,
-            str(result),
-        )
-        get_db().commit()
-    except Exception as exc:
-        add_activity_log(get_current_user()["id"], "RUN_SCAM_SCANNER_FAILED", "job_posts", None, str(exc))
-        get_db().commit()
-    return redirect(url_for("admin_scam_center"))
-
-
-@app.route("/admin/jobs/<int:job_id>/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_job_status(job_id, action):
-    status_map = {
-        "approve": "ACTIVE",
-        "review": "PENDING_AI_REVIEW",
-        "reject": "REJECTED",
-        "close": "CLOSED",
-    }
-    status = status_map.get(action)
-    if not status:
-        abort(404)
-    get_db().execute(
-        "UPDATE job_posts SET status = ?, updated_at = ? WHERE id = ?",
-        (status, now_str(), job_id),
-    )
-    add_activity_log(get_current_user()["id"], "ADMIN_UPDATE_JOB_STATUS", "job_posts", job_id, status)
-    get_db().commit()
-    return _redirect_back("admin_moderation")
-
-
-@app.route("/admin/jobs/<int:job_id>/delete", methods=["POST"])
-@role_required("ADMIN")
-def admin_delete_job(job_id):
-    get_db().execute("DELETE FROM job_posts WHERE id = ?", (job_id,))
-    add_activity_log(get_current_user()["id"], "ADMIN_DELETE_JOB", "job_posts", job_id, "")
-    get_db().commit()
-    return redirect(url_for("admin_moderation"))
-
-
-@app.route("/admin/community-posts/<int:post_id>/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_community_post(post_id, action):
-    status_map = {
-        "approve": "ACTIVE",
-        "review": "PENDING_REVIEW",
-        "block": "BLOCKED",
-    }
-    if action == "delete":
-        get_db().execute("DELETE FROM community_posts WHERE id = ?", (post_id,))
-        add_activity_log(get_current_user()["id"], "ADMIN_DELETE_COMMUNITY_POST", "community_posts", post_id, "")
-        get_db().commit()
-        return redirect(url_for("admin_moderation"))
-
-    status = status_map.get(action)
-    if not status:
-        abort(404)
-    get_db().execute(
-        "UPDATE community_posts SET status = ?, updated_at = ? WHERE id = ?",
-        (status, now_str(), post_id),
-    )
-    add_activity_log(get_current_user()["id"], "ADMIN_UPDATE_COMMUNITY_POST", "community_posts", post_id, status)
-    get_db().commit()
-    return redirect(url_for("admin_moderation"))
-
-
-@app.route("/admin/users/<int:user_id>/ban", methods=["POST"])
-@role_required("ADMIN")
-def admin_ban_user(user_id):
-    get_db().execute("UPDATE users SET is_banned = 1, updated_at = ? WHERE id = ?", (now_str(), user_id))
-    add_activity_log(get_current_user()["id"], "ADMIN_BAN_USER", "users", user_id, "")
-    get_db().commit()
-    return _redirect_back("admin_users")
-
-
-@app.route("/admin/users/<int:user_id>/unban", methods=["POST"])
-@role_required("ADMIN")
-def admin_unban_user(user_id):
-    get_db().execute("UPDATE users SET is_banned = 0, updated_at = ? WHERE id = ?", (now_str(), user_id))
-    add_activity_log(get_current_user()["id"], "ADMIN_UNBAN_USER", "users", user_id, "")
-    get_db().commit()
-    return _redirect_back("admin_users")
-
-
-@app.route("/admin/users/<int:user_id>/verify-employer", methods=["POST"])
-@role_required("ADMIN")
-def admin_verify_employer(user_id):
-    get_db().execute(
-        "UPDATE employer_profiles SET is_company_verified = 1, updated_at = ? WHERE user_id = ?",
-        (now_str(), user_id),
-    )
-    get_db().execute(
-        "UPDATE users SET trust_score = min(100, trust_score + 15), updated_at = ? WHERE id = ?",
-        (now_str(), user_id),
-    )
-    add_activity_log(get_current_user()["id"], "ADMIN_VERIFY_EMPLOYER", "users", user_id, "")
-    get_db().commit()
-    return redirect(url_for("admin_trust_center"))
-
-
-@app.route("/admin/users/<int:user_id>/unverify-employer", methods=["POST"])
-@role_required("ADMIN")
-def admin_unverify_employer(user_id):
-    get_db().execute(
-        "UPDATE employer_profiles SET is_company_verified = 0, updated_at = ? WHERE user_id = ?",
-        (now_str(), user_id),
-    )
-    add_activity_log(get_current_user()["id"], "ADMIN_UNVERIFY_EMPLOYER", "users", user_id, "")
-    get_db().commit()
-    return redirect(url_for("admin_trust_center"))
-
-
-@app.route("/admin/users/<int:user_id>/trust/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_trust(user_id, action):
-    delta_map = {"increase": 10, "decrease": -10, "reset": None}
-    if action not in delta_map:
-        abort(404)
-    if delta_map[action] is None:
-        get_db().execute(
-            "UPDATE users SET trust_score = 50, updated_at = ? WHERE id = ?",
-            (now_str(), user_id),
-        )
-    else:
-        get_db().execute(
-            "UPDATE users SET trust_score = max(0, min(100, trust_score + ?)), updated_at = ? WHERE id = ?",
-            (delta_map[action], now_str(), user_id),
-        )
-    add_activity_log(get_current_user()["id"], "ADMIN_UPDATE_TRUST", "users", user_id, action)
-    get_db().commit()
-    return redirect(url_for("admin_trust_center"))
-
-
-@app.route("/admin/openchat-media/<int:media_id>/<action>", methods=["POST"])
-@role_required("ADMIN")
-def admin_update_openchat_media_review(media_id, action):
-    # TODO: Restore OpenChat media moderation workflow.
-    return redirect(url_for("admin_openchat_media_review"))
-
-
-@app.route("/notifications")
-@login_required
-def notifications_page():
-    user = get_current_user()
-    ensure_notification_schema()
-    conn = get_db()
-
-    items = conn.execute(
-        """
-        SELECT *
-        FROM notifications
-        WHERE user_id = ?
-        ORDER BY is_read ASC, datetime(created_at) DESC, id DESC
-        LIMIT 50
-        """,
-        (user["id"],)
-    ).fetchall()
-
-    return render_template("notifications.html", notifications=items, user=user)
-
-
-@app.route("/notifications/settings", methods=["GET", "POST"])
-@login_required
-def notification_settings():
-    user = get_current_user()
-    ensure_notification_schema()
-    error = ""
-    success = ""
-
-    if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        wants_email = 1 if request.form.get("wants_email_alerts") else 0
-        wants_web = 1 if request.form.get("wants_web_alerts") else 0
-        browser_enabled = 1 if request.form.get("browser_notifications_enabled") else 0
-
-        if email and ("@" not in email or "." not in email.split("@")[-1]):
-            error = "รูปแบบอีเมลไม่ถูกต้อง"
-        else:
-            conn = get_db()
-            conn.execute(
-                """
-                UPDATE users
-                SET email = ?,
-                    wants_email_alerts = ?,
-                    wants_web_alerts = ?,
-                    browser_notifications_enabled = ?,
-                    updated_at = ?
-                WHERE id = ?
-                """,
-                (email, wants_email, wants_web, browser_enabled, now_str(), user["id"])
-            )
-            conn.commit()
-
-            create_notification(
-                user["id"],
-                "ตั้งค่าการแจ้งเตือนแล้ว",
-                "ระบบบันทึกการตั้งค่าการแจ้งเตือนของคุณเรียบร้อย",
-                url_for("notifications_page"),
-                "SETTINGS",
-            )
-            success = "บันทึกการตั้งค่าเรียบร้อย"
-            user = get_current_user()
-
-    return render_template("notification_settings.html", user=user, error=error, success=success)
-
-
-@app.route("/api/notifications")
-def api_notifications():
-    ensure_notification_schema()
-    user = get_current_user()
-    unread = 0
-
-    if user:
-        items = get_recent_notifications(user["id"], 10)
-        unread = get_unread_notifications_count(user["id"])
-    else:
-        items = get_db().execute(
-            """
-            SELECT
-                id,
-                action AS title,
-                detail AS message,
-                '' AS link_url,
-                target_type AS category,
-                1 AS is_read,
-                created_at
-            FROM activity_logs
-            ORDER BY datetime(created_at) DESC, id DESC
-            LIMIT 10
-            """
-        ).fetchall()
-
-    return jsonify({
-        "ok": True,
-        "unread": unread,
-        "items": [
-            {
-                "id": row["id"],
-                "title": row["title"],
-                "message": row["message"],
-                "link_url": row["link_url"],
-                "category": row["category"],
-                "is_read": bool(row["is_read"]),
-                "created_at": row["created_at"],
-            }
-            for row in items
-        ],
-    })
-
+    status["is_error"] = status["last_status"] not in ("SUCCESS", "PARTIAL_SUCCESS", "N/A")
+    status["is_partial"] = status["last_status"] == "PARTIAL_SUCCESS"
+    status["is_ok"] = status["last_status"] == "SUCCESS"
+    return status
+
+
+def _redirect_back(default_endpoint="home"):
+    return redirect(request.referrer or url_for(default_endpoint))
+
+
+register_admin_action_routes(
+    app,
+    {
+        "role_required": role_required,
+        "Response": Response,
+        "abort": abort,
+        "json": json,
+        "jsonify": jsonify,
+        "redirect": redirect,
+        "request": request,
+        "url_for": url_for,
+        "requests": requests,
+        "io": io,
+        "zipfile": zipfile,
+        "datetime": datetime,
+        "timezone": timezone,
+        "secure_filename": secure_filename,
+        "BASE_DIR": BASE_DIR,
+        "SITE_URL": SITE_URL,
+        "OPENCHAT_UPLOAD_DIR": OPENCHAT_UPLOAD_DIR,
+        "get_discord_webhook_url": lambda: DISCORD_SCAM_ALERT_WEBHOOK_URL,
+        "get_current_user": get_current_user,
+        "get_db": get_db,
+        "add_activity_log": add_activity_log,
+        "now_str": now_str,
+        "send_discord_alert": send_discord_alert,
+        "_record_import_run": _record_import_run,
+        "repair_job_source_urls_to_official": repair_job_source_urls_to_official,
+        "_cron_token_is_valid": _cron_token_is_valid,
+        "_redirect_back": _redirect_back,
+    },
+)
+
+register_admin_page_routes(
+    app,
+    {
+        "role_required": role_required,
+        "render_template": render_template,
+        "request": request,
+        "sqlite3": sqlite3,
+        "get_db": get_db,
+        "get_current_user": get_current_user,
+        "normalize_phone": normalize_phone,
+        "blacklist_phone": blacklist_phone,
+        "_admin_stats": _admin_stats,
+        "_fetch_import_status": _fetch_import_status,
+        "_fetch_template_jobs": _fetch_template_jobs,
+        "ensure_import_run_schema": ensure_import_run_schema,
+        "now_str": now_str,
+        "DB_PATH": DB_PATH,
+        "app_secret_key": app.secret_key,
+        "ADMIN_PHONE": ADMIN_PHONE,
+        "ADMIN_PASSWORD": ADMIN_PASSWORD,
+        "JOBBOARD_CRON_TOKEN": JOBBOARD_CRON_TOKEN,
+        "JOBBOARD_API_BASE_URL": JOBBOARD_API_BASE_URL,
+        "DISCORD_SCAM_ALERT_WEBHOOK_URL": DISCORD_SCAM_ALERT_WEBHOOK_URL,
+    },
+)
+
+register_auth_routes(
+    app,
+    {
+        "OAUTH_PROVIDERS": OAUTH_PROVIDERS,
+        "OTPHandler": OTPHandler,
+        "PhoneOTPFlow": PhoneOTPFlow,
+        "request": request,
+        "render_template": render_template,
+        "jsonify": jsonify,
+        "redirect": redirect,
+        "url_for": url_for,
+        "session": session,
+        "get_db": get_db,
+        "now_str": now_str,
+        "normalize_phone": normalize_phone,
+        "verify_oauth_state": verify_oauth_state,
+        "generate_oauth_state": generate_oauth_state,
+        "store_oauth_state": store_oauth_state,
+        "store_oauth_callback": store_oauth_callback,
+        "get_oauth_callback": get_oauth_callback,
+        "hash_password": hash_password,
+        "verify_password": verify_password,
+        "is_phone_blacklisted": is_phone_blacklisted,
+        "is_valid_thai_phone": is_valid_thai_phone,
+        "validate_account_password": validate_account_password,
+        "validate_profile_name": validate_profile_name,
+        "ensure_notification_schema": ensure_notification_schema,
+        "create_notification": create_notification,
+        "add_activity_log": add_activity_log,
+    },
+)
+
+register_notification_routes(
+    app,
+    {
+        "login_required": login_required,
+        "render_template": render_template,
+        "request": request,
+        "jsonify": jsonify,
+        "url_for": url_for,
+        "get_current_user": get_current_user,
+        "get_db": get_db,
+        "ensure_notification_schema": ensure_notification_schema,
+        "now_str": now_str,
+        "create_notification": create_notification,
+        "get_recent_notifications": get_recent_notifications,
+        "get_unread_notifications_count": get_unread_notifications_count,
+    },
+)
+
+register_dashboard_routes(
+    app,
+    {
+        "login_required": login_required,
+        "abort": abort,
+        "redirect": redirect,
+        "render_template": render_template,
+        "request": request,
+        "url_for": url_for,
+        "datetime": datetime,
+        "timedelta": timedelta,
+        "get_current_user": get_current_user,
+        "get_db": get_db,
+        "now_str": now_str,
+        "_fetch_template_jobs": _fetch_template_jobs,
+        "get_trust_level": get_trust_level,
+        "validate_profile_name": validate_profile_name,
+        "analyze_job_content": analyze_job_content,
+        "_canonical_job_position": lambda *values: _canonical_job_position(*values),
+        "_extract_skill_tags": lambda *values: _extract_skill_tags(*values),
+        "add_activity_log": add_activity_log,
+        "_run_matching_for_job": lambda job_id: _run_matching_for_job(job_id),
+        "create_notification": create_notification,
+    },
+)
+
+register_community_routes(
+    app,
+    {
+        "login_required": login_required,
+        "abort": abort,
+        "redirect": redirect,
+        "render_template": render_template,
+        "request": request,
+        "url_for": url_for,
+        "send_from_directory": send_from_directory,
+        "get_current_user": get_current_user,
+        "get_db": get_db,
+        "now_str": now_str,
+        "analyze_job_content": analyze_job_content,
+        "create_notification": create_notification,
+        "add_activity_log": add_activity_log,
+        "_redirect_back": _redirect_back,
+        "security_guard": security_guard,
+        "OPENCHAT_UPLOAD_DIR": OPENCHAT_UPLOAD_DIR,
+    },
+)
+
+register_public_routes(
+    app,
+    {
+        "abort": abort,
+        "redirect": redirect,
+        "render_template": render_template,
+        "request": request,
+        "url_for": url_for,
+        "Response": Response,
+        "datetime": datetime,
+        "timezone": timezone,
+        "get_db": get_db,
+        "get_current_user": get_current_user,
+        "_fetch_template_jobs": _fetch_template_jobs,
+        "track_job_view": track_job_view,
+        "get_job_view_count": get_job_view_count,
+        "get_live_viewers": get_live_viewers,
+        "generate_jobposting_jsonld": generate_jobposting_jsonld,
+        "_safe_fetch_public_job_rows": _safe_fetch_public_job_rows,
+        "SITE_URL": SITE_URL,
+        "CONTENT_GUIDES": CONTENT_GUIDES,
+        "FAQ_ITEMS": FAQ_ITEMS,
+        "JOB_DATA_SOURCES": JOB_DATA_SOURCES,
+        "DEFAULT_PROVINCE_LANDING_PAGES": DEFAULT_PROVINCE_LANDING_PAGES,
+        "init_db": init_db,
+        "job_slug": job_slug,
+    },
+)
 
 def _dashboard_risk_level(score, status=""):
     status = str(status or "").upper()
@@ -3878,1809 +2874,104 @@ def _with_job_seo_fields(item):
     return item
 
 
-def _require_discord_bot_token():
-    if not DISCORD_BOT_API_TOKEN:
-        return jsonify({"ok": False, "message": "DISCORD_BOT_API_TOKEN is not configured."}), 503
-    token = request.headers.get("X-Discord-Bot-Token", "").strip()
-    auth = request.headers.get("Authorization", "").strip()
-    if auth.lower().startswith("bearer "):
-        token = auth[7:].strip()
-    if not secrets.compare_digest(token, DISCORD_BOT_API_TOKEN):
-        return jsonify({"ok": False, "message": "Invalid Discord bot token."}), 401
-    return None
-
-
-def _json_payload():
-    return request.get_json(silent=True) or {}
-
-
-def _discord_text(value, max_length=500):
-    return str(value or "").strip()[:max_length]
-
-
-def _discord_list_text(value, max_length=300):
-    if isinstance(value, (list, tuple)):
-        value = ", ".join(str(item).strip() for item in value if str(item).strip())
-    return _discord_text(value, max_length)
-
-
-POSITION_SYNONYMS = {
-    "software_developer": [
-        "โปรแกรมเมอร์",
-        "นักพัฒนา",
-        "นักพัฒนาเว็บ",
-        "developer",
-        "web developer",
-        "software engineer",
-        "programmer",
-        "coder",
-        "python",
-        "flask",
-        "frontend",
-        "backend",
-    ],
-    "sales": ["พนักงานขาย", "ฝ่ายขาย", "เซลส์", "sales", "telesales", "sale admin"],
-    "admin_officer": ["ธุรการ", "แอดมิน", "admin", "office admin", "ประสานงาน", "coordinator"],
-    "accounting": ["บัญชี", "การเงิน", "accounting", "accountant", "finance"],
-    "customer_service": ["บริการลูกค้า", "ลูกค้าสัมพันธ์", "call center", "customer service", "support"],
-    "driver": ["ขับรถ", "พนักงานขับรถ", "driver", "delivery", "ไรเดอร์"],
-    "warehouse": ["คลังสินค้า", "แพ็คสินค้า", "warehouse", "stock", "inventory"],
-    "marketing": ["การตลาด", "marketing", "digital marketing", "content", "seo"],
-    "hr": ["บุคคล", "ทรัพยากรบุคคล", "hr", "recruiter", "สรรหา"],
-    "technician": ["ช่าง", "technician", "maintenance", "ซ่อมบำรุง"],
-}
-
-SKILL_KEYWORDS = [
-    "python",
-    "flask",
-    "django",
-    "javascript",
-    "react",
-    "vue",
-    "sql",
-    "excel",
-    "บัญชี",
-    "ขาย",
-    "sales",
-    "seo",
-    "marketing",
-    "แอดมิน",
-    "admin",
-    "customer service",
-    "call center",
-    "ขับรถ",
-    "คลังสินค้า",
-]
-
-
-def _row_value(row, key, default=""):
-    try:
-        if key in row.keys():
-            return row[key]
-    except Exception:
-        pass
-    try:
-        return row.get(key, default)
-    except Exception:
-        return getattr(row, key, default)
-
-
-def _canonical_job_position(*values):
-    text = " ".join(str(value or "") for value in values).lower()
-    text = re.sub(r"\s+", " ", text)
-    best_key = ""
-    best_hits = 0
-    for key, synonyms in POSITION_SYNONYMS.items():
-        hits = sum(1 for synonym in synonyms if synonym.lower() in text)
-        if hits > best_hits:
-            best_key = key
-            best_hits = hits
-    return best_key
-
-
-def _extract_skill_tags(*values):
-    text = " ".join(str(value or "") for value in values).lower()
-    found = []
-    for skill in SKILL_KEYWORDS:
-        if skill.lower() in text and skill not in found:
-            found.append(skill)
-    return ", ".join(found)
-
-
-def _split_match_terms(value):
-    return [part.strip().lower() for part in re.split(r"[,/| ]+", str(value or "")) if part.strip()]
-
-
-def _salary_numbers(value):
-    numbers = re.findall(r"\d+(?:,\d{3})*|\d+k", str(value or "").lower())
-    result = []
-    for number in numbers:
-        if number.endswith("k"):
-            result.append(int(float(number[:-1] or 0) * 1000))
-        else:
-            result.append(int(number.replace(",", "")))
-    return result
-
-
-def _salary_overlap(job_salary, expected_salary):
-    job_numbers = _salary_numbers(job_salary)
-    expected_numbers = _salary_numbers(expected_salary)
-    if not job_numbers or not expected_numbers:
-        return False
-    job_min, job_max = min(job_numbers), max(job_numbers)
-    expected = min(expected_numbers)
-    return job_min <= expected <= job_max or expected <= job_max
-
-
-def _profile_job_match(job_row, profile_row):
-    job_position = _row_value(job_row, "canonical_position") or _canonical_job_position(
-        _row_value(job_row, "title"),
-        _row_value(job_row, "description"),
-    )
-    seeker_position = _row_value(profile_row, "canonical_position") or _canonical_job_position(
-        _row_value(profile_row, "desired_position"),
-        _row_value(profile_row, "headline"),
-        _row_value(profile_row, "skills"),
-    )
-    job_text = " ".join(
-        [
-            str(_row_value(job_row, "title")),
-            str(_row_value(job_row, "description")),
-            str(_row_value(job_row, "required_skills")),
-            str(_row_value(job_row, "location")),
-        ]
-    ).lower()
-    seeker_skills = _split_match_terms(_row_value(profile_row, "skills") or _row_value(profile_row, "headline"))
-    matched_skills = [skill for skill in seeker_skills if len(skill) > 1 and skill in job_text]
-
-    score = 0
-    reasons = []
-    if job_position and seeker_position and job_position == seeker_position:
-        score += 40
-        reasons.append(f"position:{job_position}")
-    elif seeker_position and seeker_position in job_text:
-        score += 20
-        reasons.append(f"related_position:{seeker_position}")
-
-    if matched_skills:
-        score += min(25, 10 + len(matched_skills) * 5)
-        reasons.append("skills:" + ", ".join(matched_skills[:5]))
-
-    seeker_location = str(_row_value(profile_row, "preferred_location") or "").lower()
-    job_location = str(_row_value(job_row, "location") or "").lower()
-    if seeker_location and (seeker_location in job_location or job_location in seeker_location):
-        score += 20
-        reasons.append("location")
-
-    seeker_job_type = str(_row_value(profile_row, "job_type") or "").lower()
-    job_type = str(_row_value(job_row, "job_type") or "").lower()
-    if seeker_job_type and job_type and seeker_job_type == job_type:
-        score += 5
-        reasons.append("job_type")
-
-    if _salary_overlap(_row_value(job_row, "salary_range"), _row_value(profile_row, "expected_salary")):
-        score += 10
-        reasons.append("salary")
-
-    if int(_row_value(job_row, "is_company_verified", 0) or 0):
-        score += 5
-        reasons.append("verified_company")
-
-    risk = int(_row_value(job_row, "ai_risk_score", 0) or 0)
-    if risk >= 70:
-        score -= 30
-        reasons.append("high_risk_penalty")
-    elif risk >= 35:
-        score -= 10
-        reasons.append("medium_risk_penalty")
-
-    canonical = job_position or seeker_position
-    return max(0, min(100, score)), " | ".join(reasons[:8]), canonical
-
-
-def _get_or_create_discord_user(discord_user_id, discord_username="", role="JOB_SEEKER"):
-    ensure_discord_schema()
-    discord_user_id = _discord_text(discord_user_id, 80)
-    discord_username = _discord_text(discord_username, 120)
-    role = "EMPLOYER" if str(role or "").upper() == "EMPLOYER" else "JOB_SEEKER"
-    if not discord_user_id:
-        raise ValueError("discord_user_id is required")
-
-    conn = get_db()
-    account = conn.execute(
-        """
-        SELECT discord_accounts.*, users.role AS user_role
-        FROM discord_accounts
-        JOIN users ON users.id = discord_accounts.user_id
-        WHERE discord_accounts.discord_user_id = ?
-        """,
-        (discord_user_id,),
-    ).fetchone()
-    current_time = now_str()
-    if account:
-        user_id = int(account["user_id"])
-        conn.execute(
-            """
-            UPDATE discord_accounts
-            SET discord_username = ?, role = ?, updated_at = ?
-            WHERE discord_user_id = ?
-            """,
-            (discord_username, role, current_time, discord_user_id),
-        )
-        conn.execute("UPDATE users SET role = ?, updated_at = ? WHERE id = ?", (role, current_time, user_id))
-        conn.commit()
-        return get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-
-    phone_number = f"discord:{discord_user_id}"
-    cur = conn.execute(
-        """
-        INSERT INTO users (
-            phone_number, password_hash, role, is_verified, is_banned,
-            trust_score, created_at, updated_at
-        )
-        VALUES (?, ?, ?, 1, 0, 60, ?, ?)
-        """,
-        (phone_number, hash_password(secrets.token_urlsafe(24)), role, current_time, current_time),
-    )
-    user_id = cur.lastrowid
-    conn.execute(
-        """
-        INSERT INTO discord_accounts (
-            user_id, discord_user_id, discord_username, role, dm_enabled, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, 1, ?, ?)
-        """,
-        (user_id, discord_user_id, discord_username, role, current_time, current_time),
-    )
-    conn.commit()
-    return get_db().execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-
-
-def _discord_account_for_user(user_id):
-    ensure_discord_schema()
-    return get_db().execute("SELECT * FROM discord_accounts WHERE user_id = ?", (user_id,)).fetchone()
-
-
-def _discord_account_from_request(data=None, role=None):
-    ensure_discord_schema()
-    data = data or {}
-    discord_user_id = _discord_text(
-        data.get("discord_user_id")
-        or request.args.get("discord_user_id")
-        or request.args.get("discord_id"),
-        80,
-    )
-    if discord_user_id:
-        if role:
-            user = _get_or_create_discord_user(discord_user_id, data.get("discord_username"), role)
-            return get_db().execute(
-                "SELECT * FROM discord_accounts WHERE user_id = ?",
-                (user["id"],),
-            ).fetchone()
-        return get_db().execute(
-            "SELECT * FROM discord_accounts WHERE discord_user_id = ?",
-            (discord_user_id,),
-        ).fetchone()
-    user_id = data.get("user_id") or request.args.get("user_id")
-    try:
-        user_id = int(user_id)
-    except (TypeError, ValueError):
-        return None
-    return get_db().execute("SELECT * FROM discord_accounts WHERE user_id = ?", (user_id,)).fetchone()
-
-
-def _queue_discord_notification(user_id, event_type, payload):
-    ensure_discord_schema()
-    account = _discord_account_for_user(user_id)
-    if not account or not int(account["dm_enabled"] or 0):
-        return None
-    current_time = now_str()
-    cur = get_db().execute(
-        """
-        INSERT INTO discord_notifications (
-            user_id, discord_user_id, event_type, payload, status, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, 'PENDING', ?, ?)
-        """,
-        (
-            user_id,
-            account["discord_user_id"],
-            event_type,
-            json.dumps(payload, ensure_ascii=False),
-            current_time,
-            current_time,
-        ),
-    )
-    get_db().commit()
-    return cur.lastrowid
-
-
-def _job_match_score(row, keyword="", location="", job_type="", profile=None):
-    if profile:
-        score, _, _ = _profile_job_match(row, profile)
-        keyword = str(keyword or "").strip().lower()
-        if keyword and keyword in " ".join([str(row["title"] or ""), str(row["description"] or "")]).lower():
-            score = min(100, score + 5)
-        return score
-
-    text = " ".join(
-        [
-            str(row["title"] or ""),
-            str(row["description"] or ""),
-            str(row["location"] or ""),
-            str(row["company_name"] or ""),
-        ]
-    ).lower()
-    score = 0
-    keyword = str(keyword or "").strip().lower()
-    location = str(location or "").strip().lower()
-    job_type = str(job_type or "").strip().lower()
-    if keyword and keyword in text:
-        score += 35
-    if location and location in str(row["location"] or "").lower():
-        score += 25
-    if job_type and job_type in text:
-        score += 10
-    canonical = _canonical_job_position(keyword)
-    if canonical and canonical == (_row_value(row, "canonical_position") or _canonical_job_position(row["title"], row["description"])):
-        score += 25
-    if int(row["is_company_verified"] or 0):
-        score += 10
-    risk = int(row["ai_risk_score"] or 0)
-    if risk >= 70:
-        score -= 30
-    elif risk >= 35:
-        score -= 10
-    return max(0, min(100, score))
-
-
-def _discord_job_payload(row, match_score=0):
-    return {
-        "id": row["id"],
-        "title": row["title"],
-        "company_name": row["company_name"] or "Verified employer",
-        "location": row["location"] or "",
-        "salary_range": row["salary_range"] or "",
-        "risk_score": int(row["ai_risk_score"] or 0),
-        "risk_level": scam_risk_label(row["ai_risk_score"]),
-        "match_score": int(match_score or 0),
-        "is_urgent": bool(row["is_urgent"] or 0) if "is_urgent" in row.keys() else False,
-        "url": f"{SITE_URL}{url_for('job_detail', slug=job_slug(row))}",
-        "created_at": row["created_at"],
-    }
-
-
-def _discord_profile_payload(account, profile=None, employer_profile=None):
-    role = str(account["role"] or "").upper()
-    payload = {
-        "user_id": account["user_id"],
-        "discord_user_id": account["discord_user_id"],
-        "discord_username": account["discord_username"] or "",
-        "role": role,
-        "dm_enabled": bool(account["dm_enabled"] or 0),
-        "updated_at": account["updated_at"],
-    }
-    if role == "EMPLOYER":
-        employer_profile = employer_profile or get_db().execute(
-            "SELECT * FROM employer_profiles WHERE user_id = ?",
-            (account["user_id"],),
-        ).fetchone()
-        payload["employer_profile"] = {
-            "company_name": employer_profile["company_name"] if employer_profile else "",
-            "is_company_verified": bool(employer_profile["is_company_verified"] or 0) if employer_profile else False,
-            "address": employer_profile["address"] if employer_profile else "",
-            "website": employer_profile["website"] if employer_profile else "",
-        }
-        return payload
-
-    profile = profile or get_db().execute(
-        "SELECT * FROM job_seeker_profiles WHERE user_id = ?",
-        (account["user_id"],),
-    ).fetchone()
-    payload["profile"] = {
-        "full_name": profile["full_name"] if profile else "",
-        "headline": profile["headline"] if profile else "",
-        "desired_position": profile["desired_position"] if profile else "",
-        "skills": profile["skills"] if profile else "",
-        "preferred_location": profile["preferred_location"] if profile else "",
-        "job_type": profile["job_type"] if profile else "",
-        "expected_salary": profile["expected_salary"] if profile else "",
-        "resume_url": profile["resume_url"] if profile else "",
-        "cv_url": profile["resume_url"] if profile else "",
-        "is_public": bool(profile["is_public"] or 0) if profile else False,
-    }
-    return payload
-
-
-def _notify_followers_for_job(job_id, company_name, location, title):
-    ensure_discord_schema()
-    company_name_lc = str(company_name or "").strip().lower()
-    location_lc = str(location or "").strip().lower()
-    rows = get_db().execute(
-        """
-        SELECT DISTINCT discord_accounts.user_id
-        FROM discord_accounts
-        LEFT JOIN company_follows ON company_follows.user_id = discord_accounts.user_id
-        LEFT JOIN job_alert_preferences ON job_alert_preferences.user_id = discord_accounts.user_id
-        WHERE discord_accounts.role = 'JOB_SEEKER'
-          AND discord_accounts.dm_enabled = 1
-        """
-    ).fetchall()
-    queued = 0
-    for row in rows:
-        user_id = int(row["user_id"])
-        follows = get_db().execute("SELECT company_name FROM company_follows WHERE user_id = ?", (user_id,)).fetchall()
-        prefs = get_db().execute("SELECT * FROM job_alert_preferences WHERE user_id = ?", (user_id,)).fetchone()
-        follow_match = any(company_name_lc and company_name_lc == str(f["company_name"] or "").lower() for f in follows)
-        pref_match = False
-        if prefs:
-            keywords = str(prefs["keywords"] or "").lower()
-            locations = str(prefs["locations"] or "").lower()
-            pref_match = (keywords and keywords in str(title or "").lower()) or (location_lc and location_lc in locations)
-        if follow_match or pref_match:
-            _queue_discord_notification(
-                user_id,
-                "job_match",
-                {
-                    "job_id": job_id,
-                    "title": title,
-                    "company_name": company_name,
-                    "location": location,
-                    "url": f"{SITE_URL}{url_for('job_detail', slug=str(job_id))}",
-                },
-            )
-            queued += 1
-    return queued
-
-
-def _record_match_event(job_row, profile_row, match_score, match_reason, canonical_position):
-    if match_score < 70:
-        return False
-    job_id = int(_row_value(job_row, "id"))
-    job_seeker_id = int(_row_value(profile_row, "user_id"))
-    employer_id = int(_row_value(job_row, "employer_id"))
-    current_time = now_str()
-    conn = get_db()
-    cur = conn.execute(
-        """
-        INSERT OR IGNORE INTO match_events (
-            job_id, job_seeker_id, employer_id, match_score, match_reason,
-            canonical_position, status, notified_job_seeker, notified_employer,
-            created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, 'NEW', 0, 0, ?, ?)
-        """,
-        (
-            job_id,
-            job_seeker_id,
-            employer_id,
-            int(match_score),
-            match_reason,
-            canonical_position or "",
-            current_time,
-            current_time,
-        ),
-    )
-    inserted = cur.rowcount > 0
-    if not inserted:
-        conn.execute(
-            """
-            UPDATE match_events
-            SET match_score = max(match_score, ?),
-                match_reason = CASE WHEN ? > match_score THEN ? ELSE match_reason END,
-                canonical_position = CASE WHEN ? != '' THEN ? ELSE canonical_position END,
-                updated_at = ?
-            WHERE job_id = ? AND job_seeker_id = ?
-            """,
-            (
-                int(match_score),
-                int(match_score),
-                match_reason,
-                canonical_position or "",
-                canonical_position or "",
-                current_time,
-                job_id,
-                job_seeker_id,
-            ),
-        )
-        conn.commit()
-        return False
-
-    job_payload = {
-        "job_id": job_id,
-        "job_title": _row_value(job_row, "title"),
-        "company_name": _row_value(job_row, "company_name") or "Verified employer",
-        "location": _row_value(job_row, "location"),
-        "salary_range": _row_value(job_row, "salary_range"),
-        "match_score": int(match_score),
-        "match_reason": match_reason,
-        "url": f"{SITE_URL}{url_for('job_detail', slug=str(job_id))}",
-    }
-    seeker_payload = {
-        "job_id": job_id,
-        "job_title": _row_value(job_row, "title"),
-        "applicant_user_id": job_seeker_id,
-        "applicant_name": _row_value(profile_row, "full_name") or f"Applicant {job_seeker_id}",
-        "headline": _row_value(profile_row, "headline"),
-        "skills": _row_value(profile_row, "skills"),
-        "match_score": int(match_score),
-        "match_reason": match_reason,
-        "url": f"{SITE_URL}{url_for('employer_applications')}",
-    }
-    seeker_notice = _queue_discord_notification(job_seeker_id, "job_match", job_payload)
-    employer_notice = _queue_discord_notification(employer_id, "candidate_match", seeker_payload)
-    conn.execute(
-        """
-        UPDATE match_events
-        SET notified_job_seeker = ?, notified_employer = ?, status = 'NOTIFIED', updated_at = ?
-        WHERE job_id = ? AND job_seeker_id = ?
-        """,
-        (1 if seeker_notice else 0, 1 if employer_notice else 0, now_str(), job_id, job_seeker_id),
-    )
-    conn.commit()
-    return True
-
-
-def _run_matching_for_job(job_id, limit=20):
-    ensure_discord_schema()
-    job = get_db().execute(
-        """
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.id = ? AND job_posts.status = 'ACTIVE' AND COALESCE(job_posts.ai_risk_score, 0) < 70
-        """,
-        (job_id,),
-    ).fetchone()
-    if not job:
-        return 0
-    profiles = get_db().execute(
-        """
-        SELECT job_seeker_profiles.*
-        FROM job_seeker_profiles
-        JOIN discord_accounts ON discord_accounts.user_id = job_seeker_profiles.user_id
-        WHERE discord_accounts.role = 'JOB_SEEKER'
-          AND discord_accounts.dm_enabled = 1
-        ORDER BY datetime(job_seeker_profiles.updated_at) DESC, job_seeker_profiles.id DESC
-        LIMIT 200
-        """
-    ).fetchall()
-    created = 0
-    ranked = []
-    for profile in profiles:
-        score, reason, canonical = _profile_job_match(job, profile)
-        ranked.append((score, reason, canonical, profile))
-    for score, reason, canonical, profile in sorted(ranked, key=lambda item: item[0], reverse=True)[:limit]:
-        if _record_match_event(job, profile, score, reason, canonical):
-            created += 1
-    return created
-
-
-def _run_matching_for_profile(user_id, limit=20):
-    ensure_discord_schema()
-    profile = get_db().execute("SELECT * FROM job_seeker_profiles WHERE user_id = ?", (user_id,)).fetchone()
-    if not profile:
-        return 0
-    jobs = get_db().execute(
-        """
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.status = 'ACTIVE'
-          AND COALESCE(job_posts.ai_risk_score, 0) < 70
-        ORDER BY datetime(job_posts.updated_at) DESC, job_posts.id DESC
-        LIMIT 300
-        """
-    ).fetchall()
-    created = 0
-    ranked = []
-    for job in jobs:
-        score, reason, canonical = _profile_job_match(job, profile)
-        ranked.append((score, reason, canonical, job))
-    for score, reason, canonical, job in sorted(ranked, key=lambda item: item[0], reverse=True)[:limit]:
-        if _record_match_event(job, profile, score, reason, canonical):
-            created += 1
-    return created
-
-
-@app.route("/api/discord/commands")
-def api_discord_commands():
-    return jsonify({
-        "ok": True,
-        "commands": [
-            {"name": "/profile view", "description": "View your CV, skills, and experience profile"},
-            {"name": "/profile edit", "description": "Create or update your profile, skills, and CV"},
-            {"name": "/search job", "description": "Search active jobs by keyword, location, and type"},
-            {"name": "/apply", "description": "Apply to a job from Discord"},
-            {"name": "/alert job", "description": "Set job alerts by keyword, location, type, and salary"},
-            {"name": "/applications", "description": "View application status"},
-            {"name": "/follow company", "description": "Follow a company for new job alerts"},
-            {"name": "/post job", "description": "Employer posts a new job"},
-            {"name": "/list jobs", "description": "List active posted jobs"},
-            {"name": "/view applicants", "description": "Employer views applicants for a job"},
-            {"name": "/message applicant", "description": "Send a Discord DM to an applicant"},
-            {"name": "/notify applicants", "description": "Send an announcement to applicants for a job"},
-            {"name": "/match jobs", "description": "AI recommends jobs for a job seeker"},
-            {"name": "/match applicants", "description": "AI recommends applicants for a job"},
-            {"name": "/stats users", "description": "View user and application statistics"},
-            {"name": "/stats jobs", "description": "View job posting and popularity statistics"},
-        ],
-    })
-
-
-@app.route("/api/discord/profile", methods=["GET"])
-def api_discord_profile_view():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    account = _discord_account_from_request()
-    if not account:
-        return jsonify({"ok": False, "message": "Discord profile not found."}), 404
-    return jsonify({"ok": True, "profile": _discord_profile_payload(account)})
-
-
-@app.route("/api/discord/profile", methods=["POST"])
-def api_discord_profile():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    data = _json_payload()
-    try:
-        user = _get_or_create_discord_user(
-            data.get("discord_user_id"),
-            data.get("discord_username"),
-            data.get("role") or "JOB_SEEKER",
-        )
-    except ValueError as exc:
-        return jsonify({"ok": False, "message": str(exc)}), 400
-
-    conn = get_db()
-    current_time = now_str()
-    role = str(user["role"] or "JOB_SEEKER").upper()
-    if role == "EMPLOYER":
-        company_name = _discord_text(data.get("company_name") or data.get("full_name") or data.get("discord_username"), 160)
-        conn.execute(
-            """
-            INSERT INTO employer_profiles (user_id, company_name, tax_id, is_company_verified, address, website, created_at, updated_at)
-            VALUES (?, ?, ?, 0, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                company_name = excluded.company_name,
-                address = excluded.address,
-                website = excluded.website,
-                updated_at = excluded.updated_at
-            """,
-            (
-                user["id"],
-                company_name or f"Discord Employer {user['id']}",
-                f"DISCORD-{user['id']}",
-                _discord_text(data.get("address"), 240),
-                _discord_text(data.get("website"), 240),
-                current_time,
-                current_time,
-            ),
-        )
-    else:
-        full_name = _discord_text(data.get("full_name") or data.get("discord_username"), 160)
-        desired_position = _discord_text(data.get("desired_position") or data.get("position") or data.get("headline"), 160)
-        skills = _discord_list_text(data.get("skills"), 500)
-        preferred_location = _discord_text(data.get("preferred_location") or data.get("location"), 160)
-        job_type = _discord_text(data.get("job_type") or data.get("type"), 80)
-        expected_salary = _discord_text(data.get("expected_salary") or data.get("salary"), 80)
-        canonical_position = _canonical_job_position(desired_position, skills, data.get("headline"))
-        conn.execute(
-            """
-            INSERT INTO job_seeker_profiles (
-                user_id, full_name, headline, resume_url, is_public,
-                desired_position, canonical_position, skills, preferred_location,
-                job_type, expected_salary, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                full_name = excluded.full_name,
-                headline = excluded.headline,
-                resume_url = excluded.resume_url,
-                is_public = excluded.is_public,
-                desired_position = excluded.desired_position,
-                canonical_position = excluded.canonical_position,
-                skills = excluded.skills,
-                preferred_location = excluded.preferred_location,
-                job_type = excluded.job_type,
-                expected_salary = excluded.expected_salary,
-                updated_at = excluded.updated_at
-            """,
-                (
-                    user["id"],
-                    full_name or f"Discord User {user['id']}",
-                    _discord_text(data.get("headline") or skills, 300),
-                    _discord_text(data.get("resume_url") or data.get("cv_url"), 500),
-                1 if data.get("is_public", True) else 0,
-                desired_position,
-                canonical_position,
-                skills,
-                preferred_location,
-                job_type,
-                expected_salary,
-                current_time,
-                current_time,
-            ),
-        )
-        conn.execute(
-            """
-            INSERT INTO job_alert_preferences (
-                user_id, keywords, locations, job_types, min_salary, alert_frequency, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                keywords = excluded.keywords,
-                locations = excluded.locations,
-                job_types = excluded.job_types,
-                min_salary = excluded.min_salary,
-                alert_frequency = excluded.alert_frequency,
-                updated_at = excluded.updated_at
-            """,
-            (
-                user["id"],
-                _discord_list_text(data.get("keywords") or data.get("skills")),
-                _discord_list_text(data.get("locations") or data.get("location")),
-                _discord_list_text(data.get("job_types") or data.get("type")),
-                _discord_text(data.get("min_salary"), 80),
-                _discord_text(data.get("alert_frequency") or "instant", 40),
-                current_time,
-                current_time,
-            ),
-        )
-    if "dm_enabled" in data:
-        conn.execute(
-            "UPDATE discord_accounts SET dm_enabled = ?, updated_at = ? WHERE user_id = ?",
-            (1 if data.get("dm_enabled") else 0, current_time, user["id"]),
-        )
-    conn.commit()
-    new_matches = _run_matching_for_profile(user["id"]) if role == "JOB_SEEKER" else 0
-    return jsonify({"ok": True, "user_id": user["id"], "role": role, "new_matches": new_matches})
-
-
-@app.route("/api/discord/search", methods=["POST"])
-def api_discord_search():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    data = _json_payload()
-    keyword = _discord_text(data.get("keyword") or data.get("q"), 120)
-    location = _discord_text(data.get("location"), 120)
-    job_type = _discord_text(data.get("type") or data.get("job_type"), 80)
-    limit = max(1, min(10, int(data.get("limit") or 5)))
-    profile = None
-    if data.get("discord_user_id"):
-        account = get_db().execute(
-            "SELECT user_id FROM discord_accounts WHERE discord_user_id = ?",
-            (_discord_text(data.get("discord_user_id"), 80),),
-        ).fetchone()
-        if account:
-            profile = get_db().execute("SELECT * FROM job_seeker_profiles WHERE user_id = ?", (account["user_id"],)).fetchone()
-
-    where = ["job_posts.status = 'ACTIVE'"]
-    params = []
-    if keyword:
-        like = f"%{keyword.lower()}%"
-        where.append("(lower(job_posts.title) LIKE ? OR lower(job_posts.description) LIKE ? OR lower(employer_profiles.company_name) LIKE ?)")
-        params.extend([like, like, like])
-    if location:
-        where.append("lower(job_posts.location) LIKE ?")
-        params.append(f"%{location.lower()}%")
-
-    rows = get_db().execute(
-        f"""
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE {" AND ".join(where)}
-        ORDER BY COALESCE(job_posts.is_urgent, 0) DESC, datetime(job_posts.updated_at) DESC, job_posts.id DESC
-        LIMIT 50
-        """,
-        params,
-    ).fetchall()
-    ranked = sorted(
-        [(_job_match_score(row, keyword, location, job_type, profile), row) for row in rows],
-        key=lambda item: item[0],
-        reverse=True,
-    )[:limit]
-    return jsonify({"ok": True, "count": len(ranked), "jobs": [_discord_job_payload(row, score) for score, row in ranked]})
-
-
-@app.route("/api/discord/follow", methods=["POST"])
-def api_discord_follow():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    data = _json_payload()
-    user = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "JOB_SEEKER")
-    follow_type = _discord_text(data.get("type") or "company", 40).lower()
-    value = _discord_text(data.get("value") or data.get("company_name") or data.get("keyword"), 160)
-    if not value:
-        return jsonify({"ok": False, "message": "follow value is required."}), 400
-    current_time = now_str()
-    if follow_type == "company":
-        employer = get_db().execute(
-            "SELECT user_id FROM employer_profiles WHERE lower(company_name) = ? LIMIT 1",
-            (value.lower(),),
-        ).fetchone()
-        get_db().execute(
-            """
-            INSERT OR IGNORE INTO company_follows (user_id, employer_id, company_name, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
-            (user["id"], employer["user_id"] if employer else None, value, current_time),
-        )
-    else:
-        prefs = get_db().execute("SELECT * FROM job_alert_preferences WHERE user_id = ?", (user["id"],)).fetchone()
-        keywords = prefs["keywords"] if prefs else ""
-        locations = prefs["locations"] if prefs else ""
-        job_types = prefs["job_types"] if prefs else ""
-        if follow_type == "location":
-            locations = ", ".join(filter(None, [locations, value]))
-        elif follow_type in {"category", "type", "job_type"}:
-            job_types = ", ".join(filter(None, [job_types, value]))
-        else:
-            keywords = ", ".join(filter(None, [keywords, value]))
-        get_db().execute(
-            """
-            INSERT INTO job_alert_preferences (user_id, keywords, locations, job_types, min_salary, alert_frequency, created_at, updated_at)
-            VALUES (?, ?, ?, ?, '', 'instant', ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                keywords = excluded.keywords,
-                locations = excluded.locations,
-                job_types = excluded.job_types,
-                updated_at = excluded.updated_at
-            """,
-            (user["id"], keywords, locations, job_types, current_time, current_time),
-        )
-    get_db().commit()
-    return jsonify({"ok": True, "follow_type": follow_type, "value": value})
-
-
-@app.route("/api/discord/alert-job", methods=["POST"])
-def api_discord_alert_job():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    data = _json_payload()
-    user = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "JOB_SEEKER")
-    criteria = data.get("criteria") or {}
-    if isinstance(criteria, str):
-        criteria = {"keywords": criteria}
-    current_time = now_str()
-    keywords = _discord_list_text(criteria.get("keywords") or data.get("keywords") or data.get("keyword"), 500)
-    locations = _discord_list_text(criteria.get("locations") or data.get("locations") or data.get("location"), 500)
-    job_types = _discord_list_text(criteria.get("job_types") or data.get("job_types") or data.get("type"), 300)
-    min_salary = _discord_text(criteria.get("min_salary") or data.get("min_salary") or data.get("salary"), 80)
-    frequency = _discord_text(criteria.get("alert_frequency") or data.get("alert_frequency") or "instant", 40)
-    get_db().execute(
-        """
-        INSERT INTO job_alert_preferences (user_id, keywords, locations, job_types, min_salary, alert_frequency, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            keywords = excluded.keywords,
-            locations = excluded.locations,
-            job_types = excluded.job_types,
-            min_salary = excluded.min_salary,
-            alert_frequency = excluded.alert_frequency,
-            updated_at = excluded.updated_at
-        """,
-        (user["id"], keywords, locations, job_types, min_salary, frequency, current_time, current_time),
-    )
-    get_db().commit()
-    return jsonify({
-        "ok": True,
-        "criteria": {
-            "keywords": keywords,
-            "locations": locations,
-            "job_types": job_types,
-            "min_salary": min_salary,
-            "alert_frequency": frequency,
-        },
-    })
-
-
-@app.route("/api/discord/apply", methods=["POST"])
-def api_discord_apply():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    data = _json_payload()
-    user = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "JOB_SEEKER")
-    try:
-        job_id = int(data.get("job_id"))
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "message": "job_id is required."}), 400
-    job = get_db().execute("SELECT * FROM job_posts WHERE id = ? AND status = 'ACTIVE'", (job_id,)).fetchone()
-    if not job:
-        return jsonify({"ok": False, "message": "Active job not found."}), 404
-    current_time = now_str()
-    try:
-        cur = get_db().execute(
-            """
-            INSERT INTO applications (job_seeker_id, job_post_id, status, message, created_at, updated_at)
-            VALUES (?, ?, 'PENDING', ?, ?, ?)
-            """,
-            (user["id"], job_id, _discord_text(data.get("message"), 500), current_time, current_time),
-        )
-        application_id = cur.lastrowid
-    except sqlite3.IntegrityError:
-        existing = get_db().execute(
-            "SELECT id FROM applications WHERE job_seeker_id = ? AND job_post_id = ?",
-            (user["id"], job_id),
-        ).fetchone()
-        application_id = existing["id"]
-    get_db().commit()
-    _queue_discord_notification(
-        job["employer_id"],
-        "new_application",
-        {
-            "application_id": application_id,
-            "job_id": job_id,
-            "job_title": job["title"],
-            "applicant_user_id": user["id"],
-            "url": f"{SITE_URL}{url_for('employer_applications')}",
-        },
-    )
-    return jsonify({"ok": True, "application_id": application_id, "status": "PENDING"})
-
-
-@app.route("/api/discord/applications")
-def api_discord_applications():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    discord_user_id = _discord_text(request.args.get("discord_user_id"), 80)
-    account = get_db().execute("SELECT user_id FROM discord_accounts WHERE discord_user_id = ?", (discord_user_id,)).fetchone()
-    if not account:
-        return jsonify({"ok": True, "applications": []})
-    rows = get_db().execute(
-        """
-        SELECT applications.*, job_posts.title, job_posts.location, employer_profiles.company_name
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE applications.job_seeker_id = ?
-        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
-        LIMIT 20
-        """,
-        (account["user_id"],),
-    ).fetchall()
-    return jsonify({
-        "ok": True,
-        "applications": [
-            {
-                "id": row["id"],
-                "job_id": row["job_post_id"],
-                "job_title": row["title"],
-                "company_name": row["company_name"] or "",
-                "location": row["location"] or "",
-                "status": row["status"],
-                "created_at": row["created_at"],
-            }
-            for row in rows
-        ],
-    })
-
-
-@app.route("/api/discord/post-job", methods=["POST"])
-def api_discord_post_job():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    data = _json_payload()
-    user = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "EMPLOYER")
-    title = _discord_text(data.get("title"), 160)
-    description = _discord_text(data.get("description"), 4000)
-    salary_range = _discord_text(data.get("salary_range") or data.get("salary"), 120)
-    location = _discord_text(data.get("location"), 120)
-    company_name = _discord_text(data.get("company_name") or data.get("discord_username"), 160)
-    required_skills = _discord_list_text(data.get("required_skills") or data.get("skills") or _extract_skill_tags(title, description), 500)
-    job_type = _discord_text(data.get("job_type") or data.get("type"), 80)
-    canonical_position = _canonical_job_position(title, description, required_skills)
-    if len(title) < 5:
-        return jsonify({"ok": False, "message": "title must be at least 5 characters."}), 400
-    if len(description) < 40:
-        return jsonify({"ok": False, "message": "description must be at least 40 characters."}), 400
-
-    current_time = now_str()
-    get_db().execute(
-        """
-        INSERT INTO employer_profiles (user_id, company_name, tax_id, is_company_verified, address, website, created_at, updated_at)
-        VALUES (?, ?, ?, 0, '', '', ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET company_name = excluded.company_name, updated_at = excluded.updated_at
-        """,
-        (user["id"], company_name or f"Discord Employer {user['id']}", f"DISCORD-{user['id']}", current_time, current_time),
-    )
-    score, status, reason = analyze_job_content(title, description, salary_range, location, user["trust_score"], 0)
-    cur = get_db().execute(
-        """
-        INSERT INTO job_posts (
-            employer_id, title, description, salary_range, location,
-            is_government_news, source_url, status, ai_risk_score,
-            ai_risk_reason, report_count, created_at, updated_at, is_urgent,
-            canonical_position, required_skills, job_type
-        )
-        VALUES (?, ?, ?, ?, ?, 0, '', ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            user["id"],
-            title,
-            description,
-            salary_range,
-            location,
-            status,
-            score,
-            reason,
-            current_time,
-            current_time,
-            1 if data.get("is_urgent") else 0,
-            canonical_position,
-            required_skills,
-            job_type,
-        ),
-    )
-    job_id = cur.lastrowid
-    get_db().execute(
-        """
-        INSERT INTO ai_decision_logs (job_post_id, title, risk_score, risk_reason, final_status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (job_id, title, score, reason, status, current_time),
-    )
-    add_activity_log(user["id"], "DISCORD_CREATE_JOB", "job_posts", job_id, f"status={status}, risk={score}")
-    get_db().commit()
-    follower_notifications = _notify_followers_for_job(job_id, company_name, location, title) if status == "ACTIVE" else 0
-    match_notifications = _run_matching_for_job(job_id) if status == "ACTIVE" else 0
-    return jsonify({
-        "ok": True,
-        "job_id": job_id,
-        "status": status,
-        "risk_score": score,
-        "risk_reason": reason,
-        "queued_notifications": follower_notifications + match_notifications,
-        "follower_notifications": follower_notifications,
-        "match_notifications": match_notifications,
-        "canonical_position": canonical_position,
-        "url": f"{SITE_URL}{url_for('job_detail', slug=str(job_id))}",
-    })
-
-
-@app.route("/api/discord/jobs")
-def api_discord_list_jobs():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    keyword = _discord_text(request.args.get("keyword") or request.args.get("q"), 120)
-    location = _discord_text(request.args.get("location"), 120)
-    job_type = _discord_text(request.args.get("type") or request.args.get("job_type"), 80)
-    limit = max(1, min(50, int(request.args.get("limit") or 20)))
-    where = ["job_posts.status = 'ACTIVE'"]
-    params = []
-    if keyword:
-        like = f"%{keyword.lower()}%"
-        where.append("(lower(job_posts.title) LIKE ? OR lower(job_posts.description) LIKE ? OR lower(employer_profiles.company_name) LIKE ?)")
-        params.extend([like, like, like])
-    if location:
-        where.append("lower(job_posts.location) LIKE ?")
-        params.append(f"%{location.lower()}%")
-    if job_type:
-        where.append("lower(COALESCE(job_posts.job_type, '')) LIKE ?")
-        params.append(f"%{job_type.lower()}%")
-    rows = get_db().execute(
-        f"""
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE {" AND ".join(where)}
-        ORDER BY COALESCE(job_posts.is_urgent, 0) DESC, datetime(job_posts.updated_at) DESC, job_posts.id DESC
-        LIMIT ?
-        """,
-        params + [limit],
-    ).fetchall()
-    return jsonify({"ok": True, "count": len(rows), "jobs": [_discord_job_payload(row) for row in rows]})
-
-
-@app.route("/api/discord/applicants")
-@app.route("/api/discord/employer/applicants")
-def api_discord_employer_applicants():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    discord_user_id = _discord_text(request.args.get("discord_user_id"), 80)
-    account = get_db().execute("SELECT user_id FROM discord_accounts WHERE discord_user_id = ?", (discord_user_id,)).fetchone()
-    if not account:
-        return jsonify({"ok": True, "applications": []})
-    params = [account["user_id"]]
-    where = ["job_posts.employer_id = ?"]
-    if request.args.get("job_id"):
-        where.append("job_posts.id = ?")
-        params.append(int(request.args.get("job_id")))
-    rows = get_db().execute(
-        f"""
-        SELECT applications.*, job_posts.title AS job_title, job_posts.location AS job_location,
-               job_seeker_profiles.full_name, job_seeker_profiles.headline, job_seeker_profiles.resume_url,
-               job_seeker_profiles.skills, discord_accounts.discord_user_id
-        FROM applications
-        JOIN job_posts ON job_posts.id = applications.job_post_id
-        LEFT JOIN job_seeker_profiles ON job_seeker_profiles.user_id = applications.job_seeker_id
-        LEFT JOIN discord_accounts ON discord_accounts.user_id = applications.job_seeker_id
-        WHERE {" AND ".join(where)}
-        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
-        LIMIT 30
-        """,
-        params,
-    ).fetchall()
-    return jsonify({
-        "ok": True,
-        "applications": [
-            {
-                "id": row["id"],
-                "job_id": row["job_post_id"],
-                "job_title": row["job_title"],
-                "job_location": row["job_location"],
-                "applicant_user_id": row["job_seeker_id"],
-                "applicant_discord_user_id": row["discord_user_id"] or "",
-                "applicant_name": row["full_name"] or f"Applicant {row['job_seeker_id']}",
-                "headline": row["headline"] or "",
-                "skills": row["skills"] or "",
-                "resume_url": row["resume_url"] or "",
-                "status": row["status"],
-                "created_at": row["created_at"],
-            }
-            for row in rows
-        ],
-    })
-
-
-@app.route("/api/discord/message-applicant", methods=["POST"])
-def api_discord_message_applicant():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    data = _json_payload()
-    sender = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "EMPLOYER")
-    try:
-        applicant_user_id = int(data.get("user_id") or data.get("applicant_user_id"))
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "message": "applicant user_id is required."}), 400
-    message = _discord_text(data.get("message"), 1200)
-    if not message:
-        return jsonify({"ok": False, "message": "message is required."}), 400
-
-    application_id = data.get("application_id")
-    try:
-        application_id = int(application_id) if application_id not in (None, "") else None
-    except (TypeError, ValueError):
-        application_id = None
-    if application_id:
-        application = get_db().execute(
-            """
-            SELECT applications.id
-            FROM applications
-            JOIN job_posts ON job_posts.id = applications.job_post_id
-            WHERE applications.id = ? AND applications.job_seeker_id = ? AND job_posts.employer_id = ?
-            """,
-            (application_id, applicant_user_id, sender["id"]),
-        ).fetchone()
-        if not application:
-            return jsonify({"ok": False, "message": "Application not found for this employer."}), 404
-    else:
-        application = get_db().execute(
-            """
-            SELECT applications.id
-            FROM applications
-            JOIN job_posts ON job_posts.id = applications.job_post_id
-            WHERE applications.job_seeker_id = ? AND job_posts.employer_id = ?
-            ORDER BY datetime(applications.created_at) DESC, applications.id DESC
-            LIMIT 1
-            """,
-            (applicant_user_id, sender["id"]),
-        ).fetchone()
-        application_id = application["id"] if application else None
-
-    cur = get_db().execute(
-        """
-        INSERT INTO messages (sender_id, receiver_id, application_id, message, is_read, created_at)
-        VALUES (?, ?, ?, ?, 0, ?)
-        """,
-        (sender["id"], applicant_user_id, application_id, message, now_str()),
-    )
-    get_db().commit()
-    notification_id = _queue_discord_notification(
-        applicant_user_id,
-        "employer_message",
-        {
-            "message_id": cur.lastrowid,
-            "application_id": application_id,
-            "from_user_id": sender["id"],
-            "message": message,
-        },
-    )
-    return jsonify({"ok": True, "message_id": cur.lastrowid, "queued_notification_id": notification_id})
-
-
-@app.route("/api/discord/notify-applicants", methods=["POST"])
-def api_discord_notify_applicants():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    data = _json_payload()
-    sender = _get_or_create_discord_user(data.get("discord_user_id"), data.get("discord_username"), "EMPLOYER")
-    try:
-        job_id = int(data.get("job_id"))
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "message": "job_id is required."}), 400
-    message = _discord_text(data.get("message"), 1200)
-    if not message:
-        return jsonify({"ok": False, "message": "message is required."}), 400
-    job = get_db().execute(
-        "SELECT * FROM job_posts WHERE id = ? AND employer_id = ?",
-        (job_id, sender["id"]),
-    ).fetchone()
-    if not job:
-        return jsonify({"ok": False, "message": "Job not found for this employer."}), 404
-    rows = get_db().execute(
-        """
-        SELECT applications.id, applications.job_seeker_id
-        FROM applications
-        WHERE applications.job_post_id = ?
-        ORDER BY datetime(applications.created_at) DESC, applications.id DESC
-        LIMIT 100
-        """,
-        (job_id,),
-    ).fetchall()
-    queued = 0
-    for row in rows:
-        get_db().execute(
-            """
-            INSERT INTO messages (sender_id, receiver_id, application_id, message, is_read, created_at)
-            VALUES (?, ?, ?, ?, 0, ?)
-            """,
-            (sender["id"], row["job_seeker_id"], row["id"], message, now_str()),
-        )
-        if _queue_discord_notification(
-            row["job_seeker_id"],
-            "applicant_announcement",
-            {"job_id": job_id, "job_title": job["title"], "application_id": row["id"], "message": message},
-        ):
-            queued += 1
-    get_db().commit()
-    return jsonify({"ok": True, "job_id": job_id, "applicants": len(rows), "queued_notifications": queued})
-
-
-@app.route("/api/discord/match-jobs")
-def api_discord_match_jobs():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    account = _discord_account_from_request()
-    if not account:
-        return jsonify({"ok": False, "message": "Discord job seeker profile not found."}), 404
-    _run_matching_for_profile(account["user_id"])
-    profile = get_db().execute("SELECT * FROM job_seeker_profiles WHERE user_id = ?", (account["user_id"],)).fetchone()
-    if not profile:
-        return jsonify({"ok": False, "message": "Job seeker profile not found."}), 404
-    limit = max(1, min(20, int(request.args.get("limit") or 10)))
-    jobs = get_db().execute(
-        """
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.status = 'ACTIVE' AND COALESCE(job_posts.ai_risk_score, 0) < 70
-        ORDER BY datetime(job_posts.updated_at) DESC, job_posts.id DESC
-        LIMIT 300
-        """
-    ).fetchall()
-    ranked = []
-    for job in jobs:
-        score, reason, canonical = _profile_job_match(job, profile)
-        ranked.append((score, reason, canonical, job))
-    matches = [
-        {
-            **_discord_job_payload(job, score),
-            "match_reason": reason,
-            "canonical_position": canonical,
-        }
-        for score, reason, canonical, job in sorted(ranked, key=lambda item: item[0], reverse=True)[:limit]
-    ]
-    return jsonify({"ok": True, "user_id": account["user_id"], "matches": matches})
-
-
-@app.route("/api/discord/match-applicants")
-def api_discord_match_applicants():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    try:
-        job_id = int(request.args.get("job_id"))
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "message": "job_id is required."}), 400
-    job = get_db().execute(
-        """
-        SELECT job_posts.*, employer_profiles.company_name, employer_profiles.is_company_verified
-        FROM job_posts
-        LEFT JOIN employer_profiles ON employer_profiles.user_id = job_posts.employer_id
-        WHERE job_posts.id = ?
-        """,
-        (job_id,),
-    ).fetchone()
-    if not job:
-        return jsonify({"ok": False, "message": "Job not found."}), 404
-    discord_user_id = _discord_text(request.args.get("discord_user_id"), 80)
-    if discord_user_id:
-        account = get_db().execute(
-            "SELECT user_id FROM discord_accounts WHERE discord_user_id = ?",
-            (discord_user_id,),
-        ).fetchone()
-        if not account or int(account["user_id"]) != int(job["employer_id"]):
-            return jsonify({"ok": False, "message": "You can only match applicants for your own jobs."}), 403
-    limit = max(1, min(20, int(request.args.get("limit") or 10)))
-    profiles = get_db().execute(
-        """
-        SELECT job_seeker_profiles.*, discord_accounts.discord_user_id, discord_accounts.discord_username
-        FROM job_seeker_profiles
-        JOIN discord_accounts ON discord_accounts.user_id = job_seeker_profiles.user_id
-        WHERE discord_accounts.role = 'JOB_SEEKER'
-        ORDER BY datetime(job_seeker_profiles.updated_at) DESC, job_seeker_profiles.id DESC
-        LIMIT 300
-        """
-    ).fetchall()
-    ranked = []
-    for profile in profiles:
-        score, reason, canonical = _profile_job_match(job, profile)
-        ranked.append((score, reason, canonical, profile))
-        _record_match_event(job, profile, score, reason, canonical)
-    matches = [
-        {
-            "applicant_user_id": profile["user_id"],
-            "applicant_discord_user_id": profile["discord_user_id"],
-            "discord_username": profile["discord_username"] or "",
-            "applicant_name": profile["full_name"],
-            "headline": profile["headline"] or "",
-            "skills": profile["skills"] or "",
-            "resume_url": profile["resume_url"] or "",
-            "match_score": int(score or 0),
-            "match_reason": reason,
-            "canonical_position": canonical,
-        }
-        for score, reason, canonical, profile in sorted(ranked, key=lambda item: item[0], reverse=True)[:limit]
-    ]
-    return jsonify({"ok": True, "job_id": job_id, "matches": matches})
-
-
-@app.route("/api/discord/matches")
-def api_discord_matches():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    discord_user_id = _discord_text(request.args.get("discord_user_id"), 80)
-    account = get_db().execute(
-        "SELECT user_id, role FROM discord_accounts WHERE discord_user_id = ?",
-        (discord_user_id,),
-    ).fetchone()
-    if not account:
-        return jsonify({"ok": True, "matches": []})
-
-    if str(account["role"] or "").upper() == "EMPLOYER":
-        rows = get_db().execute(
-            """
-            SELECT match_events.*, job_posts.title AS job_title, job_posts.location AS job_location,
-                   job_seeker_profiles.full_name, job_seeker_profiles.headline, job_seeker_profiles.skills
-            FROM match_events
-            JOIN job_posts ON job_posts.id = match_events.job_id
-            JOIN job_seeker_profiles ON job_seeker_profiles.user_id = match_events.job_seeker_id
-            WHERE match_events.employer_id = ?
-            ORDER BY match_events.match_score DESC, datetime(match_events.created_at) DESC
-            LIMIT 20
-            """,
-            (account["user_id"],),
-        ).fetchall()
-        matches = [
-            {
-                "id": row["id"],
-                "job_id": row["job_id"],
-                "job_title": row["job_title"],
-                "applicant_user_id": row["job_seeker_id"],
-                "applicant_name": row["full_name"],
-                "headline": row["headline"] or "",
-                "skills": row["skills"] or "",
-                "match_score": row["match_score"],
-                "match_reason": row["match_reason"],
-                "created_at": row["created_at"],
-            }
-            for row in rows
-        ]
-    else:
-        rows = get_db().execute(
-            """
-            SELECT match_events.*, job_posts.title AS job_title, job_posts.location AS job_location,
-                   job_posts.salary_range, employer_profiles.company_name
-            FROM match_events
-            JOIN job_posts ON job_posts.id = match_events.job_id
-            LEFT JOIN employer_profiles ON employer_profiles.user_id = match_events.employer_id
-            WHERE match_events.job_seeker_id = ?
-            ORDER BY match_events.match_score DESC, datetime(match_events.created_at) DESC
-            LIMIT 20
-            """,
-            (account["user_id"],),
-        ).fetchall()
-        matches = [
-            {
-                "id": row["id"],
-                "job_id": row["job_id"],
-                "job_title": row["job_title"],
-                "company_name": row["company_name"] or "",
-                "location": row["job_location"] or "",
-                "salary_range": row["salary_range"] or "",
-                "match_score": row["match_score"],
-                "match_reason": row["match_reason"],
-                "url": f"{SITE_URL}{url_for('job_detail', slug=str(row['job_id']))}",
-                "created_at": row["created_at"],
-            }
-            for row in rows
-        ]
-    return jsonify({"ok": True, "matches": matches})
-
-
-@app.route("/api/discord/analytics")
-def api_discord_analytics():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    conn = get_db()
-    return jsonify({
-        "ok": True,
-        "summary": {
-            "discord_users": conn.execute("SELECT COUNT(*) AS count FROM discord_accounts").fetchone()["count"],
-            "discord_pending_notifications": conn.execute("SELECT COUNT(*) AS count FROM discord_notifications WHERE status = 'PENDING'").fetchone()["count"],
-            "jobs_posted": conn.execute("SELECT COUNT(*) AS count FROM job_posts").fetchone()["count"],
-            "active_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'").fetchone()["count"],
-            "applications": conn.execute("SELECT COUNT(*) AS count FROM applications").fetchone()["count"],
-            "matches": conn.execute("SELECT COUNT(*) AS count FROM match_events").fetchone()["count"],
-            "high_matches": conn.execute("SELECT COUNT(*) AS count FROM match_events WHERE match_score >= 85").fetchone()["count"],
-        },
-        "dashboard_url": f"{SITE_URL}/admin",
-    })
-
-
-@app.route("/api/discord/stats/users")
-def api_discord_stats_users():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    conn = get_db()
-    return jsonify({
-        "ok": True,
-        "stats": {
-            "total_users": conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"],
-            "discord_users": conn.execute("SELECT COUNT(*) AS count FROM discord_accounts").fetchone()["count"],
-            "job_seekers": conn.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'JOB_SEEKER'").fetchone()["count"],
-            "employers": conn.execute("SELECT COUNT(*) AS count FROM users WHERE role = 'EMPLOYER'").fetchone()["count"],
-            "applications": conn.execute("SELECT COUNT(*) AS count FROM applications").fetchone()["count"],
-            "company_follows": conn.execute("SELECT COUNT(*) AS count FROM company_follows").fetchone()["count"],
-            "job_alerts": conn.execute("SELECT COUNT(*) AS count FROM job_alert_preferences").fetchone()["count"],
-            "pending_notifications": conn.execute("SELECT COUNT(*) AS count FROM discord_notifications WHERE status = 'PENDING'").fetchone()["count"],
-        },
-    })
-
-
-@app.route("/api/discord/stats/jobs")
-def api_discord_stats_jobs():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    conn = get_db()
-    top_jobs = conn.execute(
-        """
-        SELECT job_posts.id AS job_id, job_posts.title AS job_title, COUNT(applications.id) AS applications
-        FROM job_posts
-        LEFT JOIN applications ON applications.job_post_id = job_posts.id
-        GROUP BY job_posts.id, job_posts.title
-        ORDER BY applications DESC, datetime(job_posts.created_at) DESC
-        LIMIT 10
-        """
-    ).fetchall()
-    return jsonify({
-        "ok": True,
-        "stats": {
-            "total_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts").fetchone()["count"],
-            "active_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'ACTIVE'").fetchone()["count"],
-            "pending_review_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'PENDING_AI_REVIEW'").fetchone()["count"],
-            "rejected_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE status = 'REJECTED'").fetchone()["count"],
-            "urgent_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE COALESCE(is_urgent, 0) = 1").fetchone()["count"],
-            "high_risk_jobs": conn.execute("SELECT COUNT(*) AS count FROM job_posts WHERE COALESCE(ai_risk_score, 0) >= 70").fetchone()["count"],
-            "matches": conn.execute("SELECT COUNT(*) AS count FROM match_events").fetchone()["count"],
-        },
-        "top_jobs": [
-            {"job_id": row["job_id"], "job_title": row["job_title"], "applications": int(row["applications"] or 0)}
-            for row in top_jobs
-        ],
-    })
-
-
-@app.route("/api/discord/notifications/pending")
-def api_discord_pending_notifications():
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    limit = max(1, min(50, int(request.args.get("limit") or 20)))
-    rows = get_db().execute(
-        """
-        SELECT *
-        FROM discord_notifications
-        WHERE status = 'PENDING'
-        ORDER BY datetime(created_at) ASC, id ASC
-        LIMIT ?
-        """,
-        (limit,),
-    ).fetchall()
-    return jsonify({
-        "ok": True,
-        "notifications": [
-            {
-                "id": row["id"],
-                "discord_user_id": row["discord_user_id"],
-                "event_type": row["event_type"],
-                "payload": json.loads(row["payload"] or "{}"),
-                "created_at": row["created_at"],
-            }
-            for row in rows
-        ],
-    })
-
-
-@app.route("/api/discord/notifications/<int:notification_id>/sent", methods=["POST"])
-def api_discord_mark_notification_sent(notification_id):
-    auth_error = _require_discord_bot_token()
-    if auth_error:
-        return auth_error
-    status = _discord_text((_json_payload().get("status") or "SENT"), 40).upper()
-    if status not in {"SENT", "FAILED"}:
-        status = "SENT"
-    get_db().execute(
-        """
-        UPDATE discord_notifications
-        SET status = ?, sent_at = ?, updated_at = ?
-        WHERE id = ?
-        """,
-        (status, now_str(), now_str(), notification_id),
-    )
-    get_db().commit()
-    return jsonify({"ok": True, "status": status})
-
-
-@app.route("/api/jobs")
-def api_jobs():
-    items = [_with_job_seo_fields(item) for item in _api_job_rows(limit=100)]
-    stats = {
-        "total_jobs": len(items),
-        "high_risk_jobs": sum(1 for item in items if item["risk_level"] == "HIGH"),
-        "scam_jobs": sum(1 for item in items if item["risk_level"] == "HIGH"),
-        "urgent_jobs": sum(1 for item in items if item["is_urgent"]),
-        "safe_jobs": sum(1 for item in items if item["risk_level"] == "LOW"),
-    }
-
-    return jsonify({"ok": True, "stats": stats, "items": items, "jobs": items})
-
-
-@app.route("/api/jobs/<int:job_id>")
-def api_job_detail(job_id):
-    items = [_with_job_seo_fields(item) for item in _api_job_rows(limit=500)]
-    job = next((item for item in items if int(item["id"]) == int(job_id)), None)
-    if not job:
-        return jsonify({"ok": False, "message": "Job not found."}), 404
-    return jsonify({"ok": True, "job": job})
-
-
-@app.route("/api/scam-stats")
-def api_scam_stats():
-    items = _api_job_rows(limit=500)
-    stats = {
-        "total_jobs": len(items),
-        "scam_jobs": sum(1 for item in items if item["risk_level"] == "HIGH"),
-        "medium_risk_jobs": sum(1 for item in items if item["risk_level"] == "MEDIUM"),
-        "safe_jobs": sum(1 for item in items if item["risk_level"] == "LOW"),
-        "urgent_jobs": sum(1 for item in items if item["is_urgent"]),
-        "community_reports": sum(int(item["report_count"] or 0) for item in items),
-    }
-    return jsonify({"ok": True, "stats": stats})
-
-
-@app.route("/api/urgent-jobs")
-def api_urgent_jobs():
-    items = [_with_job_seo_fields(item) for item in _api_job_rows(limit=100, urgent_only=True)]
-    return jsonify({"ok": True, "items": items, "jobs": items, "count": len(items)})
-
-
-@app.route("/api/trust-distribution")
-def api_trust_distribution():
-    items = _api_job_rows(limit=500)
-    distribution = _trust_distribution(items)
-    return jsonify({"ok": True, "distribution": distribution})
-
-
-@app.route("/api/community-reports")
-def api_community_reports():
-    init_db()
-    rows = get_db().execute(
-        """
-        SELECT
-            community_reports.id,
-            community_reports.reason,
-            community_reports.created_at,
-            community_posts.body,
-            community_posts.status
-        FROM community_reports
-        LEFT JOIN community_posts ON community_posts.id = community_reports.post_id
-        ORDER BY datetime(community_reports.created_at) DESC, community_reports.id DESC
-        LIMIT 100
-        """
-    ).fetchall()
-    items = [
-        {
-            "id": row["id"],
-            "title": "Community safety report",
-            "reason": row["reason"],
-            "description": row["body"] or row["reason"],
-            "status": row["status"],
-            "created_at": row["created_at"],
-        }
-        for row in rows
-    ]
-    return jsonify({"ok": True, "items": items, "reports": items, "count": len(items)})
-
-
-@app.route("/api/analytics", methods=["GET", "POST"])
-def api_analytics():
-    ensure_analytics_schema()
-    conn = get_db()
-
-    if request.method == "POST":
-        data = request.get_json(silent=True) or {}
-        event_name = str(data.get("event") or data.get("event_name") or "").strip()
-        allowed_events = {
-            "page_view",
-            "job_card_click",
-            "job_detail_view",
-            "job_filter",
-            "signup_click",
-            "search_navigation",
-            "apply_click",
-            "report_click",
-        }
-        if event_name not in allowed_events:
-            return jsonify({"ok": False, "message": "Unsupported analytics event."}), 400
-
-        job_id = data.get("job_id")
-        try:
-            job_id = int(job_id) if job_id not in (None, "") else None
-        except (TypeError, ValueError):
-            job_id = None
-
-        metadata = str(data.get("metadata") or data.get("path") or "")[:500]
-        conn.execute(
-            """
-            INSERT INTO analytics_events (event_name, job_id, job_title, location, metadata, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event_name,
-                job_id,
-                str(data.get("job_title") or "")[:200],
-                str(data.get("location") or "")[:120],
-                metadata,
-                now_str(),
-            ),
-        )
-        conn.commit()
-        return jsonify({"ok": True})
-
-    totals = conn.execute(
-        """
-        SELECT event_name, COUNT(*) AS count
-        FROM analytics_events
-        GROUP BY event_name
-        """
-    ).fetchall()
-    top_locations = conn.execute(
-        """
-        SELECT location, COUNT(*) AS count
-        FROM analytics_events
-        WHERE location != ''
-        GROUP BY location
-        ORDER BY count DESC, location ASC
-        LIMIT 10
-        """
-    ).fetchall()
-    top_jobs = conn.execute(
-        """
-        SELECT job_id, job_title, COUNT(*) AS count
-        FROM analytics_events
-        WHERE job_id IS NOT NULL
-        GROUP BY job_id, job_title
-        ORDER BY count DESC, job_title ASC
-        LIMIT 10
-        """
-    ).fetchall()
-
-    summary = {row["event_name"]: int(row["count"] or 0) for row in totals}
-    return jsonify({
-        "ok": True,
-        "summary": {
-            "page_views": summary.get("page_view", 0),
-            "job_card_clicks": summary.get("job_card_click", 0),
-            "job_detail_views": summary.get("job_detail_view", 0),
-            "job_filters": summary.get("job_filter", 0),
-            "signup_clicks": summary.get("signup_click", 0),
-            "search_navigation": summary.get("search_navigation", 0),
-        },
-        "top_locations": [{"location": row["location"], "count": int(row["count"] or 0)} for row in top_locations],
-        "top_jobs": [{"job_id": row["job_id"], "job_title": row["job_title"], "count": int(row["count"] or 0)} for row in top_jobs],
-    })
-
-
-@app.route("/api/notifications/mark-read", methods=["POST"])
-@login_required
-def api_notifications_mark_read():
-    user = get_current_user()
-    ensure_notification_schema()
-    conn = get_db()
-    current_time = now_str()
-
-    notification_id = request.form.get("notification_id", "").strip()
-
-    if notification_id:
-        conn.execute(
-            """
-            UPDATE notifications
-            SET is_read = 1, read_at = ?
-            WHERE id = ? AND user_id = ?
-            """,
-            (current_time, notification_id, user["id"])
-        )
-    else:
-        conn.execute(
-            """
-            UPDATE notifications
-            SET is_read = 1, read_at = ?
-            WHERE user_id = ? AND is_read = 0
-            """,
-            (current_time, user["id"])
-        )
-
-    conn.commit()
-    return {"ok": True, "unread": get_unread_notifications_count(user["id"])}
-
-
-@app.route("/api/notifications/browser-enabled", methods=["POST"])
-@login_required
-def api_notifications_browser_enabled():
-    user = get_current_user()
-    ensure_notification_schema()
-    conn = get_db()
-    conn.execute(
-        """
-        UPDATE users
-        SET browser_notifications_enabled = 1,
-            wants_web_alerts = 1,
-            updated_at = ?
-        WHERE id = ?
-        """,
-        (now_str(), user["id"])
-    )
-    conn.commit()
-
-    create_notification(
-        user["id"],
-        "เปิดแจ้งเตือนบนอุปกรณ์แล้ว",
-        "คุณจะเห็นแจ้งเตือนในเว็บ และ Browser Notification เมื่อเปิดเว็บนี้ไว้",
-        url_for("notifications_page"),
-        "SETTINGS",
-    )
-
-    return {"ok": True}
+register_utility_api_routes(
+    app,
+    {
+        "jsonify": jsonify,
+        "render_template": render_template,
+        "request": request,
+        "requests": requests,
+        "url_for": url_for,
+        "get_db": get_db,
+        "get_job_view_count": get_job_view_count,
+        "get_live_viewers": get_live_viewers,
+        "ensure_analytics_schema": ensure_analytics_schema,
+        "now_str": now_str,
+        "init_db": init_db,
+        "_api_job_rows": _api_job_rows,
+        "_with_job_seo_fields": _with_job_seo_fields,
+        "_trust_distribution": _trust_distribution,
+        "FAQ_ITEMS": FAQ_ITEMS,
+        "CONTENT_GUIDES": CONTENT_GUIDES,
+        "SITE_URL": SITE_URL,
+        "AI_SEARCH_API_ENDPOINT": AI_SEARCH_API_ENDPOINT,
+        "SEO_SITE_NAME": SEO_SITE_NAME,
+        "SEO_CITY": SEO_CITY,
+        "SEO_REGION": SEO_REGION,
+        "SEO_COUNTRY": SEO_COUNTRY,
+        "job_slug": job_slug,
+        "GOOGLE_ANALYTICS_ID": os.environ.get("GOOGLE_ANALYTICS_ID", "").strip(),
+    },
+)
+
+
+discord_services = build_discord_services(
+    {
+        "DISCORD_BOT_API_TOKEN": lambda: DISCORD_BOT_API_TOKEN,
+        "jsonify": jsonify,
+        "request": request,
+        "get_db": get_db,
+        "now_str": now_str,
+        "ensure_discord_schema": ensure_discord_schema,
+        "hash_password": hash_password,
+        "_profile_job_match": _profile_job_match,
+        "_row_value": _row_value,
+        "_canonical_job_position": _canonical_job_position,
+        "scam_risk_label": scam_risk_label,
+        "SITE_URL": SITE_URL,
+        "url_for": url_for,
+        "job_slug": job_slug,
+    },
+)
+
+_require_discord_bot_token = discord_services["_require_discord_bot_token"]
+_json_payload = discord_services["_json_payload"]
+_bounded_int = discord_services["_bounded_int"]
+_discord_text = discord_services["_discord_text"]
+_discord_list_text = discord_services["_discord_list_text"]
+_get_or_create_discord_user = discord_services["_get_or_create_discord_user"]
+_discord_account_for_user = discord_services["_discord_account_for_user"]
+_discord_account_from_request = discord_services["_discord_account_from_request"]
+_queue_discord_notification = discord_services["_queue_discord_notification"]
+_job_match_score = discord_services["_job_match_score"]
+_discord_job_payload = discord_services["_discord_job_payload"]
+_discord_profile_payload = discord_services["_discord_profile_payload"]
+_notify_followers_for_job = discord_services["_notify_followers_for_job"]
+_record_match_event = discord_services["_record_match_event"]
+_run_matching_for_job = discord_services["_run_matching_for_job"]
+_run_matching_for_profile = discord_services["_run_matching_for_profile"]
+
+register_discord_api_routes(
+    app,
+    {
+        "jsonify": jsonify,
+        "request": request,
+        "url_for": url_for,
+        "get_db": get_db,
+        "now_str": now_str,
+        "SITE_URL": SITE_URL,
+        "_require_discord_bot_token": _require_discord_bot_token,
+        "_discord_account_from_request": _discord_account_from_request,
+        "_discord_profile_payload": _discord_profile_payload,
+        "_json_payload": _json_payload,
+        "_get_or_create_discord_user": _get_or_create_discord_user,
+        "_discord_text": _discord_text,
+        "_discord_list_text": _discord_list_text,
+        "_canonical_job_position": _canonical_job_position,
+        "_queue_discord_notification": _queue_discord_notification,
+        "_notify_followers_for_job": _notify_followers_for_job,
+        "_bounded_int": _bounded_int,
+        "_discord_job_payload": _discord_job_payload,
+        "_run_matching_for_profile": _run_matching_for_profile,
+        "_run_matching_for_job": _run_matching_for_job,
+        "_profile_job_match": _profile_job_match,
+        "_record_match_event": _record_match_event,
+        "_job_match_score": _job_match_score,
+        "_extract_skill_tags": _extract_skill_tags,
+        "analyze_job_content": analyze_job_content,
+        "add_activity_log": add_activity_log,
+    },
+)
 
 
 if __name__ == "__main__":
@@ -5692,3 +2983,8 @@ if __name__ == "__main__":
         port=int(os.environ.get("JOBBOARD_PORT", "5000")),
         debug=os.environ.get("JOBBOARD_DEBUG", "0") == "1",
     )
+
+
+
+
+

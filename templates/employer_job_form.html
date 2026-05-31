@@ -23,6 +23,70 @@
 .locked-box{border:1px solid rgba(250,204,21,.3);background:rgba(113,63,18,.25);border-radius:18px;padding:18px;color:#fde68a;font-weight:900;margin-top:18px;}
 </style>
 
+<style>
+/* Employer job form refresh: light form card. */
+.job-form-wrap{
+  width:min(960px,calc(100% - 32px));
+  max-width:none;
+}
+.job-form-card{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.job-form-card h1{
+  color:var(--ink);
+  letter-spacing:0;
+}
+.job-form-card .lead,
+.job-help{
+  color:var(--muted);
+}
+.job-alert{
+  border-radius:8px;
+  background:#fef3f2;
+  border-color:#fecaca;
+  color:var(--red);
+}
+.job-field label{
+  color:#344054;
+}
+.job-field input,
+.job-field textarea{
+  border-radius:8px;
+  border:1px solid #cdd5df;
+  background:#fff;
+  color:var(--ink);
+}
+.job-field input:focus,
+.job-field textarea:focus{
+  border-color:#93c5fd;
+  box-shadow:0 0 0 4px rgba(23,105,224,.12);
+}
+.urgent-box,
+.locked-box{
+  border-radius:8px;
+  background:#fff7ed;
+  border-color:#fed7aa;
+  color:var(--amber);
+}
+.submit-btn,
+.back-btn{
+  border-radius:8px;
+}
+.submit-btn{
+  background:var(--brand);
+  color:#fff;
+  box-shadow:none;
+}
+.back-btn{
+  background:#fff;
+  color:#344054;
+  border:1px solid #cdd5df;
+}
+</style>
+
 <section class="job-form-wrap">
   <div class="job-form-card">
     <h1>โพสต์งานใหม่</h1>

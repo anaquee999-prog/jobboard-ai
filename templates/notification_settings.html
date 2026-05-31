@@ -59,6 +59,53 @@
 .alert.success{background:rgba(34,197,94,.16);color:#bbf7d0;border:1px solid rgba(34,197,94,.28)}
 </style>
 
+<style>
+/* Notification settings refresh: align form styling with auth pages. */
+.notify-settings{
+  width:min(860px,calc(100% - 32px));
+}
+.settings-card{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.settings-card h1{
+  color:var(--ink);
+  letter-spacing:0;
+}
+.settings-card p,
+.browser-status{
+  color:var(--muted);
+}
+.settings-card label{
+  color:#344054;
+}
+.settings-card input[type=email]{
+  border-radius:8px;
+  border:1px solid #cdd5df;
+  background:#fff;
+  color:var(--ink);
+}
+.check-row{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fbfcfe;
+}
+.browser-btn,
+.save-btn{
+  border-radius:8px;
+  background:var(--brand);
+  color:#fff;
+}
+.save-btn{
+  background:var(--green);
+}
+.alert{border-radius:8px}
+.alert.error{background:#fef3f2;color:var(--red);border-color:#fecaca}
+.alert.success{background:#ecfdf3;color:var(--green);border-color:#bbf7d0}
+</style>
+
 <script>
 (function(){
   const btn = document.getElementById("enableBrowserNotify");

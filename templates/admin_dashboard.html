@@ -1,334 +1,198 @@
 {% extends "base.html" %}
-
 {% block title %}Admin Dashboard | JobBoard{% endblock %}
 
-{% block content %}
+{% block extra_head %}
 <style>
-/* ADMIN INLINE FINAL UI 2026-05-01 */
-.admin-final-page *{box-sizing:border-box}
-.admin-final-page{
-  width:min(1180px,calc(100% - 32px));
-  margin:0 auto;
-  padding:34px 0 52px;
-}
-.admin-final-hero{
-  display:grid;
-  grid-template-columns:minmax(0,1fr) 340px;
-  gap:24px;
-  align-items:center;
-  padding:38px;
-  border-radius:34px;
-  border:1px solid rgba(56,189,248,.28);
-  background:
-    radial-gradient(circle at 12% 10%,rgba(14,165,233,.34),transparent 34%),
-    radial-gradient(circle at 88% 16%,rgba(34,197,94,.20),transparent 30%),
-    linear-gradient(135deg,rgba(15,23,42,.98),rgba(2,6,23,.98));
-  box-shadow:0 30px 90px rgba(0,0,0,.38);
-}
-.admin-final-badge{
-  display:inline-flex;
-  width:fit-content;
-  padding:8px 14px;
-  border-radius:999px;
-  border:1px solid rgba(56,189,248,.30);
-  background:rgba(14,165,233,.16);
-  color:#38bdf8;
-  font-size:13px;
-  font-weight:950;
-}
-.admin-final-hero h1{
-  margin:14px 0 12px;
-  color:#fff;
-  font-size:clamp(42px,6vw,68px);
-  line-height:1;
-  letter-spacing:-2px;
-}
-.admin-final-hero p{
-  max-width:720px;
-  margin:0;
-  color:rgba(226,232,240,.82);
-  font-size:18px;
-  line-height:1.7;
-}
-.admin-final-actions{
-  display:grid;
-  gap:12px;
-}
-.admin-final-actions a,
-.admin-final-menu a,
-.admin-final-menu button{
-  min-height:52px;
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  padding:0 18px;
-  border-radius:18px;
-  border:1px solid rgba(56,189,248,.24);
-  background:rgba(15,23,42,.80);
-  color:#e0f2fe!important;
-  text-decoration:none!important;
-  font-weight:950;
-  box-shadow:0 16px 34px rgba(0,0,0,.20);
-  cursor:pointer;
-}
-.admin-final-actions a:first-child,
-.admin-final-menu button{
-  border:0;
-  color:#00111f!important;
-  background:linear-gradient(135deg,#0ea5e9,#38bdf8);
-}
-.admin-final-actions a.green,
-.admin-final-menu a.green{
-  border:0;
-  color:#fff!important;
-  background:linear-gradient(135deg,#22c55e,#16a34a);
-}
-.admin-final-menu{
-  display:flex;
-  flex-wrap:wrap;
-  gap:12px;
-  margin:22px 0 24px;
-  padding:14px;
-  border-radius:28px;
-  border:1px solid rgba(56,189,248,.18);
-  background:rgba(2,6,23,.68);
-}
-.admin-final-menu form{margin:0}
-.admin-final-stats{
-  display:grid;
-  grid-template-columns:repeat(5,minmax(0,1fr));
-  gap:14px;
-  margin:24px 0;
-}
-.admin-final-card{
-  min-height:152px;
-  padding:22px;
-  border-radius:28px;
-  border:1px solid rgba(56,189,248,.20);
-  background:radial-gradient(circle at top right,rgba(56,189,248,.22),transparent 42%),rgba(15,23,42,.86);
-  box-shadow:0 22px 54px rgba(0,0,0,.26);
-}
-.admin-final-card span{
-  display:block;
-  color:rgba(226,232,240,.74);
-  font-weight:950;
-}
-.admin-final-card strong{
-  display:block;
-  margin:10px 0 4px;
-  color:#fff;
-  font-size:46px;
-  line-height:1;
-}
-.admin-final-card small{
-  color:rgba(226,232,240,.64);
-  font-weight:800;
-}
-.admin-final-card.green{background:radial-gradient(circle at top right,rgba(34,197,94,.26),transparent 42%),rgba(15,23,42,.86)}
-.admin-final-card.yellow{background:radial-gradient(circle at top right,rgba(251,191,36,.24),transparent 42%),rgba(15,23,42,.86)}
-.admin-final-card.red{background:radial-gradient(circle at top right,rgba(239,68,68,.24),transparent 42%),rgba(15,23,42,.86)}
-.admin-final-card.purple{background:radial-gradient(circle at top right,rgba(168,85,247,.24),transparent 42%),rgba(15,23,42,.86)}
-.admin-final-panel{
-  margin-top:26px;
-  padding:28px;
-  border-radius:34px;
-  border:1px solid rgba(56,189,248,.18);
-  background:rgba(2,6,23,.70);
-  box-shadow:0 24px 76px rgba(0,0,0,.30);
-}
-.admin-final-panel-head{
-  display:flex;
-  justify-content:space-between;
-  align-items:flex-start;
-  gap:16px;
-  margin-bottom:18px;
-}
-.admin-final-panel-head h2{
-  margin:10px 0 0;
-  color:#fff;
-  font-size:clamp(28px,4vw,40px);
-}
-.admin-final-panel-head>a{
-  padding:10px 16px;
-  border-radius:999px;
-  background:rgba(56,189,248,.12);
-  color:#7dd3fc!important;
-  font-weight:950;
-  text-decoration:none!important;
-}
-.admin-final-list{display:grid;gap:12px}
-.admin-final-job{
-  display:grid;
-  grid-template-columns:1fr auto;
-  gap:18px;
-  padding:18px;
-  border-radius:24px;
-  background:rgba(15,23,42,.78);
-  border:1px solid rgba(148,163,184,.14);
-}
-.admin-final-job h3{
-  margin:0;
-  color:#fff;
-  font-size:20px;
-}
-.admin-final-tags{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  margin:10px 0;
-}
-.admin-final-tags span{
-  padding:6px 10px;
-  border-radius:999px;
-  background:rgba(56,189,248,.12);
-  color:#bae6fd;
-  font-size:13px;
-  font-weight:900;
-}
-.admin-final-job p{
-  margin:0;
-  color:rgba(226,232,240,.70);
-}
-.admin-final-job-actions{
-  display:flex;
-  gap:8px;
-  align-items:center;
-}
-.admin-final-job-actions form{margin:0}
-.admin-final-job-actions button{
-  min-height:40px;
-  padding:0 14px;
-  border:0;
-  border-radius:14px;
-  color:#fff;
-  font-weight:950;
-  cursor:pointer;
-}
-.admin-final-job-actions .approve{background:linear-gradient(135deg,#22c55e,#16a34a)}
-.admin-final-job-actions .reject{background:linear-gradient(135deg,#ef4444,#dc2626)}
-.admin-final-empty{
-  padding:34px;
-  border-radius:24px;
-  border:1px dashed rgba(56,189,248,.32);
-  background:rgba(14,165,233,.09);
-  text-align:center;
-}
-.admin-final-empty strong{
-  display:block;
-  color:#fff;
-  font-size:22px;
-}
-.admin-final-empty p{
-  margin:8px 0 0;
-  color:rgba(226,232,240,.72);
-}
-@media(max-width:980px){
-  .admin-final-hero,.admin-final-job{grid-template-columns:1fr}
-  .admin-final-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .admin-final-job-actions{justify-content:flex-start}
-}
-@media(max-width:620px){
-  .admin-final-page{width:min(100% - 20px,1180px)}
-  .admin-final-stats,.admin-final-actions{grid-template-columns:1fr}
-  .admin-final-menu{display:grid}
-  .admin-final-menu a,.admin-final-menu button{width:100%}
-}
+  .admin-page{width:var(--container);margin:0 auto;padding:28px 0 56px}
+  .admin-hero{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) 320px;
+    gap:22px;
+    align-items:end;
+    padding:28px 0 22px;
+    border-bottom:1px solid var(--line);
+  }
+  .admin-badge{
+    min-height:30px;
+    display:inline-flex;
+    align-items:center;
+    border-radius:999px;
+    padding:0 12px;
+    background:var(--brand-soft);
+    color:var(--brand);
+    font-size:12px;
+    font-weight:900;
+  }
+  .admin-hero h1{margin:12px 0 10px;font-size:clamp(36px,6vw,58px);line-height:1.03}
+  .admin-hero p{margin:0;color:var(--muted);max-width:760px}
+  .admin-actions{display:grid;gap:10px}
+  .admin-actions a,.admin-menu a,.admin-menu button{
+    min-height:42px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:999px;
+    padding:0 14px;
+    border:1px solid var(--line-strong);
+    background:#fff;
+    color:#344054;
+    font-weight:900;
+  }
+  .admin-actions a.primary,.admin-actions a.green,.admin-menu a.green,.admin-menu button.primary{
+    border-color:var(--brand);
+    background:var(--brand);
+    color:#fff;
+  }
+  .admin-menu{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin:18px 0;
+    padding:14px;
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    background:#fff;
+    box-shadow:var(--shadow);
+  }
+  .admin-menu form{margin:0}
+  .admin-card,.admin-panel,.review-item,.empty-block{
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    background:#fff;
+    box-shadow:var(--shadow);
+  }
+  .admin-panel{padding:22px}
+  .admin-panel-head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+  .admin-panel-head p{margin:6px 0 0;color:var(--muted)}
+  .admin-panel-head a{min-height:38px;display:inline-flex;align-items:center;border-radius:999px;padding:0 12px;background:var(--brand-soft);color:var(--brand);font-weight:900}
+  .admin-card{padding:18px}
+  .admin-card strong{display:block;margin-top:8px;font-size:32px;line-height:1;color:var(--ink)}
+  .admin-card span,.admin-card small{color:var(--muted)}
+  .review-list{display:grid;gap:12px}
+  .review-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;padding:18px;background:var(--surface-alt)}
+  .review-item h3{margin:0 0 8px;font-size:20px}
+  .review-tags{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .review-tags span{display:inline-flex;align-items:center;border-radius:999px;padding:6px 10px;background:var(--brand-soft);color:var(--brand);font-size:12px;font-weight:900}
+  .review-item p{margin:0;color:var(--muted)}
+  .review-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .review-actions form{margin:0}
+  .review-actions button{
+    min-height:40px;
+    padding:0 14px;
+    border:0;
+    border-radius:999px;
+    color:#fff;
+    font-weight:900;
+    cursor:pointer;
+  }
+  .review-actions .approve{background:var(--green)}
+  .review-actions .reject{background:var(--red)}
+  .empty-block{padding:22px;color:var(--muted)}
+  @media(max-width:900px){
+    .admin-hero,.review-item{grid-template-columns:1fr}
+  }
 </style>
+{% endblock %}
 
-<section class="admin-final-page" data-ui-version="admin-final-inline-20260501">
-  <div class="admin-final-hero">
+{% block content %}
+<section class="admin-page">
+  <div class="admin-hero">
     <div>
-      <div class="admin-final-badge">AI Anti-Scam Control Center</div>
+      <span class="admin-badge">AI Anti-Scam Control Center</span>
       <h1>Admin Dashboard</h1>
-      <p>จัดการประกาศงาน ตรวจความเสี่ยง ดูรายงานผู้ใช้ และสำรองข้อมูลระบบในจุดเดียว</p>
+      <p>จัดการประกาศ ตรวจคิวความเสี่ยง ดูข้อมูลระบบ และเข้าถึงเครื่องมือ moderation สำคัญได้จากพื้นที่เดียว</p>
     </div>
-
-    <div class="admin-final-actions">
-      <a href="{{ url_for('admin_moderation') }}">จัดการประกาศงาน</a>
+    <div class="admin-actions">
+      <a class="primary" href="{{ url_for('admin_moderation') }}">จัดการประกาศงาน</a>
       <a href="{{ url_for('admin_scam_center') }}">Scam Center</a>
       <a class="green" href="{{ url_for('admin_backup_download') }}">ดาวน์โหลด Backup ZIP</a>
     </div>
   </div>
 
-  <div class="admin-final-menu">
-    <a href="{{ url_for('admin_moderation') }}">จัดการประกาศงาน</a>
-    <a href="{{ url_for('admin_users') }}">จัดการผู้ใช้</a>
-    <a href="{{ url_for('admin_logs') }}">ดู Logs</a>
+  <div class="admin-menu">
+    <a href="{{ url_for('admin_moderation') }}">Moderation</a>
+    <a href="{{ url_for('admin_users') }}">Users</a>
+    <a href="{{ url_for('admin_blacklist') }}">Blacklist</a>
+    <a href="{{ url_for('admin_logs') }}">Logs</a>
     <a href="{{ url_for('admin_scam_center') }}">Scam Center</a>
     <a href="{{ url_for('admin_import_runs') }}">Import Runs</a>
     <a href="{{ url_for('admin_trust_center') }}">Trust Center</a>
-    <a class="green" href="{{ url_for('admin_backup_download') }}">Backup ZIP</a>
-    <a href="{{ url_for('admin_import_upper_central_jobs') }}">ดึงงาน 4 จังหวัด</a>
-    <a href="{{ url_for('admin_import_latest_doe_news') }}">ดึงข่าวกรมแรงงานล่าสุด</a>
-    <a href="{{ url_for('admin_repair_doe_source_links') }}">ซ่อมลิงก์ข่าวกรมแรงงาน</a>
     <a href="{{ url_for('admin_system_health') }}">System Health</a>
     <a href="{{ url_for('admin_openchat_media_review') }}">OpenChat Media</a>
-<form method="post" action="{{ url_for('admin_fetch_government_news') }}">
+    <a class="green" href="{{ url_for('admin_backup_download') }}">Backup ZIP</a>
+    <form method="post" action="{{ url_for('admin_import_latest_doe_news') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="primary" type="submit">ดึงข่าวกรมแรงงานล่าสุด</button>
+    </form>
+    <form method="post" action="{{ url_for('admin_repair_doe_source_links') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit">ซ่อมลิงก์ข่าวกรมแรงงาน</button>
+    </form>
+    <form method="post" action="{{ url_for('admin_fetch_government_news') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit">รัน Auto Job Engine</button>
     </form>
   </div>
 
-  <div class="admin-final-stats">
-    <div class="admin-final-card">
+  <div class="stats-grid">
+    <div class="admin-card">
       <span>Users</span>
       <strong>{{ stats.users }}</strong>
-      <small>บัญชีทั้งหมด</small>
+      <small>บัญชีทั้งหมดในระบบ</small>
     </div>
-
-    <div class="admin-final-card yellow">
-      <span>รอ AI ตรวจ</span>
+    <div class="admin-card">
+      <span>Pending AI Review</span>
       <strong>{{ stats.pending_ai }}</strong>
-      <small>ประกาศที่ต้องตรวจ</small>
+      <small>ประกาศที่ต้องตรวจเพิ่ม</small>
     </div>
-
-    <div class="admin-final-card green">
-      <span>งาน Active</span>
+    <div class="admin-card">
+      <span>Active Jobs</span>
       <strong>{{ stats.active }}</strong>
-      <small>ประกาศออนไลน์</small>
+      <small>ประกาศที่กำลังออนไลน์</small>
     </div>
-
-    <div class="admin-final-card red">
+    <div class="admin-card">
       <span>Rejected</span>
       <strong>{{ stats.rejected }}</strong>
-      <small>ประกาศถูกปฏิเสธ</small>
+      <small>ประกาศที่ถูกปฏิเสธ</small>
     </div>
-
-    <div class="admin-final-card purple">
-      <span>Report รอตรวจ</span>
+    <div class="admin-card">
+      <span>Reports</span>
       <strong>{{ stats.reports }}</strong>
-      <small>รายงานจากผู้ใช้</small>
+      <small>รายการรายงานจากผู้ใช้</small>
+    </div>
+    <div class="admin-card">
+      <span>DOE Import ล่าสุด</span>
+      <strong>{{ stats.import_status.last_status or 'N/A' }}</strong>
+      <small>{{ stats.import_status.last_run_at or 'ยังไม่เคยนำเข้า' }}</small>
     </div>
   </div>
 
-  <div class="admin-final-panel">
-    <div class="admin-final-panel-head">
+  <div class="admin-panel" style="margin-top:22px">
+    <div class="admin-panel-head">
       <div>
-        <div class="admin-final-badge">Review Queue</div>
         <h2>งานที่ต้องตรวจล่าสุด</h2>
+        <p>คิว moderation ที่ควรจัดการก่อน เพื่อให้ประกาศปลอดภัยและสดใหม่</p>
       </div>
       <a href="{{ url_for('admin_moderation') }}">ดูทั้งหมด</a>
     </div>
 
-    <div class="admin-final-list">
+    <div class="review-list">
       {% for job in review_jobs %}
-        <div class="admin-final-job">
+        <div class="review-item">
           <div>
             <h3>{{ job.title }}</h3>
-            <div class="admin-final-tags">
+            <div class="review-tags">
               <span>{{ job.company_name or '-' }}</span>
               <span>{{ job.status }}</span>
               <span>Risk {{ job.ai_risk_score or 0 }}</span>
             </div>
-            <p>{{ job.ai_risk_reason or 'ไม่มีเหตุผลจาก AI' }}</p>
+            <p>{{ job.ai_risk_reason or 'ยังไม่มีคำอธิบายเพิ่มเติมจากระบบ AI' }}</p>
           </div>
-
-          <div class="admin-final-job-actions">
+          <div class="review-actions">
             <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='approve') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="approve" type="submit">Approve</button>
             </form>
-
             <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='reject') }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button class="reject" type="submit">Reject</button>
@@ -336,9 +200,8 @@
           </div>
         </div>
       {% else %}
-        <div class="admin-final-empty">
-          <strong>ไม่มีงานรอตรวจ</strong>
-          <p>ระบบยังไม่พบประกาศเสี่ยงที่ต้องให้แอดมินตรวจเพิ่ม</p>
+        <div class="empty-block">
+          ตอนนี้ไม่มีงานที่ต้องรอตรวจเพิ่มเติม
         </div>
       {% endfor %}
     </div>

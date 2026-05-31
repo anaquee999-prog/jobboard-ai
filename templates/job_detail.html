@@ -1,305 +1,54 @@
 {% extends "base.html" %}
 
-{% block title %}{{ job.title }} | งานใกล้บ้าน{% endblock %}
+{% block title %}{{ job.title }} | JobBoard AI{% endblock %}
 {% block meta_description %}รายละเอียดงาน {{ job.title }} ที่ {{ job.company_name or "นายจ้าง" }} {{ job.location or "" }} พร้อมข้อมูลความปลอดภัยก่อนสมัคร{% endblock %}
+
+{% block extra_head %}
+{% set risk_score = job.ai_risk_score if job.ai_risk_score is not none else 0 %}
+{% set risk_level = scam_risk_label(risk_score) %}
+<style>
+  .detail-page{width:var(--container);margin:0 auto;padding:30px 0 64px}
+  .detail-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}
+  .job-hero,.detail-card,.side-card{
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    background:#fff;
+    box-shadow:var(--shadow);
+  }
+  .job-hero{padding:24px}
+  .detail-card{padding:22px;margin-top:16px}
+  .side-card{padding:22px;position:sticky;top:92px}
+  .badge-row,.view-stats,.cta-stack,.card-actions{display:flex;flex-wrap:wrap;gap:8px}
+  .job-hero h1{margin:10px 0 8px;font-size:clamp(34px,6vw,56px);line-height:1.04}
+  .company{margin:0;color:var(--muted);font-size:17px;font-weight:700}
+  .meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:18px}
+  .meta-item{padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-alt)}
+  .meta-item span{display:block;color:var(--muted);font-size:12px;font-weight:850}
+  .meta-item strong{display:block;margin-top:4px}
+  .description{white-space:pre-line;color:#334155}
+  .safety-list{margin:0;padding-left:18px;color:#334155}
+  .safety-list li{margin:8px 0}
+  .risk-meter{margin:14px 0 16px;height:12px;border-radius:999px;background:#e5e7eb;overflow:hidden}
+  .risk-meter span{
+    display:block;
+    height:100%;
+    width:{{ risk_score }}%;
+    background:{% if risk_level == "HIGH" %}#d92d20{% elif risk_level == "MEDIUM" %}#f79009{% else %}#12b76a{% endif %};
+  }
+  @media(max-width:980px){
+    .detail-layout{grid-template-columns:1fr}
+    .side-card{position:static}
+  }
+  @media(max-width:640px){
+    .meta-grid{grid-template-columns:1fr}
+  }
+</style>
+<script type="application/ld+json">{{ jobposting_jsonld|safe }}</script>
+{% endblock %}
 
 {% block content %}
 {% set risk_score = job.ai_risk_score if job.ai_risk_score is not none else 0 %}
 {% set risk_level = scam_risk_label(risk_score) %}
-
-<style>
-  .detail-page {
-    width: min(1180px, calc(100% - 32px));
-    margin: 0 auto;
-    padding: 34px 0 70px;
-  }
-
-  .detail-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    gap: 22px;
-    align-items: start;
-  }
-
-  .job-hero,
-  .detail-card,
-  .side-card {
-    background: #fff;
-    border: 1px solid #d9e2ec;
-    border-radius: 26px;
-    box-shadow: 0 18px 50px rgba(16,24,40,.08);
-  }
-
-  .job-hero {
-    padding: 30px;
-    margin-bottom: 18px;
-  }
-
-  .badge-row {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 14px;
-  }
-
-  .badge {
-    min-height: 28px;
-    display: inline-flex;
-    align-items: center;
-    border-radius: 999px;
-    padding: 0 10px;
-    font-size: 12px;
-    font-weight: 800;
-  }
-
-  .badge.blue { background: #e8f1ff; color: #1769e0; }
-  .badge.green { background: #ecfdf3; color: #15803d; }
-  .badge.amber { background: #fff7ed; color: #b45309; }
-  .badge.red { background: #fef3f2; color: #b42318; }
-
-  .job-hero h1 {
-    margin: 0 0 8px;
-    font-size: clamp(32px, 5vw, 56px);
-    line-height: 1.08;
-    letter-spacing: 0;
-  }
-
-  .company {
-    margin: 0;
-    color: #667085;
-    font-size: 17px;
-    font-weight: 700;
-  }
-
-  .meta-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 10px;
-    margin-top: 22px;
-  }
-
-  .meta-item {
-    border: 1px solid #eef2f6;
-    border-radius: 16px;
-    padding: 12px;
-    background: #fbfcfe;
-  }
-
-  .meta-item span {
-    display: block;
-    color: #667085;
-    font-size: 12px;
-    font-weight: 800;
-  }
-
-  .meta-item strong {
-    display: block;
-    margin-top: 3px;
-    font-size: 14px;
-  }
-
-  .detail-card {
-    padding: 24px;
-    margin-top: 18px;
-  }
-
-  .detail-card h2 {
-    margin: 0 0 12px;
-    font-size: 24px;
-  }
-
-  .description {
-    white-space: pre-line;
-    color: #344054;
-    line-height: 1.85;
-  }
-
-  .safety-list {
-    display: grid;
-    gap: 10px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .safety-list li {
-    border: 1px solid #eef2f6;
-    border-radius: 16px;
-    padding: 12px 14px;
-    background: #fbfcfe;
-    color: #344054;
-    font-weight: 700;
-  }
-
-  .side-card {
-    padding: 22px;
-    position: sticky;
-    top: 94px;
-  }
-
-  .risk-meter {
-    margin: 14px 0 16px;
-    height: 12px;
-    border-radius: 999px;
-    background: #eef2f6;
-    overflow: hidden;
-  }
-
-  .risk-meter span {
-    display: block;
-    height: 100%;
-    width: {{ risk_score }}%;
-    background: {% if risk_level == "HIGH" %}#d92d20{% elif risk_level == "MEDIUM" %}#f79009{% else %}#12b76a{% endif %};
-  }
-
-  .side-card h2 {
-    margin: 0 0 8px;
-    font-size: 22px;
-  }
-
-  .side-card p {
-    color: #667085;
-    line-height: 1.7;
-  }
-
-  .cta-stack {
-    display: grid;
-    gap: 10px;
-    margin-top: 18px;
-  }
-
-  .primary-btn,
-  .secondary-btn,
-  .danger-btn {
-    min-height: 46px;
-    border: 0;
-    border-radius: 14px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 16px;
-    font: inherit;
-    font-weight: 800;
-    cursor: pointer;
-  }
-
-  .primary-btn { background: #1769e0; color: #fff; }
-  .secondary-btn { background: #fff; color: #344054; border: 1px solid #cdd5df; }
-  .danger-btn { background: #fff7ed; color: #b45309; border: 1px solid #fed7aa; }
-
-  textarea,
-  input[type="text"] {
-    width: 100%;
-    border: 1px solid #cdd5df;
-    border-radius: 16px;
-    padding: 13px 14px;
-    font: inherit;
-  }
-
-  textarea { min-height: 130px; resize: vertical; }
-
-  label {
-    display: block;
-    margin: 0 0 8px;
-    color: #344054;
-    font-weight: 800;
-  }
-
-  .notice {
-    border-radius: 18px;
-    padding: 14px;
-    font-weight: 700;
-    line-height: 1.7;
-  }
-
-  .notice.good { background: #ecfdf3; color: #15803d; }
-  .notice.warn { background: #fff7ed; color: #b45309; }
-  .notice.info { background: #e8f1ff; color: #1769e0; }
-
-  @media (max-width: 980px) {
-    .detail-layout { grid-template-columns: 1fr; }
-    .side-card { position: static; }
-    .meta-grid { grid-template-columns: 1fr 1fr; }
-  }
-
-  @media (max-width: 640px) {
-    .meta-grid { grid-template-columns: 1fr; }
-    .job-hero, .detail-card, .side-card { border-radius: 20px; }
-  }
-</style>
-
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org/",
-  "@type": "JobPosting",
-  "title": {{ job.title|tojson }},
-  "description": {{ job.description|tojson }},
-  "datePosted": {{ (job.created_at[:10] if job.created_at else "")|tojson }},
-  "employmentType": "FULL_TIME",
-  "hiringOrganization": {
-    "@type": "Organization",
-    "name": {{ (job.company_name or "JobBoard Employer")|tojson }}
-  },
-  "jobLocation": {
-    "@type": "Place",
-    "address": {
-      "@type": "PostalAddress",
-      "addressLocality": {{ (job.location or "Thailand")|tojson }},
-      "addressCountry": "TH"
-    }
-  }
-}
-</script>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "BreadcrumbList",
-  "itemListElement": [
-    {
-      "@type": "ListItem",
-      "position": 1,
-      "name": "หน้าแรก",
-      "item": {{ site_url|tojson }}
-    },
-    {
-      "@type": "ListItem",
-      "position": 2,
-      "name": "ค้นหางาน",
-      "item": {{ (site_url ~ url_for('jobs_public'))|tojson }}
-    },
-    {
-      "@type": "ListItem",
-      "position": 3,
-      "name": {{ job.title|tojson }},
-      "item": {{ (site_url ~ url_for('job_detail', slug=job_slug(job)))|tojson }}
-    }
-  ]
-}
-</script>
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "FAQPage",
-  "mainEntity": [
-    {
-      "@type": "Question",
-      "name": "สมัครงานนี้ต้องจ่ายเงินก่อนหรือไม่",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "ไม่ควรจ่ายเงิน ค่าประกัน ค่าสมัคร หรือค่าดำเนินการก่อนเริ่มงาน หากมีการเรียกเก็บเงินควรกดรายงานประกาศทันที"
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "AI Risk Score คืออะไร",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "AI Risk Score เป็นคะแนนคัดกรองเบื้องต้นจากระบบ เพื่อช่วยให้ผู้สมัครมองเห็นสัญญาณเสี่ยง แต่ไม่ใช่การรับรองแบบสมบูรณ์"
-      }
-    }
-  ]
-}
-</script>
 
 <div class="detail-page">
   <div class="detail-layout">
@@ -313,9 +62,9 @@
             <span class="badge amber">รอตรวจสอบนายจ้าง</span>
           {% endif %}
           {% if risk_level == "HIGH" %}
-            <span class="badge red">ควรระวังสูง</span>
+            <span class="badge red">ความเสี่ยงสูง</span>
           {% elif risk_level == "MEDIUM" %}
-            <span class="badge amber">ควรตรวจสอบเพิ่ม</span>
+            <span class="badge amber">ควรตรวจเพิ่ม</span>
           {% else %}
             <span class="badge green">ผ่านการคัดกรองเบื้องต้น</span>
           {% endif %}
@@ -324,11 +73,16 @@
         <h1>{{ job.title }}</h1>
         <p class="company">{{ job.company_name or "หน่วยงาน / นายจ้าง" }}</p>
 
+        <div class="view-stats">
+          <span class="badge blue" id="job-total-views">ยอดดู {{ total_views|default(0) }}</span>
+          <span class="badge green" id="job-live-viewers" style="display:none">กำลังดู {{ live_viewers }}</span>
+        </div>
+
         <div class="meta-grid">
           <div class="meta-item"><span>พื้นที่</span><strong>{{ job.location or "ไม่ระบุ" }}</strong></div>
-          <div class="meta-item"><span>เงินเดือน</span><strong>{{ job.salary_range or "ไม่ระบุเงินเดือน" }}</strong></div>
+          <div class="meta-item"><span>เงินเดือน</span><strong>{{ job.salary_range or "ไม่ระบุ" }}</strong></div>
           <div class="meta-item"><span>รายงาน</span><strong>{{ job.report_count }} ครั้ง</strong></div>
-          <div class="meta-item"><span>คะแนนเสี่ยง</span><strong>{{ risk_score }}/100</strong></div>
+          <div class="meta-item"><span>AI Risk</span><strong>{{ risk_score }}/100</strong></div>
         </div>
       </section>
 
@@ -340,18 +94,18 @@
       <section class="detail-card">
         <h2>เช็กก่อนสมัคร</h2>
         <ul class="safety-list">
-          <li>ไม่โอนเงิน ค่าประกัน ค่าสมัคร หรือค่าดำเนินการก่อนเริ่มงาน</li>
-          <li>ตรวจสอบชื่อบริษัท เบอร์โทร และช่องทางติดต่อก่อนส่งข้อมูลส่วนตัว</li>
-          <li>หากประกาศขอแอดไลน์หรือย้ายไปคุยนอกระบบทันที ควรตรวจสอบเพิ่ม</li>
-          <li>พบประกาศน่าสงสัยให้กดรายงาน เพื่อช่วยให้ทีมตรวจสอบเร็วขึ้น</li>
+          <li>อย่าโอนเงิน ค่าประกัน หรือค่าดำเนินการก่อนเริ่มงาน</li>
+          <li>ตรวจสอบชื่อบริษัท ช่องทางติดต่อ และข้อมูลที่อยู่ให้ชัดเจน</li>
+          <li>ถ้าถูกขอให้ย้ายไปคุยนอกระบบเร็วผิดปกติ ควรตรวจเพิ่มก่อน</li>
+          <li>หากพบสิ่งผิดปกติ ให้กดรายงานประกาศเพื่อช่วยทีมตรวจสอบ</li>
         </ul>
       </section>
 
       {% if current_user %}
         <section class="detail-card">
           <h2>รายงานประกาศนี้</h2>
-          <p class="description">ใช้เมื่อพบการเรียกเก็บเงิน หลอกให้โอนเงิน หรือข้อมูลประกาศไม่ถูกต้อง</p>
-          <form method="post" action="{{ url_for('report_job', job_id=job.id) }}">
+          <p class="muted">ใช้เมื่อพบการเรียกเก็บเงิน หลอกให้โอน หรือข้อมูลประกาศไม่ถูกต้อง</p>
+          <form method="post" action="{{ url_for('report_job', job_id=job.id) }}" class="form-stack">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label for="reason">เหตุผล</label>
             <input id="reason" type="text" name="reason" placeholder="เช่น เรียกเก็บเงินก่อนสมัคร / ข้อมูลไม่ตรง / สแปม">
@@ -365,30 +119,30 @@
 
     <aside class="side-card">
       <h2>สถานะความปลอดภัย</h2>
-      <p>คะแนนนี้เป็นการคัดกรองเบื้องต้นจากระบบ ไม่ใช่การรับรองแบบสมบูรณ์</p>
+      <p class="muted">คะแนนนี้เป็นการคัดกรองเบื้องต้นเพื่อช่วยให้ผู้สมัครมองเห็นสัญญาณเตือนเร็วขึ้น</p>
       <div class="risk-meter"><span></span></div>
 
       {% if risk_level == "HIGH" %}
-        <div class="notice warn">ประกาศนี้มีสัญญาณเสี่ยงสูง ระบบไม่แนะนำให้สมัครจนกว่าจะตรวจสอบเพิ่ม</div>
+        <div class="notice warn">ประกาศนี้มีสัญญาณเสี่ยงสูง ควรตรวจสอบให้ละเอียดก่อนสมัคร</div>
       {% elif risk_level == "MEDIUM" %}
-        <div class="notice warn">ควรอ่านรายละเอียดและตรวจสอบนายจ้างเพิ่มเติมก่อนสมัคร</div>
+        <div class="notice warn">มีจุดที่ควรตรวจเพิ่มเติมก่อนส่งข้อมูลส่วนตัว</div>
       {% else %}
-        <div class="notice good">ยังไม่พบสัญญาณเสี่ยงเด่น แต่ควรตรวจสอบข้อมูลก่อนติดต่อทุกครั้ง</div>
+        <div class="notice good">ยังไม่พบสัญญาณเสี่ยงเด่น แต่ควรตรวจข้อมูลด้วยตัวเองทุกครั้ง</div>
       {% endif %}
 
       {% if job.ai_risk_reason %}
         <p><strong>เหตุผลจากระบบ:</strong><br>{{ job.ai_risk_reason }}</p>
       {% endif %}
 
-      <div class="cta-stack">
+      <div class="cta-stack" style="margin-top:18px">
         {% if current_user and current_user.role == "JOB_SEEKER" %}
           {% if already_applied %}
             <div class="notice good">คุณสมัครงานนี้แล้ว ติดตามสถานะได้ในแดชบอร์ด</div>
             <a class="secondary-btn" href="{{ url_for('job_seeker_dashboard') }}">เปิดแดชบอร์ด</a>
           {% elif risk_level == "HIGH" %}
-            <div class="notice warn">ปิดการสมัครชั่วคราวสำหรับประกาศเสี่ยงสูง</div>
+            <div class="notice warn">ปิดการสมัครชั่วคราวสำหรับประกาศที่มีความเสี่ยงสูง</div>
           {% else %}
-            <form method="post" action="{{ url_for('apply_job', job_id=job.id) }}">
+            <form method="post" action="{{ url_for('apply_job', job_id=job.id) }}" class="form-stack">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <label for="message">ข้อความถึงนายจ้าง</label>
               <textarea id="message" name="message" placeholder="แนะนำตัวสั้น ๆ และบอกเหตุผลที่สนใจงานนี้"></textarea>
@@ -426,6 +180,30 @@
       })
     });
   } catch (error) {}
+
+  var totalViewsEl = document.getElementById("job-total-views");
+  var liveViewersEl = document.getElementById("job-live-viewers");
+  var jobId = {{ job.id|tojson }};
+
+  function refreshJobViewStats() {
+    if (!jobId || !totalViewsEl) return;
+    fetch("/api/job-views/" + jobId)
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        if (!data.ok) return;
+        totalViewsEl.textContent = "ยอดดู " + (data.total_views || 0);
+        if (data.live_viewers && data.live_viewers > 0) {
+          liveViewersEl.textContent = "กำลังดู " + data.live_viewers;
+          liveViewersEl.style.display = "inline-flex";
+        } else {
+          liveViewersEl.style.display = "none";
+        }
+      })
+      .catch(function () {});
+  }
+
+  setTimeout(refreshJobViewStats, 5000);
+  setInterval(refreshJobViewStats, 20000);
 })();
 </script>
 {% endblock %}

@@ -26,6 +26,54 @@
 @media(max-width:980px){.media-grid{grid-template-columns:1fr}}
 </style>
 
+<style>
+/* Media review refresh: consistent admin cards. */
+.media-page{
+  width:var(--container);
+}
+.media-hero{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.media-hero h1,
+.media-card h3{
+  color:var(--ink);
+  letter-spacing:0;
+}
+.media-hero p,
+.media-card p{
+  color:var(--muted);
+}
+.media-tabs a{
+  border-radius:8px;
+  border:1px solid #cdd5df;
+  background:#fff;
+  color:#344054!important;
+}
+.media-card{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.media-card img,
+.media-card video{
+  border-radius:8px;
+}
+.media-meta span{
+  background:#e8f1ff;
+  color:var(--brand);
+}
+.media-actions button{
+  border-radius:8px;
+}
+.approve{background:var(--green)}
+.reject{background:var(--red)}
+.delete{background:#475467}
+</style>
+
 <section class="media-page">
   <div class="media-hero">
     <h1>OpenChat Media Review</h1>

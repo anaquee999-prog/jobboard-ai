@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Admin Blacklist | JobBoard{% endblock %}
+
+{% block content %}
+<section class="card">
+    <h1>Phone Blacklist</h1>
+    <p class="muted">จัดการเบอร์โทรศัพท์ที่ถูกระงับการใช้งานจากระบบ</p>
+    <div class="actions-row">
+        <a class="btn-link-box secondary" href="{{ url_for('admin_dashboard') }}">กลับ Dashboard</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_users') }}">ผู้ใช้</a>
+        <a class="btn-link-box secondary" href="{{ url_for('admin_logs') }}">Logs</a>
+    </div>
+</section>
+
+{% if message %}
+<section class="card section-space">
+    <div class="notice {{ 'good' if message_type == 'success' else 'warn' }}">{{ message }}</div>
+</section>
+{% endif %}
+
+<section class="card section-space">
+    <form method="post" class="form-stack">
+        <label for="phone">Phone number</label>
+        <input id="phone" type="text" name="phone" placeholder="0XXXXXXXXX" required>
+        <label for="reason">Reason</label>
+        <input id="reason" type="text" name="reason" placeholder="เช่น พบสแปม / ห้ามใช้งาน" required>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="primary-btn" type="submit">Ban phone number</button>
+    </form>
+</section>
+
+<section class="card section-space">
+    <h2>Blacklist history</h2>
+    <div class="table-list">
+        {% for item in blacklist %}
+            <div class="job-row">
+                <div>
+                    <strong>{{ item.phone_number }}</strong>
+                    <div class="muted">{{ item.reason or '-' }}</div>
+                    <div class="muted">Ban by: {{ item.banned_by_name or item.banned_by_phone or 'Admin' }} | {{ item.created_at }}</div>
+                </div>
+            </div>
+        {% else %}
+            <p class="muted">ยังไม่มีเบอร์ถูกเพิ่มในรายการ Blacklist</p>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

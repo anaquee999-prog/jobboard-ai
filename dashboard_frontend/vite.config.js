@@ -3,15 +3,27 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig(({ command }) => ({
   plugins: [react()],
-  base: "/jobboard-ai/",
+  base: command === "serve" ? "/" : "/jobboard-ai/",
   optimizeDeps:
     command === "serve"
       ? {
-          disabled: true,
           noDiscovery: true,
           include: [],
         }
       : undefined,
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("three")) return "three";
+          if (id.includes("recharts") || id.includes("d3-")) return "charts";
+          if (id.includes("lucide-react")) return "icons";
+          return "vendor";
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

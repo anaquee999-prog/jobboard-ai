@@ -3,7 +3,7 @@ services:
     name: jobboard-ai-app
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && cd dashboard_frontend && npm ci && npm run build
     startCommand: gunicorn app:app
     envVars:
       - key: JOBBOARD_SECRET_KEY
@@ -14,32 +14,23 @@ services:
         sync: false
       - key: JOBBOARD_DATABASE_PATH
         value: instance/jobboard.db
+      - key: JOBBOARD_BACKUP_DIR
+        value: instance/backups
       - key: JOBBOARD_SESSION_COOKIE_SECURE
         value: "1"
       - key: JOBBOARD_CRON_TOKEN
         sync: false
-      - key: DISCORD_SCAM_ALERT_WEBHOOK_URL
-        sync: false
-      - key: DISCORD_BOT_API_TOKEN
-        sync: false
+      - key: JOBBOARD_SITE_URL
+        value: https://jobboard-ai-app.onrender.com
       - key: JOBBOARD_API_BASE_URL
         value: https://jobboard-ai-app.onrender.com
-
-  - type: worker
-    name: jobboard-ai-discord-worker
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python discord_bot.py
-    envVars:
-      - key: DISCORD_BOT_TOKEN
-        sync: false
-      - key: DISCORD_BOT_API_TOKEN
-        sync: false
-      - key: DISCORD_GUILD_ID
-        sync: false
-      - key: DISCORD_ADMIN_USER_IDS
-        sync: false
-      - key: DISCORD_NOTIFICATION_POLL_SECONDS
-        value: "30"
-      - key: JOBBOARD_API_BASE_URL
-        value: https://jobboard-ai-app.onrender.com
+      - key: JOBBOARD_SEO_SITE_NAME
+        value: JobBoard AI
+      - key: JOBBOARD_SEO_CITY
+        value: Bangkok
+      - key: JOBBOARD_SEO_REGION
+        value: Bangkok
+      - key: JOBBOARD_SEO_COUNTRY
+        value: TH
+      - key: JOBBOARD_SEO_KEYWORDS
+        value: local jobs, job search, urgent jobs, government jobs, apply jobs, AI job board, job scam detection, Thailand jobs

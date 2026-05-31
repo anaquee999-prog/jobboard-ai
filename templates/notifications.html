@@ -64,4 +64,41 @@
 .empty-notify p{color:#cbd5e1}
 @media(max-width:720px){.notify-head,.notify-card{flex-direction:column}.notify-actions{justify-content:flex-start}}
 </style>
+
+<style>
+/* Notification refresh: light list cards. */
+.notify-page{
+  width:var(--container);
+}
+.notify-head h1,
+.notify-card strong,
+.empty-notify h2{
+  color:var(--ink);
+  letter-spacing:0;
+}
+.notify-head p,
+.notify-card p,
+.notify-card small,
+.empty-notify p{
+  color:var(--muted);
+}
+.notify-setting-btn,
+.notify-actions a,
+.notify-actions button{
+  border-radius:8px;
+  background:var(--brand);
+  color:#fff;
+}
+.notify-card,
+.empty-notify{
+  border-radius:8px;
+  border:1px solid var(--line);
+  background:#fff;
+  box-shadow:var(--shadow);
+}
+.notify-card.unread{
+  border-color:#93c5fd;
+  box-shadow:0 0 0 1px rgba(23,105,224,.12),var(--shadow);
+}
+</style>
 {% endblock %}
