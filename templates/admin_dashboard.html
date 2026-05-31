@@ -98,7 +98,7 @@
 <section class="admin-page">
   <div class="admin-hero">
     <div>
-      <span class="admin-badge">AI Anti-Scam Control Center</span>
+      <span class="admin-badge">Fraud Screening Control Center</span>
       <h1>Admin Dashboard</h1>
       <p>จัดการประกาศ ตรวจคิวความเสี่ยง ดูข้อมูลระบบ และเข้าถึงเครื่องมือ moderation สำคัญได้จากพื้นที่เดียว</p>
     </div>
@@ -141,7 +141,7 @@
       <small>บัญชีทั้งหมดในระบบ</small>
     </div>
     <div class="admin-card">
-      <span>Pending AI Review</span>
+      <span>Pending Review</span>
       <strong>{{ stats.pending_ai }}</strong>
       <small>ประกาศที่ต้องตรวจเพิ่ม</small>
     </div>
@@ -186,7 +186,7 @@
               <span>{{ job.status }}</span>
               <span>Risk {{ job.ai_risk_score or 0 }}</span>
             </div>
-            <p>{{ job.ai_risk_reason or 'ยังไม่มีคำอธิบายเพิ่มเติมจากระบบ AI' }}</p>
+            <p>{{ job.ai_risk_reason or 'ยังไม่มีคำอธิบายเพิ่มเติมจากระบบ' }}</p>
           </div>
           <div class="review-actions">
             <form method="post" action="{{ url_for('admin_update_job_status', job_id=job.id, action='approve') }}">

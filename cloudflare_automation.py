@@ -21,11 +21,16 @@ def is_dry_run() -> bool:
 
 
 def load_config() -> dict[str, str]:
+    dns_type = os.getenv("CLOUDFLARE_DNS_TYPE", "CNAME").strip().upper() or "CNAME"
+    dns_content = os.getenv("CLOUDFLARE_DNS_CONTENT", "").strip()
+    if not dns_content:
+        dns_content = os.getenv("CLOUDFLARE_WWW_IP", "").strip()
     return {
         "api_token": os.getenv("CLOUDFLARE_API_TOKEN", "").strip(),
         "zone_id": os.getenv("CLOUDFLARE_ZONE_ID", "").strip(),
-        "www_ip": os.getenv("CLOUDFLARE_WWW_IP", "").strip(),
         "dns_name": os.getenv("CLOUDFLARE_DNS_NAME", "www").strip(),
+        "dns_type": dns_type,
+        "dns_content": dns_content,
     }
 
 
@@ -35,10 +40,12 @@ def validate_config(config: dict[str, str]) -> list[str]:
         missing.append("CLOUDFLARE_API_TOKEN")
     if not config["zone_id"]:
         missing.append("CLOUDFLARE_ZONE_ID")
-    if not config["www_ip"]:
-        missing.append("CLOUDFLARE_WWW_IP")
     if not config["dns_name"]:
         missing.append("CLOUDFLARE_DNS_NAME")
+    if config["dns_type"] not in {"A", "CNAME"}:
+        missing.append("CLOUDFLARE_DNS_TYPE(A or CNAME)")
+    if not config["dns_content"]:
+        missing.append("CLOUDFLARE_DNS_CONTENT or CLOUDFLARE_WWW_IP")
     return missing
 
 
@@ -49,9 +56,9 @@ def print_json(data: Any) -> None:
 def print_plan(config: dict[str, str]) -> None:
     print("Cloudflare automation dry-run. No API changes will be made.")
     print(f"Zone ID configured: {'yes' if config['zone_id'] else 'no'}")
-    print(f"DNS record: {config['dns_name']} A -> {config['www_ip']}")
+    print(f"DNS record: {config['dns_name']} {config['dns_type']} -> {config['dns_content']}")
     print("Planned changes:")
-    print("1. Create or update proxied DNS A record")
+    print("1. Create or update proxied DNS record")
     print("2. Set SSL/TLS encryption mode to full")
     print("3. Create or update a custom firewall ruleset")
     print("4. Purge Cloudflare cache")
@@ -115,9 +122,9 @@ def cloudflare_request(
 def find_dns_record(config: dict[str, str]) -> dict[str, Any] | None:
     path = (
         f"/zones/{config['zone_id']}/dns_records"
-        f"?type=A&name={config['dns_name']}"
+        f"?type={config['dns_type']}&name={config['dns_name']}"
     )
-    data = cloudflare_request(config, "Find DNS A Record", "GET", path)
+    data = cloudflare_request(config, f"Find DNS {config['dns_type']} Record", "GET", path)
     if data and data.get("success") and data.get("result"):
         return data["result"][0]
     return None
@@ -125,9 +132,9 @@ def find_dns_record(config: dict[str, str]) -> dict[str, Any] | None:
 
 def upsert_dns_record(config: dict[str, str]) -> None:
     payload = {
-        "type": "A",
+        "type": config["dns_type"],
         "name": config["dns_name"],
-        "content": config["www_ip"],
+        "content": config["dns_content"],
         "ttl": 1,
         "proxied": True,
     }
@@ -135,7 +142,7 @@ def upsert_dns_record(config: dict[str, str]) -> None:
     if existing and existing.get("id"):
         cloudflare_request(
             config,
-            "Update DNS A Record",
+            f"Update DNS {config['dns_type']} Record",
             "PUT",
             f"/zones/{config['zone_id']}/dns_records/{existing['id']}",
             payload,
@@ -144,7 +151,7 @@ def upsert_dns_record(config: dict[str, str]) -> None:
 
     cloudflare_request(
         config,
-        "Create DNS A Record",
+        f"Create DNS {config['dns_type']} Record",
         "POST",
         f"/zones/{config['zone_id']}/dns_records",
         payload,
@@ -174,7 +181,7 @@ def list_firewall_rulesets(config: dict[str, str]) -> list[dict[str, Any]]:
 
 
 def create_or_update_firewall_ruleset(config: dict[str, str]) -> str | None:
-    ruleset_name = "JobBoard AI Anti-Scam Firewall"
+    ruleset_name = "JobBoard Anti-Scam Firewall"
     rules = [
         {
             "action": "block",

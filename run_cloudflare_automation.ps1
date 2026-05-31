@@ -17,8 +17,9 @@ $AutomationScriptPath = ".\cloudflare_automation.py"
 $RequiredEnvVars = @(
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_ZONE_ID",
-    "CLOUDFLARE_WWW_IP",
-    "CLOUDFLARE_DNS_NAME"
+    "CLOUDFLARE_DNS_NAME",
+    "CLOUDFLARE_DNS_TYPE",
+    "CLOUDFLARE_DNS_CONTENT"
 )
 # ------------------------------------------------
 
@@ -80,7 +81,15 @@ function Read-RequiredEnvVar {
     }
     else {
         do {
-            $value = Read-Host "Enter $Name"
+            if ($Name -eq "CLOUDFLARE_DNS_TYPE") {
+                $value = Read-Host "Enter $Name (A or CNAME, default CNAME)"
+                if ([string]::IsNullOrWhiteSpace($value)) {
+                    $value = "CNAME"
+                }
+            }
+            else {
+                $value = Read-Host "Enter $Name"
+            }
             $value = $value.Trim()
 
             if ([string]::IsNullOrWhiteSpace($value)) {

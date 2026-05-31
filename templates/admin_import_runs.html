@@ -1,91 +1,65 @@
 {% extends "base.html" %}
-{% block title %}ประวัติการดึงงาน | งานใกล้บ้าน{% endblock %}
+{% block title %}ประวัติการดึงงาน | JobBoard{% endblock %}
 
 {% block content %}
 <style>
-.import-page{width:min(1160px,calc(100% - 28px));margin:30px auto 60px;color:#fff;}
-.import-hero{border:1px solid rgba(56,189,248,.24);border-radius:30px;padding:30px;background:radial-gradient(circle at 12% 10%,rgba(14,165,233,.22),transparent 34%),linear-gradient(135deg,rgba(15,23,42,.96),rgba(2,6,23,.96));box-shadow:0 24px 70px rgba(0,0,0,.28);}
-.import-hero h1{margin:12px 0 8px;font-size:clamp(32px,5vw,54px);}
-.import-hero p{margin:0;color:#cbd5e1;font-weight:800;line-height:1.75;}
-.import-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;}
-.import-actions a,.import-actions form button{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:999px;padding:12px 15px;font-weight:950;text-decoration:none;cursor:pointer;}
-.import-actions a,.import-actions form button{background:rgba(15,23,42,.78);border:1px solid rgba(148,163,184,.22);color:#e0f2fe;}
-.import-actions .primary{background:linear-gradient(135deg,#0ea5e9,#38bdf8);color:#00111f;border:0;}
-.import-list{display:grid;gap:12px;margin-top:20px;}
-.import-row{display:grid;grid-template-columns:1.4fr .8fr .7fr .7fr .7fr 1fr;gap:10px;align-items:center;padding:16px;border-radius:22px;background:rgba(15,23,42,.78);border:1px solid rgba(148,163,184,.14);}
-.import-row strong{color:#fff;}
-.import-pill{display:inline-flex;width:max-content;border-radius:999px;padding:6px 10px;background:rgba(14,165,233,.13);border:1px solid rgba(56,189,248,.22);color:#bae6fd;font-size:12px;font-weight:950;}
-.import-pill.ok{background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.24);color:#bbf7d0;}
-.import-pill.warn{background:rgba(249,115,22,.13);border-color:rgba(249,115,22,.24);color:#fed7aa;}
-.import-pill.err{background:rgba(239,68,68,.13);border-color:rgba(239,68,68,.24);color:#fecaca;}
-.import-note{grid-column:1/-1;color:#94a3b8;font-size:13px;font-weight:800;line-height:1.6;}
-.empty-import{margin-top:20px;border:1px dashed rgba(148,163,184,.28);border-radius:24px;padding:28px;text-align:center;background:rgba(15,23,42,.58);color:#dbeafe;font-weight:900;}
-@media(max-width:860px){.import-row{grid-template-columns:1fr}.import-note{grid-column:auto}}
-.import-filter{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;align-items:flex-end}
-.import-filter label{display:flex;flex-direction:column;gap:6px;color:#cbd5e1;font-size:13px}
-.import-filter select,.import-filter input{min-width:180px;padding:12px 14px;border-radius:14px;border:1px solid rgba(148,163,184,.22);background:#0f172a;color:#e2e8f0}
-.import-filter button,.import-filter .secondary{display:inline-flex;align-items:center;justify-content:center;padding:12px 16px;border-radius:999px;border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.78);color:#e0f2fe;text-decoration:none;font-weight:950;cursor:pointer}
-.import-filter .secondary{background:transparent;color:#93c5fd}
-</style>
-
-<style>
-/* Import runs refresh: light operational table. */
-.import-page{
-  width:var(--container);
-  color:var(--ink);
-}
-.import-hero{
+.import-page{width:var(--container);margin:30px auto 60px;color:var(--ink)}
+.import-hero,
+.import-row,
+.empty-import{
   border-radius:8px;
   border:1px solid var(--line);
   background:#fff;
   box-shadow:var(--shadow);
 }
-.import-hero p,
-.import-note,
-.import-filter label{
-  color:var(--muted);
-}
-.import-actions a,
-.import-actions form button,
-.import-filter button,
-.import-filter .secondary{
+.import-hero{padding:30px}
+.import-hero h1{margin:12px 0 8px;font-size:clamp(32px,5vw,54px)}
+.import-hero p,.import-note,.import-filter label{margin:0;color:var(--muted);font-weight:800;line-height:1.75}
+.import-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.import-actions a,.import-actions form button,
+.import-filter button,.import-filter .secondary{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
   border-radius:8px;
+  padding:12px 15px;
+  font-weight:950;
+  text-decoration:none;
+  cursor:pointer;
   border:1px solid #cdd5df;
   background:#fff;
   color:#344054;
 }
-.import-actions .primary,
-.import-filter button{
+.import-actions .primary,.import-filter button{
   border-color:var(--brand);
   background:var(--brand);
   color:#fff;
 }
-.import-row{
-  border-radius:8px;
-  background:#fff;
-  border:1px solid var(--line);
-  box-shadow:var(--shadow);
-}
-.import-row strong{
-  color:var(--ink);
-}
+.import-list{display:grid;gap:12px;margin-top:20px}
+.import-row{display:grid;grid-template-columns:1.4fr .8fr .7fr .7fr .7fr 1fr;gap:10px;align-items:center;padding:16px}
+.import-row strong{color:var(--ink)}
 .import-pill{
+  display:inline-flex;
+  width:max-content;
+  border-radius:999px;
+  padding:6px 10px;
   background:#e8f1ff;
-  border-color:#c8dcff;
+  border:1px solid #c8dcff;
   color:var(--brand);
+  font-size:12px;
+  font-weight:950;
 }
 .import-pill.ok{background:#ecfdf3;border-color:#bbf7d0;color:var(--green)}
 .import-pill.warn{background:#fff7ed;border-color:#fed7aa;color:var(--amber)}
 .import-pill.err{background:#fef3f2;border-color:#fecaca;color:var(--red)}
-.empty-import{
-  border-radius:8px;
-  border-color:#cdd5df;
-  background:#fff;
-  color:var(--muted);
-  box-shadow:var(--shadow);
-}
-.import-filter select,
-.import-filter input{
+.import-note{grid-column:1/-1;font-size:13px}
+.empty-import{margin-top:20px;padding:28px;text-align:center}
+@media(max-width:860px){.import-row{grid-template-columns:1fr}.import-note{grid-column:auto}}
+.import-filter{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px;align-items:flex-end}
+.import-filter label{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.import-filter select,.import-filter input{
+  min-width:180px;
+  padding:12px 14px;
   border-radius:8px;
   border:1px solid #cdd5df;
   background:#fff;
@@ -108,7 +82,7 @@
         government jobs {{ import_status.government_jobs }}
       </p>
       {% if import_status.last_error %}
-        <p style="color:#fecaca">Last error: {{ import_status.last_error }}</p>
+        <p style="color:#dc2626">Last error: {{ import_status.last_error }}</p>
       {% endif %}
     {% endif %}
 
