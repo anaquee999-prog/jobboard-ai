@@ -32,7 +32,7 @@ def register_admin_action_routes(app, deps):
 
     def build_backup_zip():
         backup_buffer = io.BytesIO()
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
         filename = f"jobboard-backup-{timestamp}.zip"
         include_files = [
             "app.py",
@@ -76,6 +76,27 @@ def register_admin_action_routes(app, deps):
         backup_buffer.seek(0)
         return filename, backup_buffer.getvalue()
 
+    def prune_old_backups(backup_dir):
+        retention_raw = os.environ.get("JOBBOARD_BACKUP_RETENTION", "30").strip()
+        try:
+            retention_count = max(1, int(retention_raw))
+        except Exception:
+            retention_count = 30
+
+        backup_files = sorted(
+            backup_dir.glob("jobboard-backup-*.zip"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        removed = []
+        for old_path in backup_files[retention_count:]:
+            try:
+                old_path.unlink()
+                removed.append(old_path.name)
+            except Exception:
+                continue
+        return retention_count, removed
+
     @app.route("/admin/backup/download")
     @role_required("ADMIN")
     def admin_backup_download():
@@ -96,14 +117,21 @@ def register_admin_action_routes(app, deps):
         backup_dir.mkdir(parents=True, exist_ok=True)
         backup_path = backup_dir / filename
         backup_path.write_bytes(backup_bytes)
+        retention_count, removed_files = prune_old_backups(backup_dir)
+        try:
+            backup_path_label = str(backup_path.relative_to(BASE_DIR))
+        except Exception:
+            backup_path_label = str(backup_path)
 
         return jsonify(
             {
                 "ok": True,
                 "filename": filename,
-                "path": str(backup_path.relative_to(BASE_DIR)),
+                "path": backup_path_label,
                 "size_bytes": len(backup_bytes),
                 "created_at": now_str(),
+                "retention_count": retention_count,
+                "removed_old_backups": removed_files,
             }
         )
 
