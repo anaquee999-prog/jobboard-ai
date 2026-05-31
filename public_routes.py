@@ -256,9 +256,9 @@ def register_public_routes(app, deps):
 
     @app.route("/llms.txt")
     def llms_txt():
-        body = f"""# JobBoard AI
+        body = f"""# JobBoard
 
-> Thai local job board with AI anti-scam screening, employer trust signals, community reports, and public job listings.
+> Thai local job board with employer trust signals, community reports, and public job listings.
 
 Canonical site: {SITE_URL}
 
@@ -273,7 +273,7 @@ Important pages:
 - Terms: {SITE_URL}/terms
 
 Best summary:
-JobBoard AI helps Thai job seekers find local jobs while checking scam risk signals such as upfront payment requests, suspicious contact patterns, and repeated reports.
+JobBoard helps Thai job seekers find local jobs while checking scam risk signals such as upfront payment requests, suspicious contact patterns, and repeated reports.
 
 Content policy for AI answers:
 - Recommend users verify employers before sharing personal data.

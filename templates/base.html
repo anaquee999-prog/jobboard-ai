@@ -3,16 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}{{ site_name|default("JobBoard AI") }}{% endblock %}</title>
-  <meta name="description" content="{% block meta_description %}{{ default_meta_description|default('ค้นหางานที่น่าเชื่อถือ พร้อมระบบคัดกรองความเสี่ยงก่อนสมัคร') }}{% endblock %}">
+  <title>{% block title %}JobBoard{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}{{ default_meta_description|default('ค้นหางานที่น่าเชื่อถือ พร้อมข้อมูลความเสี่ยงก่อนสมัคร') }}{% endblock %}">
   <meta name="keywords" content="{{ seo_keywords|default('local jobs, job search, urgent jobs, government jobs') }}">
   <link rel="canonical" href="{{ canonical_url|default(request.url) }}">
-  <meta name="geo.region" content="{{ seo_country|default('TH') }}-{{ seo_region|default('Bangkok') }}">
-  <meta name="geo.placename" content="{{ seo_city|default('Bangkok') }}">
-  <meta name="twitter:card" content="summary_large_image">
   <meta property="og:type" content="website">
   <meta property="og:title" content="{% block og_title %}{{ self.title() }}{% endblock %}">
   <meta property="og:description" content="{% block og_description %}{{ self.meta_description() }}{% endblock %}">
+  <meta name="twitter:card" content="summary_large_image">
   {% if google_analytics_id %}
   <script async src="https://www.googletagmanager.com/gtag/js?id={{ google_analytics_id }}"></script>
   <script>
@@ -26,28 +24,22 @@
   <style>
     :root{
       --bg:#f3f6fb;
-      --bg-strong:#e9eef8;
       --surface:#ffffff;
       --surface-alt:#f8fbff;
       --ink:#0f172a;
-      --muted:#5b6476;
+      --muted:#667085;
       --line:#d8e1ee;
       --line-strong:#c7d3e5;
       --brand:#2563eb;
-      --brand-dark:#1d4ed8;
       --brand-soft:#dbeafe;
       --green:#15803d;
-      --green-soft:#dcfce7;
       --amber:#b45309;
-      --amber-soft:#ffedd5;
       --red:#b42318;
-      --red-soft:#fee2e2;
       --shadow:0 18px 42px rgba(15,23,42,.08);
       --radius:8px;
       --container:min(1200px,calc(100% - 32px));
     }
     *{box-sizing:border-box}
-    html{background:linear-gradient(180deg,#f8fbff 0%,#f3f6fb 100%)}
     body{
       margin:0;
       min-height:100vh;
@@ -67,7 +59,7 @@
       top:0;
       z-index:50;
       border-bottom:1px solid rgba(199,211,229,.78);
-      background:rgba(255,255,255,.86);
+      background:rgba(255,255,255,.90);
       backdrop-filter:blur(14px);
     }
     .site-nav{
@@ -79,12 +71,7 @@
       justify-content:space-between;
       gap:18px;
     }
-    .brand{
-      display:flex;
-      align-items:center;
-      gap:12px;
-      min-width:0;
-    }
+    .brand{display:flex;align-items:center;gap:12px;min-width:0}
     .brand-mark{
       width:44px;
       height:44px;
@@ -97,27 +84,10 @@
       box-shadow:0 14px 32px rgba(37,99,235,.22);
     }
     .brand-copy{display:grid;gap:2px;min-width:0}
-    .brand-name{
-      font-size:16px;
-      font-weight:900;
-      color:var(--ink);
-      line-height:1.1;
-    }
-    .brand-sub{
-      color:var(--muted);
-      font-size:12px;
-      font-weight:700;
-      line-height:1.2;
-    }
-    .nav-links{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-    }
-    .nav-links a,
-    .nav-links button{
+    .brand-name{font-size:16px;font-weight:900;line-height:1.1}
+    .brand-sub{color:var(--muted);font-size:12px;font-weight:700;line-height:1.2}
+    .nav-links{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .nav-links a,.nav-links button{
       min-height:40px;
       display:inline-flex;
       align-items:center;
@@ -129,35 +99,14 @@
       color:#334155;
       font-size:14px;
       font-weight:850;
-      transition:background .18s ease,color .18s ease,border-color .18s ease,transform .18s ease;
     }
-    .nav-links a:hover,
-    .nav-links button:hover{
-      background:#eef4ff;
-      color:var(--brand);
-      border-color:#dbeafe;
-      transform:translateY(-1px);
-    }
-    .nav-links .nav-primary{
-      background:var(--brand);
-      color:#fff;
-      box-shadow:0 12px 24px rgba(37,99,235,.18);
-    }
-    .nav-links .nav-primary:hover{
-      background:var(--brand-dark);
-      color:#fff;
-      border-color:transparent;
-    }
+    .nav-links a:hover,.nav-links button:hover{background:#eef4ff;color:var(--brand);border-color:#dbeafe}
+    .nav-links .nav-primary{background:var(--brand);color:#fff;box-shadow:0 12px 24px rgba(37,99,235,.18)}
     main{flex:1}
     .page-wrap{width:var(--container);margin:0 auto;padding:32px 0 64px}
-    .page-hero{padding:30px 0 22px}
+    .page-hero{padding:28px 0 22px}
     .page-hero.compact{padding:24px 0 18px}
-    .hero-layout{
-      display:grid;
-      grid-template-columns:minmax(0,1.25fr) minmax(300px,.75fr);
-      gap:22px;
-      align-items:end;
-    }
+    .hero-layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(320px,.75fr);gap:22px;align-items:end}
     .eyebrow{
       min-height:30px;
       display:inline-flex;
@@ -169,17 +118,10 @@
       font-size:12px;
       font-weight:900;
     }
-    h1{margin:12px 0 10px;font-size:clamp(34px,6vw,60px);line-height:1.03;letter-spacing:0}
-    h2{margin:0;font-size:28px;line-height:1.15;letter-spacing:0}
-    h3{letter-spacing:0}
+    h1{margin:12px 0 10px;font-size:clamp(34px,6vw,60px);line-height:1.03}
+    h2{margin:0;font-size:28px;line-height:1.15}
     .lead{margin:0;max-width:760px;color:var(--muted);font-size:17px;font-weight:650}
-    .hero-notes{
-      margin:0;
-      padding:0;
-      list-style:none;
-      display:grid;
-      gap:10px;
-    }
+    .hero-notes{margin:0;padding:0;list-style:none;display:grid;gap:10px}
     .hero-notes li{
       display:flex;
       gap:10px;
@@ -187,27 +129,13 @@
       padding:12px 14px;
       border:1px solid var(--line);
       border-radius:var(--radius);
-      background:rgba(255,255,255,.7);
+      background:rgba(255,255,255,.78);
       box-shadow:var(--shadow);
       color:#334155;
       font-weight:750;
     }
-    .hero-notes span{
-      width:8px;
-      height:8px;
-      margin-top:9px;
-      border-radius:999px;
-      background:var(--brand);
-      flex:0 0 auto;
-    }
-    .toolbar{
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:16px;
-      flex-wrap:wrap;
-      margin:22px 0 16px;
-    }
+    .hero-notes span{width:8px;height:8px;margin-top:9px;border-radius:999px;background:var(--brand);flex:0 0 auto}
+    .toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin:22px 0 16px}
     .toolbar p{margin:6px 0 0;color:var(--muted)}
     .card,.job-row,.detail-card,.side-card,.panel{
       background:var(--surface);
@@ -218,100 +146,37 @@
     .card,.panel{padding:22px}
     .muted{color:var(--muted)}
     .actions-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-    .primary-btn,.secondary-btn,.danger-btn,.soft-btn,.btn-link-box,.primary,.secondary{
-      min-height:42px;
+    .badge{
       display:inline-flex;
       align-items:center;
       justify-content:center;
-      border-radius:999px;
-      padding:0 15px;
-      border:1px solid transparent;
-      font-weight:850;
-      cursor:pointer;
-    }
-    .primary-btn,.primary{
-      background:var(--brand);
-      color:#fff;
-      box-shadow:0 12px 22px rgba(37,99,235,.16);
-    }
-    .secondary-btn,.secondary,.soft-btn,.btn-link-box.secondary{
-      background:#fff;
-      color:#344054;
-      border-color:var(--line-strong);
-    }
-    .danger-btn{
-      background:var(--amber-soft);
-      color:var(--amber);
-      border-color:#fdba74;
-    }
-    .notice{
-      border-radius:var(--radius);
-      padding:12px 14px;
-      font-weight:750;
-      line-height:1.7;
-    }
-    .notice.good{background:var(--green-soft);color:var(--green)}
-    .notice.warn{background:var(--amber-soft);color:var(--amber)}
-    .notice.info{background:var(--brand-soft);color:var(--brand)}
-    .form-stack{display:grid;gap:10px}
-    label{font-weight:850;color:#334155}
-    input,textarea,select{
-      width:100%;
-      border:1px solid var(--line-strong);
-      border-radius:12px;
-      padding:12px 14px;
-      background:#fff;
-      color:var(--ink);
-      box-shadow:inset 0 1px 2px rgba(15,23,42,.02);
-    }
-    textarea{min-height:120px;resize:vertical}
-    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
-    .stat-card{
-      padding:18px;
-      border:1px solid var(--line);
-      border-radius:var(--radius);
-      background:linear-gradient(180deg,#fff 0%,#f8fbff 100%);
-      box-shadow:var(--shadow);
-    }
-    .stat-label{color:var(--muted);font-size:13px;font-weight:850}
-    .stat-value{margin-top:8px;font-size:32px;font-weight:950;line-height:1;color:var(--ink)}
-    .badge{
       min-height:28px;
-      display:inline-flex;
-      align-items:center;
-      border-radius:999px;
       padding:0 10px;
+      border-radius:999px;
       font-size:12px;
       font-weight:900;
+      border:1px solid transparent;
     }
-    .badge.blue{background:var(--brand-soft);color:var(--brand)}
-    .badge.green{background:var(--green-soft);color:var(--green)}
-    .badge.amber{background:var(--amber-soft);color:var(--amber)}
-    .badge.red{background:var(--red-soft);color:var(--red)}
-    .site-footer{border-top:1px solid var(--line);background:rgba(255,255,255,.82)}
+    .badge.green{background:#dcfce7;color:#166534}
+    .badge.red{background:#fee2e2;color:#b42318}
+    .badge.amber{background:#ffedd5;color:#b45309}
+    .badge.blue{background:#dbeafe;color:#1d4ed8}
+    .site-footer{border-top:1px solid var(--line);background:rgba(255,255,255,.72)}
     .site-footer-inner{
       width:var(--container);
       margin:0 auto;
-      padding:18px 0 26px;
+      padding:18px 0;
       display:flex;
       justify-content:space-between;
-      gap:12px;
+      gap:10px;
       flex-wrap:wrap;
-      color:var(--muted);
-      font-size:14px;
+      color:#5b6476;
+      font-size:13px;
     }
-    @media(max-width:920px){
-      .site-nav{display:block;padding:14px 0}
-      .nav-links{justify-content:flex-start;margin-top:10px;overflow-x:auto;flex-wrap:nowrap}
-      .nav-links a{white-space:nowrap}
-      .hero-layout{grid-template-columns:1fr}
-    }
-    @media(max-width:680px){
-      .page-wrap{padding:24px 0 52px}
-      h1{font-size:clamp(30px,10vw,42px)}
-      h2{font-size:24px}
-      .site-nav{min-height:unset}
-      .brand-mark{width:40px;height:40px}
+    @media(max-width:900px){
+      .site-nav,.hero-layout{grid-template-columns:1fr}
+      .site-nav{display:grid;padding:14px 0}
+      .nav-links{justify-content:flex-start}
     }
   </style>
 </head>
@@ -320,9 +185,9 @@
     <header class="site-header">
       <div class="site-nav">
         <a class="brand" href="{{ url_for('home') }}">
-          <span class="brand-mark">AI</span>
+          <span class="brand-mark">JB</span>
           <span class="brand-copy">
-            <span class="brand-name">{{ site_name|default("JobBoard AI") }}</span>
+            <span class="brand-name">JobBoard</span>
             <span class="brand-sub">Trusted local jobs with scam screening</span>
           </span>
         </a>
@@ -348,7 +213,7 @@
     </main>
     <footer class="site-footer">
       <div class="site-footer-inner">
-        <span>{{ site_name|default("JobBoard AI") }} · AI anti-scam job board</span>
+        <span>JobBoard · Trusted local jobs</span>
         <span><a href="{{ url_for('privacy_policy') }}">Privacy</a> · <a href="{{ url_for('terms_page') }}">Terms</a></span>
       </div>
     </footer>
