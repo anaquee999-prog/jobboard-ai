@@ -2003,9 +2003,9 @@ def cron_import_upper_central_jobs():
 
         try:
             if "send_discord_alert" in globals():
-                status_text = "ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Cron Import DOE ÃƒÂ Ã‚Â¸Ã‚ÂªÃƒÂ Ã‚Â¸Ã‚Â³ÃƒÂ Ã‚Â¹Ã¢â€šÂ¬ÃƒÂ Ã‚Â¸Ã‚Â£ÃƒÂ Ã‚Â¹Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¸Ã‹â€ "
+                status_text = "OK Cron Import DOE completed"
                 if result["errors"]:
-                    status_text = "ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Cron Import DOE ÃƒÂ Ã‚Â¸Ã‚ÂªÃƒÂ Ã‚Â¸Ã‚Â³ÃƒÂ Ã‚Â¹Ã¢â€šÂ¬ÃƒÂ Ã‚Â¸Ã‚Â£ÃƒÂ Ã‚Â¹Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¸Ã‹â€ ÃƒÂ Ã‚Â¸Ã…Â¡ÃƒÂ Ã‚Â¸Ã‚Â²ÃƒÂ Ã‚Â¸Ã¢â‚¬Â¡ÃƒÂ Ã‚Â¸Ã‚ÂªÃƒÂ Ã‚Â¹Ã‹â€ ÃƒÂ Ã‚Â¸Ã‚Â§ÃƒÂ Ã‚Â¸Ã¢â€žÂ¢"
+                    status_text = "Warning Cron Import DOE completed with warnings"
                 send_discord_alert(
                     f"{status_text}\n"
                     f"Inserted: {result['inserted']}\n"
@@ -2013,7 +2013,7 @@ def cron_import_upper_central_jobs():
                     f"Scanned: {result['scanned']}\n"
                     f"Errors: {len(result['errors'])}\n"
                     f"Source: {source}\n"
-                    f"ÃƒÂ Ã‚Â¹Ã¢â€šÂ¬ÃƒÂ Ã‚Â¸Ã‚Â§ÃƒÂ Ã‚Â¸Ã‚Â¥ÃƒÂ Ã‚Â¸Ã‚Â²: {now_str()}",
+                    f"Checked at: {now_str()}",
                     username="JobBoard Cron Import Bot",
                 )
         except Exception:
@@ -2045,10 +2045,10 @@ def cron_import_upper_central_jobs():
         try:
             if "send_discord_alert" in globals():
                 send_discord_alert(
-                    "ÃƒÂ¢Ã‚ÂÃ…â€™ Cron Import DOE ÃƒÂ Ã‚Â¸Ã‚Â¥ÃƒÂ Ã‚Â¹Ã¢â‚¬Â°ÃƒÂ Ã‚Â¸Ã‚Â¡ÃƒÂ Ã‚Â¹Ã¢â€šÂ¬ÃƒÂ Ã‚Â¸Ã‚Â«ÃƒÂ Ã‚Â¸Ã‚Â¥ÃƒÂ Ã‚Â¸Ã‚Â§\n"
+                    "Error Cron Import DOE failed\n"
                     f"Error: {str(exc)[:500]}\n"
                     f"Source: {source}\n"
-                    f"ÃƒÂ Ã‚Â¹Ã¢â€šÂ¬ÃƒÂ Ã‚Â¸Ã‚Â§ÃƒÂ Ã‚Â¸Ã‚Â¥ÃƒÂ Ã‚Â¸Ã‚Â²: {now_str()}",
+                    f"Checked at: {now_str()}",
                     username="JobBoard Cron Import Bot",
                 )
         except Exception:
