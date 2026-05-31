@@ -25,7 +25,7 @@ services:
       - key: JOBBOARD_API_BASE_URL
         value: https://jobboard-ai-app.onrender.com
       - key: JOBBOARD_SEO_SITE_NAME
-        value: JobBoard AI
+        value: JobBoard
       - key: JOBBOARD_SEO_CITY
         value: Bangkok
       - key: JOBBOARD_SEO_REGION
@@ -33,4 +33,4 @@ services:
       - key: JOBBOARD_SEO_COUNTRY
         value: TH
       - key: JOBBOARD_SEO_KEYWORDS
-        value: local jobs, job search, urgent jobs, government jobs, apply jobs, AI job board, job scam detection, Thailand jobs
+        value: local jobs, job search, urgent jobs, government jobs, apply jobs, trusted jobs, job scam detection, Thailand jobs
