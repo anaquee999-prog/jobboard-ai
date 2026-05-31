@@ -3,6 +3,7 @@ services:
     name: jobboard-ai-app
     runtime: python
     plan: free
+    healthCheckPath: /healthz
     buildCommand: pip install -r requirements.txt && cd dashboard_frontend && npm ci && npm run build
     startCommand: gunicorn app:app
     envVars:

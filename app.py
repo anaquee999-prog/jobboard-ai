@@ -2077,6 +2077,34 @@ def cron_import_status():
     })
 
 
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    try:
+        conn = get_db()
+        conn.execute("SELECT 1").fetchone()
+        return jsonify(
+            {
+                "ok": True,
+                "status": "healthy",
+                "db": True,
+                "site_url": bool(SITE_URL),
+                "api_base_url": bool(JOBBOARD_API_BASE_URL),
+            }
+        )
+    except Exception as exc:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "status": "unhealthy",
+                    "db": False,
+                    "error": str(exc)[:300],
+                }
+            ),
+            500,
+        )
+
+
 
 @app.cli.command("init-db")
 def init_db_command():
